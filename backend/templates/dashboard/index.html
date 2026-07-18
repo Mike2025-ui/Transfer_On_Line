@@ -1,0 +1,216 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container-fluid px-4">
+    <div class="d-flex justify-content-between align-items-center pt-3 pb-2 mb-3 border-bottom">
+        <h1 class="h2">Tableau de bord</h1>
+        <span class="badge bg-primary rounded-pill px-3 py-2">Aujourd'hui</span>
+    </div>
+
+    <div class="row g-4 mb-4">
+        <div class="col-md-4 col-sm-6">
+            <div class="card h-100 border-0 shadow-sm">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <h6 class="text-muted fw-normal">Transactions aujourd'hui</h6>
+                            <h2 class="mb-0">{{ transactions_today }}</h2>
+                            <small class="text-success"><i class="fas fa-arrow-up"></i> {{ pct_vs_yesterday|floatformat:1 }}% vs hier</small>
+                        </div>
+                        <div class="bg-light rounded-circle p-2"><i class="fas fa-exchange-alt text-primary fa-lg"></i></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4 col-sm-6">
+            <div class="card h-100 border-0 shadow-sm">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <h6 class="text-muted fw-normal">Montant total encaissé</h6>
+                            <h2 class="mb-0">{{ amount_today|floatformat:0 }} F</h2>
+                            <small class="text-success"><i class="fas fa-arrow-up"></i> {{ amount_pct|floatformat:1 }}% vs hier</small>
+                        </div>
+                        <div class="bg-light rounded-circle p-2"><i class="fas fa-wallet text-success fa-lg"></i></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4 col-sm-6">
+            <div class="card h-100 border-0 shadow-sm">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <h6 class="text-muted fw-normal">Commission générée (1%)</h6>
+                            <h2 class="mb-0">{{ commission_today|floatformat:0 }} F</h2>
+                            <small class="text-success"><i class="fas fa-arrow-up"></i> {{ amount_pct|floatformat:1 }}% vs hier</small>
+                        </div>
+                        <div class="bg-light rounded-circle p-2"><i class="fas fa-percent text-warning fa-lg"></i></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4 col-sm-6">
+            <div class="card h-100 border-0 shadow-sm">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <h6 class="text-muted fw-normal">Transactions réussies</h6>
+                            <h2 class="mb-0">{{ success_count }}</h2>
+                            <small class="text-muted">{{ success_percent|floatformat:2 }}% du total</small>
+                        </div>
+                        <div class="bg-light rounded-circle p-2"><i class="fas fa-check-circle text-success fa-lg"></i></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4 col-sm-6">
+            <div class="card h-100 border-0 shadow-sm">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <h6 class="text-muted fw-normal">Transactions échouées</h6>
+                            <h2 class="mb-0">{{ failed_count }}</h2>
+                            <small class="text-muted">{{ failed_percent|floatformat:2 }}% du total</small>
+                        </div>
+                        <div class="bg-light rounded-circle p-2"><i class="fas fa-times-circle text-danger fa-lg"></i></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4 col-sm-6">
+            <div class="card h-100 border-0 shadow-sm">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <h6 class="text-muted fw-normal">En attente</h6>
+                            <h2 class="mb-0">{{ pending_count }}</h2>
+                            <small class="text-muted">{{ pending_percent|floatformat:2 }}% du total</small>
+                        </div>
+                        <div class="bg-light rounded-circle p-2"><i class="fas fa-clock text-warning fa-lg"></i></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-4 mb-4">
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-header bg-transparent border-0 d-flex justify-content-between align-items-center">
+                    <h5 class="card-title mb-0">Statut des gateways</h5>
+                    <a href="{% url 'gateways' %}" class="btn btn-sm btn-outline-primary">Voir toutes</a>
+                </div>
+                <div class="card-body">
+                    <canvas id="gatewayChart" style="max-height: 200px;"></canvas>
+                    <div class="mt-3">
+                        {% for service in services_distribution %}
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <span>{{ service.name }}</span>
+                            <span>{{ service.count }} ({{ service.count|floatformat:0 }}%)</span>
+                        </div>
+                        {% empty %}
+                        <p class="text-muted">Aucune donnée</p>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-8">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-header bg-transparent border-0">
+                    <h5 class="card-title mb-0">Activité en temps réel</h5>
+                </div>
+                <div class="card-body" style="max-height: 300px; overflow-y: auto;">
+                    <ul class="list-group list-group-flush">
+                        {% for activity in real_time_activities %}
+                        <li class="list-group-item d-flex justify-content-between align-items-start border-0 px-0">
+                            <div><i class="fas fa-circle text-success me-2" style="font-size: 0.5rem;"></i> {{ activity.message }}</div>
+                            <span class="text-muted small">{{ activity.time }}</span>
+                        </li>
+                        {% empty %}
+                        <li class="list-group-item text-muted">Aucune activité</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card border-0 shadow-sm mb-4">
+        <div class="card-header bg-transparent border-0 d-flex justify-content-between align-items-center">
+            <h5 class="card-title mb-0">Dernières transactions</h5>
+            <a href="{% url 'transactions' %}" class="btn btn-sm btn-outline-primary">Voir tout</a>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Référence</th>
+                            <th>Date / Heure</th>
+                            <th>Client</th>
+                            <th>Opérateur</th>
+                            <th>Service</th>
+                            <th>Montant</th>
+                            <th>Statut</th>
+                            <th>Gateway</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for tx in recent_transactions %}
+                        <tr>
+                            <td><span class="fw-bold">TOL-{{ tx.reference|truncatechars:8 }}</span></td>
+                            <td>{{ tx.created_at|date:"d/m/Y H:i:s" }}</td>
+                            <td>{{ tx.phone_number }}</td>
+                            <td>{{ tx.operator.name }}</td>
+                            <td>{{ tx.service.name }}</td>
+                            <td>{{ tx.amount|floatformat:0 }} F</td>
+                            <td>
+                                {% if tx.status == 'success' %}
+                                <span class="badge bg-success">SUCCESS</span>
+                                {% elif tx.status == 'failed' %}
+                                <span class="badge bg-danger">FAILED</span>
+                                {% else %}
+                                <span class="badge bg-warning text-dark">PENDING</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ tx.gateway.name|default:"-" }}</td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="8" class="text-center text-muted">Aucune transaction récente</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    const ctx = document.getElementById('gatewayChart').getContext('2d');
+    const services = [
+        {% for service in services_distribution %}
+        { label: "{{ service.name }}", value: {{ service.count|default:0 }} },
+        {% endfor %}
+    ];
+    new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: services.map(s => s.label),
+            datasets: [{
+                data: services.map(s => s.value),
+                backgroundColor: ['#0d6efd', '#198754', '#ffc107', '#dc3545', '#6f42c1'],
+                borderWidth: 0
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: { legend: { position: 'bottom' } },
+            cutout: '60%'
+        }
+    });
+</script>
+{% endblock %}

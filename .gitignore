@@ -1,0 +1,42 @@
+# Python / Django
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.sqlite3
+*.log
+.env
+.venv/
+venv/
+backend/.venv/
+backend/db.sqlite3
+
+# Flutter / Dart
+**/.dart_tool/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/.packages
+**/build/
+**/coverage/
+**/android/.gradle/
+**/android/app/debug/
+**/android/app/profile/
+**/android/app/release/
+**/ios/Pods/
+**/macos/Pods/
+**/windows/Flutter/
+**/linux/flutter/
+**/flutter/ephemeral/
+*.g.dart
+*.freezed.dart
+
+# Generated files
+.gradle/
+local.properties
+generated_plugin_registrant.dart
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
