@@ -44,7 +44,7 @@ def dashboard_index(request):
             msg = f"Transaction en attente - {tx.service.name} - {tx.amount} FCFA ({tx.phone_number})"
         real_time_activities.append({'message': msg, 'time': tx.created_at.strftime('%H:%M:%S')})
     if len(real_time_activities) < 3:
-        real_time_activities.append({'message': 'Paiement reçu - Orange Money - 1 000 FCFA', 'time': timezone.now().strftime('%H:%M:%S')})
+        real_time_activities.append({'message': 'Paiement reçu - CinetPay - 1 000 FCFA', 'time': timezone.now().strftime('%H:%M:%S')})
         if Gateway.objects.exists():
             gw = Gateway.objects.first()
             real_time_activities.append({'message': f'Gateway {gw.name} est maintenant Online', 'time': timezone.now().strftime('%H:%M:%S')})

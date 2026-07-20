@@ -37,15 +37,24 @@ class Gateway(models.Model):
 
 class Payment(models.Model):
     METHOD_CHOICES = [
-        ('orange_money', 'Orange Money'),
-        ('mtn_momo', 'MTN MoMo'),
-        ('wave', 'Wave'),
+        ('cinetpay', 'CinetPay'),
+    ]
+    STATUS_CHOICES = [
+        ('pending', 'En attente'),
+        ('accepted', 'Accepté'),
+        ('refused', 'Refusé'),
+        ('cancelled', 'Annulé'),
+        ('failed', 'Échoué'),
     ]
     method = models.CharField(max_length=20, choices=METHOD_CHOICES)
     reference = models.CharField(max_length=100, unique=True)
+    provider_transaction_id = models.CharField(max_length=100, blank=True, null=True)
     amount = models.DecimalField(max_digits=10, decimal_places=2)
-    status = models.CharField(max_length=20, default='pending')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    checkout_url = models.URLField(blank=True, null=True)
+    provider_payload = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return f"{self.method} - {self.reference}"

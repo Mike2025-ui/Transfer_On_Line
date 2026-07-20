@@ -9,4 +9,5 @@ urlpatterns = [
     path('transactions/execute/', views.ExecuteTransactionView.as_view(), name='api_transaction_execute'),
     path('transactions/pending/', views.PendingTransactionsView.as_view(), name='api_transaction_pending'),
     path('transactions/result/', views.TransactionResultView.as_view(), name='api_transaction_result'),
+    path('payments/cinetpay/notify/', views.CinetPayNotifyView.as_view(), name='api_cinetpay_notify'),
 ]

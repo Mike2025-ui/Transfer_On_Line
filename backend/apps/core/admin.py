@@ -19,7 +19,9 @@ class GatewayAdmin(admin.ModelAdmin):
 
 @admin.register(Payment)
 class PaymentAdmin(admin.ModelAdmin):
-    list_display = ('method', 'reference', 'amount', 'status', 'created_at')
+    list_display = ('method', 'reference', 'provider_transaction_id', 'amount', 'status', 'created_at')
+    list_filter = ('method', 'status')
+    search_fields = ('reference', 'provider_transaction_id')
 
 @admin.register(Transaction)
 class TransactionAdmin(admin.ModelAdmin):

@@ -1,4 +1,5 @@
-﻿from decimal import Decimal
+from decimal import Decimal
+from uuid import uuid4
 
 from django.db import transaction as db_transaction
 from django.utils import timezone
@@ -7,6 +8,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.core.models import Device, Gateway, Operator, Payment, Service, Transaction
+from .cinetpay import CinetPayClient, CinetPayError, cinetpay_status_to_local
 
 
 def _money(value, default='0'):
@@ -45,6 +47,8 @@ def _transaction_payload(tx, ussd_code=None):
         'status': tx.status,
         'payment_method': tx.payment_method,
         'payment_reference': tx.payment_reference,
+        'payment_status': tx.payment.status if tx.payment else None,
+        'checkout_url': tx.payment.checkout_url if tx.payment else None,
         'ussd_code': ussd_code or _build_ussd_code(tx),
         'created_at': tx.created_at.isoformat() if tx.created_at else None,
         'updated_at': tx.updated_at.isoformat() if tx.updated_at else None,
@@ -58,6 +62,13 @@ def _build_ussd_code(tx):
     if 'transfer' in service_code or 'transfert' in service_code:
         return f'*123*{phone}*{amount}#'
     return f'*456*{amount}#'
+
+
+def _select_gateway():
+    gateway = Gateway.objects.filter(is_active=True, status='online').order_by('-last_heartbeat').first()
+    if gateway is None:
+        gateway = Gateway.objects.filter(is_active=True).order_by('id').first()
+    return gateway
 
 
 class GatewayListView(APIView):
@@ -108,8 +119,7 @@ class ExecuteTransactionView(APIView):
         operation = request.data.get('operation') or request.data.get('transaction_type') or 'subscription'
         phone = request.data.get('phone') or request.data.get('recipient_phone')
         amount = _money(request.data.get('amount'))
-        payment_method = request.data.get('payment_method') or request.data.get('paymentMethod')
-        payment_reference = request.data.get('payment_reference') or request.data.get('reference')
+        customer = request.data.get('customer') or {}
 
         if not phone or amount <= 0:
             return Response({'error': 'phone/recipient_phone and amount are required'}, status=400)
@@ -126,19 +136,14 @@ class ExecuteTransactionView(APIView):
             name=service_name,
             defaults={'code': operation},
         )
-        gateway = Gateway.objects.filter(is_active=True, status='online').order_by('-last_heartbeat').first()
-        if gateway is None:
-            gateway = Gateway.objects.filter(is_active=True).order_by('id').first()
-
-        payment = None
-        if payment_method:
-            payment = Payment.objects.create(
-                method=_payment_code(payment_method),
-                reference=payment_reference or f'PAY-{timezone.now().timestamp()}',
-                amount=amount,
-                status='success',
-            )
-
+        gateway = _select_gateway()
+        payment_reference = f'TOL-{timezone.now().strftime("%Y%m%d%H%M%S")}-{uuid4().hex[:8].upper()}'
+        payment = Payment.objects.create(
+            method='cinetpay',
+            reference=payment_reference,
+            amount=amount,
+            status='pending',
+        )
         tx = Transaction.objects.create(
             device=device,
             service=service,
@@ -146,11 +151,37 @@ class ExecuteTransactionView(APIView):
             gateway=gateway,
             phone_number=phone,
             amount=amount,
-            status='pending' if gateway else 'failed',
+            status='pending',
             payment=payment,
-            payment_method=_payment_code(payment_method) if payment_method else None,
-            payment_reference=payment_reference,
+            payment_method='cinetpay',
+            payment_reference=payment.reference,
         )
+
+        try:
+            init_data = CinetPayClient().initialize_payment(
+                transaction_id=payment.reference,
+                amount=amount,
+                description=f'{service.name} - {operation}',
+                customer={
+                    'name': customer.get('name') or request.data.get('customer_name') or 'Client',
+                    'surname': customer.get('surname') or request.data.get('customer_surname') or 'Transfer On Line',
+                    'phone': customer.get('phone') or phone,
+                    'email': customer.get('email') or request.data.get('customer_email') or 'client@example.com',
+                },
+            )
+        except CinetPayError as exc:
+            payment.status = 'failed'
+            payment.provider_payload = {'error': str(exc)}
+            payment.save(update_fields=['status', 'provider_payload', 'updated_at'])
+            tx.status = 'failed'
+            tx.save(update_fields=['status', 'updated_at'])
+            return Response({'error': str(exc), **_transaction_payload(tx)}, status=502)
+
+        data = init_data.get('data') or {}
+        payment.provider_transaction_id = str(data.get('payment_token') or '')
+        payment.checkout_url = data.get('payment_url') or data.get('url')
+        payment.provider_payload = init_data
+        payment.save(update_fields=['provider_transaction_id', 'checkout_url', 'provider_payload', 'updated_at'])
         return Response(_transaction_payload(tx), status=201)
 
 
@@ -159,7 +190,10 @@ class PendingTransactionsView(APIView):
 
     def get(self, request):
         gateway_uuid = request.query_params.get('gateway_uuid')
-        queryset = Transaction.objects.select_related('service', 'operator', 'gateway').filter(status='pending')
+        queryset = Transaction.objects.select_related('service', 'operator', 'gateway', 'payment').filter(
+            status='pending',
+            payment__status='accepted',
+        )
         if gateway_uuid:
             queryset = queryset.filter(gateway__host=gateway_uuid)
         return Response([_transaction_payload(tx) for tx in queryset.order_by('created_at')[:10]])
@@ -184,10 +218,39 @@ class TransactionResultView(APIView):
         return Response(_transaction_payload(tx))
 
 
-def _payment_code(label):
-    normalized = (label or '').lower().replace(' ', '_').replace('-', '_')
-    if 'mtn' in normalized:
-        return 'mtn_momo'
-    if 'wave' in normalized:
-        return 'wave'
-    return 'orange_money'
+class CinetPayNotifyView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        transaction_id = (
+            request.data.get('cpm_trans_id')
+            or request.data.get('transaction_id')
+            or request.data.get('payment_reference')
+        )
+        if not transaction_id:
+            return Response({'error': 'transaction_id required'}, status=400)
+
+        payment = Payment.objects.filter(reference=transaction_id).first()
+        if payment is None:
+            return Response({'error': 'Payment not found'}, status=404)
+
+        try:
+            check_data = CinetPayClient().check_payment(payment.reference)
+        except CinetPayError as exc:
+            return Response({'error': str(exc)}, status=502)
+
+        checked = check_data.get('data') or check_data
+        payment.status = cinetpay_status_to_local(checked.get('status') or checked.get('payment_status'))
+        payment.provider_payload = {'notification': request.data, 'check': check_data}
+        payment.save(update_fields=['status', 'provider_payload', 'updated_at'])
+
+        tx = payment.transactions.select_related('service', 'operator', 'gateway').first()
+        if tx:
+            tx.status = 'pending' if payment.status == 'accepted' and tx.gateway else 'failed'
+            tx.save(update_fields=['status', 'updated_at'])
+
+        return Response({
+            'payment_reference': payment.reference,
+            'payment_status': payment.status,
+            'transaction': _transaction_payload(tx) if tx else None,
+        })
