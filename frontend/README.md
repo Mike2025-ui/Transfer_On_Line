@@ -73,7 +73,7 @@ lib/
 - **Types de service** : Appels, Internet, SMS
 - **Types d'opération** : Souscription pour moi/tiers, Transfert pour moi/tiers
 - **Montants rapides** : 500, 1000, 2000, 5000, 10000 FCFA + montant personnalisé
-- **Moyens de paiement** : Wave, Orange Money, MTN Money, Moov Money
+- **Paiement** : CinetPay uniquement
 - **Historique** : Filtres, stats, détail transaction
 - **Notifications** : Badge compteur, marquer lu, détail
 - **Profil** : Stats utilisateur, menus paramètres

@@ -495,7 +495,7 @@ class NotifDetailScreen extends StatelessWidget {
                   _infoRow(
                       Icons.account_balance_wallet_outlined,
                       'Moyen de paiement',
-                      _value(notification.paymentMethod, 'Orange Money'),
+                      _value(notification.paymentMethod, 'CinetPay'),
                       AppColors.orange),
                   _infoRow(
                       Icons.event_available_outlined,

@@ -112,7 +112,7 @@ List<Transaction> sampleTransactions = [
       operation: 'Souscription pour moi',
       phone: '0701234567',
       amount: 1000,
-      paymentMethod: 'Orange Money',
+      paymentMethod: 'CinetPay',
       date: DateTime.now().subtract(const Duration(hours: 2)),
       status: 'ok'),
   Transaction(
@@ -122,7 +122,7 @@ List<Transaction> sampleTransactions = [
       operation: 'Souscription pour moi',
       phone: '0701234567',
       amount: 2000,
-      paymentMethod: 'MTN Money',
+      paymentMethod: 'CinetPay',
       date: DateTime.now().subtract(const Duration(days: 1)),
       status: 'ok'),
   Transaction(
@@ -132,7 +132,7 @@ List<Transaction> sampleTransactions = [
       operation: 'Transfert pour moi',
       phone: '0705678901',
       amount: 500,
-      paymentMethod: 'Wave',
+      paymentMethod: 'CinetPay',
       date: DateTime.now().subtract(const Duration(days: 2)),
       status: 'ok'),
   Transaction(
@@ -142,7 +142,7 @@ List<Transaction> sampleTransactions = [
       operation: 'Souscription pour moi',
       phone: '0701234567',
       amount: 5000,
-      paymentMethod: 'Moov Money',
+      paymentMethod: 'CinetPay',
       date: DateTime.now().subtract(const Duration(days: 3)),
       status: 'fail'),
   Transaction(
@@ -152,7 +152,7 @@ List<Transaction> sampleTransactions = [
       operation: 'Transfert pour un tiers',
       phone: '0709876543',
       amount: 1000,
-      paymentMethod: 'Orange Money',
+      paymentMethod: 'CinetPay',
       date: DateTime.now().subtract(const Duration(days: 4)),
       status: 'ok'),
   Transaction(
@@ -162,7 +162,7 @@ List<Transaction> sampleTransactions = [
       operation: 'Souscription pour un tiers',
       phone: '0701234567',
       amount: 2000,
-      paymentMethod: 'Wave',
+      paymentMethod: 'CinetPay',
       date: DateTime.now().subtract(const Duration(days: 5)),
       status: 'ok'),
 ];

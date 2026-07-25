@@ -1,0 +1,31 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    command: gunicorn transfer_on_line.wsgi:application --bind 0.0.0.0:8000 --workers 3
+    env_file:
+      - ./backend/.env
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+      - redis
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: transfer_on_line
+      POSTGRES_USER: transfer
+      POSTGRES_PASSWORD: transfer
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+
+volumes:
+  postgres_data:
+  redis_data:

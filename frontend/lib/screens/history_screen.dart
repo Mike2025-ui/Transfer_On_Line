@@ -616,7 +616,7 @@ class NotifDetailScreen extends StatelessWidget {
                       AppColors.primary),
                   _row('📞', 'Numéro', '0701234567', null),
                   _row('💲', 'Montant', '1000 FCFA', null),
-                  _row('💳', 'Moyen de paiement', 'Orange Money',
+                  _row('💳', 'Moyen de paiement', 'CinetPay',
                       AppColors.orange),
                   _row('📅', 'Date', n.time, null),
                   _row('🛡️', 'Statut', isOk ? 'Réussie' : 'Échouée',

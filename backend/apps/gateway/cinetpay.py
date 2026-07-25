@@ -23,6 +23,8 @@ class CinetPayClient:
 
     def _ensure_configured(self):
         if not self.api_key or not self.site_id:
+            if getattr(settings, 'CINETPAY_ALLOW_MOCK', False):
+                return
             raise CinetPayError('CinetPay is not configured')
 
     def initialize_payment(self, *, transaction_id, amount, description, customer):
@@ -44,6 +46,15 @@ class CinetPayClient:
             'customer_phone_number': customer.get('phone', ''),
             'customer_email': customer.get('email', 'client@example.com'),
         }
+        if getattr(settings, 'CINETPAY_ALLOW_MOCK', False):
+            return {
+                'code': '201',
+                'data': {
+                    'payment_token': transaction_id,
+                    'payment_url': f"http://127.0.0.1:3000/payment/mock?transaction_id={transaction_id}",
+                },
+            }
+
         response = requests.post(self.init_url, json=payload, timeout=self.timeout)
         data = self._decode(response)
         if response.status_code >= 400 or str(data.get('code')) != '201':
@@ -53,6 +64,12 @@ class CinetPayClient:
 
     def check_payment(self, transaction_id):
         self._ensure_configured()
+        if getattr(settings, 'CINETPAY_ALLOW_MOCK', False):
+            return {
+                'code': '200',
+                'data': {'status': 'ACCEPTED', 'transaction_id': transaction_id},
+            }
+
         response = requests.post(
             self.check_url,
             json={

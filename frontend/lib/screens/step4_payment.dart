@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_theme.dart';
 import '../models/models.dart';
 import '../services/backend_api_service.dart';
@@ -32,23 +33,28 @@ class Step4PaymentScreen extends StatefulWidget {
 
 class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
   final BackendApiService _api = BackendApiService();
-  String _paymentMethod = 'Orange Money';
   bool _loading = false;
 
   int get _fee => (widget.amount * 0.01).round();
   int get _total => widget.amount + _fee;
 
-  final payMethods = const [
-    {'name': 'Wave', 'image': 'assets/images/wave.jpg'},
-    {'name': 'Orange Money', 'image': 'assets/images/Orange-Money-logo.png'},
-    {'name': 'MTN Money', 'image': 'assets/images/mtn_money.jpg'},
-    {'name': 'Moov Money', 'image': 'assets/images/moov_money_ci.png'},
-  ];
-
   String _operatorLogo(String operator) {
     if (operator == 'MTN') return 'assets/images/mtn.jpg';
     if (operator == 'Moov') return 'assets/images/moov.jpeg';
     return 'assets/images/Orange_logo.png';
+  }
+
+  String _formatTime(DateTime date) {
+    final h = date.hour.toString().padLeft(2, '0');
+    final m = date.minute.toString().padLeft(2, '0');
+    return '$h:$m';
+  }
+
+  String _formatDate(DateTime date) {
+    final d = date.day.toString().padLeft(2, '0');
+    final m = date.month.toString().padLeft(2, '0');
+    final y = date.year.toString();
+    return '$d/$m/$y';
   }
 
   @override
@@ -198,24 +204,7 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
                     ),
                   ),
                   const SizedBox(height: 22),
-                  Text(
-                    'Choisir le moyen de paiement',
-                    style: GoogleFonts.nunito(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w900,
-                      color: AppColors.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  GridView.count(
-                    crossAxisCount: 2,
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    crossAxisSpacing: 10,
-                    mainAxisSpacing: 10,
-                    childAspectRatio: 3.2,
-                    children: payMethods.map(_paymentTile).toList(),
-                  ),
+                  _cinetPayPanel(),
                   const SizedBox(height: 16),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -235,7 +224,7 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
                   ),
                   const SizedBox(height: 18),
                   TolButton(
-                    label: isTransfer ? 'TRANSFÉRER' : 'SOUSCRIRE',
+                    label: isTransfer ? 'PAYER ET TRANSFÉRER' : 'PAYER ET SOUSCRIRE',
                     loading: _loading,
                     onTap: _confirm,
                   ),
@@ -282,19 +271,12 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
     );
   }
 
-  Widget _paymentTile(Map<String, String> method) {
-    final selected = _paymentMethod == method['name'];
-    return GestureDetector(
-      onTap: () => setState(() => _paymentMethod = method['name']!),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14),
+  Widget _cinetPayPanel() => Container(
+        padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: selected ? AppColors.success : const Color(0xFFE7EAF2),
-            width: selected ? 1.8 : 1,
-          ),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: const Color(0xFFE7EAF2)),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withValues(alpha: 0.04),
@@ -305,66 +287,72 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
         ),
         child: Row(
           children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: Image.asset(
-                method['image']!,
-                width: 42,
-                height: 42,
-                fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) =>
-                    const Icon(Icons.payments_rounded, size: 34),
-              ),
-            ),
-            const SizedBox(width: 14),
+            const Icon(Icons.verified_user_rounded, color: AppColors.success, size: 34),
+            const SizedBox(width: 12),
             Expanded(
-              child: Text(
-                method['name']!,
-                maxLines: 2,
-                style: GoogleFonts.nunito(
-                  fontSize: 16,
-                  height: 1.05,
-                  fontWeight: FontWeight.w900,
-                  color: AppColors.textPrimary,
-                ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Paiement CinetPay',
+                    style: GoogleFonts.nunito(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w900,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                  Text(
+                    'Mobile Money, carte et canaux activés sur votre compte marchand.',
+                    style: GoogleFonts.nunito(fontSize: 14, color: AppColors.textSecondary),
+                  ),
+                ],
               ),
             ),
           ],
         ),
-      ),
-    );
-  }
+      );
 
   Future<void> _confirm() async {
     setState(() => _loading = true);
-    await Future.delayed(const Duration(milliseconds: 700));
-    final result = await _confirmServer();
-    final now = DateTime.now();
-    final fallbackId =
-        'TRX-2025-${(now.millisecondsSinceEpoch % 1000000).toString().padLeft(6, '0')}';
-    final txId = result.reference.isEmpty ? fallbackId : result.reference;
-    final status = result.isSuccess ? 'ok' : 'fail';
-    final transaction = Transaction(
-      id: txId,
-      operator: widget.operator,
-      service: widget.service,
-      operation: widget.operation,
-      phone: widget.phone,
-      amount: widget.amount,
-      paymentMethod: _paymentMethod,
-      date: now,
-      status: status,
-    );
-    final notification = _buildNotification(transaction);
-    widget.onTransactionAdded(transaction);
-    widget.onNotificationAdded(notification);
-    if (!mounted) return;
-    setState(() => _loading = false);
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-          builder: (_) => SuccessScreen(transaction: transaction)),
-    );
+    try {
+      final result = await _confirmServer();
+      if (result.checkoutUrl.isEmpty) {
+        throw Exception('URL de paiement CinetPay indisponible');
+      }
+      final launched = await launchUrl(
+        Uri.parse(result.checkoutUrl),
+        mode: LaunchMode.externalApplication,
+      );
+      if (!launched) {
+        throw Exception('Impossible d’ouvrir CinetPay');
+      }
+      final now = DateTime.now();
+      final transaction = Transaction(
+        id: result.reference,
+        operator: widget.operator,
+        service: widget.service,
+        operation: widget.operation,
+        phone: widget.phone,
+        amount: widget.amount,
+        paymentMethod: 'CinetPay',
+        date: now,
+        status: 'pending',
+      );
+      widget.onTransactionAdded(transaction);
+      widget.onNotificationAdded(_buildNotification(transaction));
+      if (!mounted) return;
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => SuccessScreen(transaction: transaction)),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.toString().replaceFirst('Exception: ', ''))),
+      );
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   Future<BackendTransactionResult> _confirmServer() async {
@@ -375,30 +363,28 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
         operation: widget.operation,
         phone: widget.phone,
         amount: widget.amount,
-        paymentMethod: _paymentMethod,
       );
     } catch (_) {
-      final now = DateTime.now();
-      final fallbackReference =
-          'TRX-2025-${(now.millisecondsSinceEpoch % 1000000).toString().padLeft(6, '0')}';
-      return BackendTransactionResult(
-          reference: fallbackReference, status: 'success');
+      rethrow;
     }
   }
 
   AppNotification _buildNotification(Transaction transaction) {
     final success = transaction.status == 'ok';
+    final pending = transaction.status == 'pending';
     final now = DateTime.now();
     return AppNotification(
       title: success
           ? '${transaction.operation} ${transaction.service} réussie'
-          : '${transaction.operation} ${transaction.service} échouée',
+          : pending
+              ? 'Paiement CinetPay en attente'
+              : '${transaction.operation} ${transaction.service} échouée',
       message:
           'Numéro : ${transaction.phone}\nMontant : ${transaction.amount} FCFA\nFrais : ${transaction.fee} FCFA\nTotal débité : ${transaction.total} FCFA\nMoyen de paiement : ${transaction.paymentMethod}',
       time: 'Aujourd\'hui · ${_formatTime(now)}',
       read: false,
-      icon: success ? '✅' : '❌',
-      type: success ? 'success' : 'error',
+      icon: success ? 'success' : pending ? 'info' : 'error',
+      type: success ? 'success' : pending ? 'info' : 'error',
       reference: transaction.id,
       operator: transaction.operator,
       service: transaction.service,
@@ -413,18 +399,6 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
     );
   }
 
-  String _formatTime(DateTime date) {
-    final h = date.hour.toString().padLeft(2, '0');
-    final m = date.minute.toString().padLeft(2, '0');
-    return '$h:$m';
-  }
-
-  String _formatDate(DateTime date) {
-    final d = date.day.toString().padLeft(2, '0');
-    final m = date.month.toString().padLeft(2, '0');
-    final y = date.year.toString();
-    return '$d/$m/$y';
-  }
 }
 
 class SuccessScreen extends StatelessWidget {
@@ -441,10 +415,24 @@ class SuccessScreen extends StatelessWidget {
     return 'assets/images/Orange_logo.png';
   }
 
+  String _formatTime(DateTime date) {
+    final h = date.hour.toString().padLeft(2, '0');
+    final m = date.minute.toString().padLeft(2, '0');
+    return '$h:$m';
+  }
+
+  String _formatDate(DateTime date) {
+    final d = date.day.toString().padLeft(2, '0');
+    final m = date.month.toString().padLeft(2, '0');
+    final y = date.year.toString();
+    return '$d/$m/$y';
+  }
+
   @override
   Widget build(BuildContext context) {
     final t = transaction;
     final isSuccess = t.status == 'ok';
+    final isPending = t.status == 'pending';
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
@@ -454,8 +442,8 @@ class SuccessScreen extends StatelessWidget {
         centerTitle: true,
         leading: IconButton(
           icon: Icon(
-            isSuccess ? Icons.arrow_back_rounded : Icons.close_rounded,
-            color: isSuccess ? AppColors.success : AppColors.red,
+            isSuccess || isPending ? Icons.arrow_back_rounded : Icons.close_rounded,
+            color: isSuccess || isPending ? AppColors.success : AppColors.red,
             size: 30,
           ),
           onPressed: () => Navigator.pop(context),
@@ -477,10 +465,10 @@ class SuccessScreen extends StatelessWidget {
               width: double.infinity,
               padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 12),
               decoration: BoxDecoration(
-                color: isSuccess ? AppColors.primaryLight : AppColors.redLight,
+                color: isSuccess || isPending ? AppColors.primaryLight : AppColors.redLight,
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(
-                    color: isSuccess
+                    color: isSuccess || isPending
                         ? const Color(0xFFC5E7CE)
                         : const Color(0xFFF5C2C2)),
               ),
@@ -490,29 +478,31 @@ class SuccessScreen extends StatelessWidget {
                     width: 64,
                     height: 64,
                     decoration: BoxDecoration(
-                      color: isSuccess ? AppColors.success : AppColors.red,
+                      color: isSuccess || isPending ? AppColors.success : AppColors.red,
                       shape: BoxShape.circle,
                     ),
                     child: Icon(
-                      isSuccess ? Icons.check_rounded : Icons.close_rounded,
+                      isSuccess ? Icons.check_rounded : isPending ? Icons.hourglass_top_rounded : Icons.close_rounded,
                       color: Colors.white,
                       size: 42,
                     ),
                   ),
                   const SizedBox(height: 14),
                   Text(
-                    isSuccess ? 'Transaction réussie' : 'Transaction échouée',
+                    isSuccess ? 'Transaction réussie' : isPending ? 'Paiement en attente' : 'Transaction échouée',
                     style: GoogleFonts.nunito(
                       fontSize: 22,
                       fontWeight: FontWeight.w900,
-                      color: isSuccess ? AppColors.success : AppColors.red,
+                      color: isSuccess || isPending ? AppColors.success : AppColors.red,
                     ),
                   ),
                   const SizedBox(height: 5),
                   Text(
                     isSuccess
                         ? 'Votre opération a été effectuée avec succès'
-                        : 'Une erreur est survenue lors du paiement. Vérifiez votre solde ou réessayez.',
+                        : isPending
+                            ? 'Finalisez le paiement CinetPay. La Gateway Android exécutera ensuite l’opération.'
+                            : 'Une erreur est survenue lors du paiement. Vérifiez votre solde ou réessayez.',
                     style: GoogleFonts.nunito(
                       fontSize: 16,
                       fontWeight: FontWeight.w600,
@@ -586,19 +576,19 @@ class SuccessScreen extends StatelessWidget {
                       const Icon(Icons.event_available_outlined,
                           color: AppColors.success, size: 30),
                       'Date',
-                      '24/07/2025',
+                      _formatDate(t.date),
                       AppColors.textPrimary),
                   _detailRow(
                       const Icon(Icons.access_time_rounded,
                           color: AppColors.success, size: 30),
                       'Heure',
-                      '10:45',
+                      _formatTime(t.date),
                       AppColors.textPrimary),
                   _detailRow(
                       const Icon(Icons.verified_user_outlined,
                           color: AppColors.success, size: 30),
                       'Statut',
-                      'Réussie',
+                      isSuccess ? 'Réussie' : isPending ? 'En attente' : 'Échouée',
                       AppColors.success,
                       last: true),
                 ],
@@ -631,7 +621,9 @@ class SuccessScreen extends StatelessWidget {
                                 fontWeight: FontWeight.w900,
                                 color: AppColors.textPrimary)),
                         Text(
-                          'Votre forfait ${t.service} a été activé avec succès.\n\nMontant du forfait : ${t.amount} FCFA\nFrais de service : ${t.fee} FCFA\nTotal débité : ${t.total} FCFA',
+                          isPending
+                              ? 'Votre paiement CinetPay est ouvert. Après confirmation, la Gateway Android traitera automatiquement l’opération.\n\nMontant du forfait : ${t.amount} FCFA\nFrais de service : ${t.fee} FCFA\nTotal à payer : ${t.total} FCFA'
+                              : 'Votre forfait ${t.service} a été activé avec succès.\n\nMontant du forfait : ${t.amount} FCFA\nFrais de service : ${t.fee} FCFA\nTotal débité : ${t.total} FCFA',
                           style: GoogleFonts.nunito(
                             fontSize: 15,
                             height: 1.25,
