@@ -1,10 +1,16 @@
 import logging
 import re
+import secrets
 
 import requests
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.contrib.auth.hashers import check_password, make_password
+from django.core.mail import send_mail
 from django.utils import timezone
+from datetime import timedelta
+
+from apps.accounts.models import EmailVerificationCode
 
 logger = logging.getLogger(__name__)
 
@@ -156,4 +162,60 @@ def verify_otp(raw_phone_number, submitted_code, verification_id):
 
     user.last_login = timezone.now()
     user.save(update_fields=['last_login'])
+    return user
+
+
+def request_email_code(email):
+    email = email.strip().lower()
+    code = f'{secrets.randbelow(1_000_000):06d}'
+    EmailVerificationCode.objects.filter(email=email).delete()
+    verification = EmailVerificationCode.objects.create(
+        email=email,
+        code_hash=make_password(code),
+        expires_at=timezone.now() + timedelta(minutes=10),
+    )
+    subject = 'Votre code de vérification Transfer On Line'
+    text = f'Votre code est {code}. Il expire dans 10 minutes.'
+    if settings.RESEND_API_KEY:
+        try:
+            response = requests.post(
+                'https://api.resend.com/emails',
+                headers={
+                    'Authorization': f'Bearer {settings.RESEND_API_KEY}',
+                    'Content-Type': 'application/json',
+                },
+                json={
+                    'from': settings.RESEND_FROM_EMAIL,
+                    'to': [email],
+                    'subject': subject,
+                    'text': text,
+                    'html': f'<p>{text}</p>',
+                },
+                timeout=20,
+            )
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as exc:
+            raise OtpError('Impossible d’envoyer le code par email') from exc
+        if response.status_code >= 400:
+            logger.warning('Resend email failed: %s', response.text[:200])
+            raise OtpError('Impossible d’envoyer le code par email')
+    else:
+        send_mail(subject, text, settings.DEFAULT_FROM_EMAIL, [email], fail_silently=False)
+    return verification.pk
+
+
+def verify_email_code(email, submitted_code, verification_id):
+    email = email.strip().lower()
+    verification = EmailVerificationCode.objects.filter(pk=verification_id, email=email).first()
+    if verification is None or verification.expires_at <= timezone.now() or verification.attempts >= 5:
+        raise OtpError('Code invalide ou expiré')
+    verification.attempts += 1
+    verification.save(update_fields=['attempts'])
+    if not check_password(submitted_code, verification.code_hash):
+        raise OtpError('Code invalide ou expiré')
+    User = get_user_model()
+    user, created = User.objects.get_or_create(username=email, defaults={'email': email})
+    if created:
+        user.set_unusable_password()
+        user.save(update_fields=['password'])
+    verification.delete()
     return user

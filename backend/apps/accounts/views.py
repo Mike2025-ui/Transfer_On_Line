@@ -4,7 +4,7 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.accounts.serializers import RequestOtpSerializer, VerifyOtpSerializer
-from apps.accounts.services import OtpError, request_otp, verify_otp
+from apps.accounts.services import OtpError, request_email_code, request_otp, verify_email_code, verify_otp
 from apps.accounts.throttles import PhoneNumberOtpThrottle
 
 
@@ -20,13 +20,17 @@ class RequestOtpView(APIView):
         serializer = RequestOtpSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
-            verification_id = request_otp(serializer.validated_data['phone_number'])
+            verification_id = (
+                request_email_code(serializer.validated_data['email'])
+                if serializer.validated_data['channel'] == 'email'
+                else request_otp(serializer.validated_data['phone_number'])
+            )
         except OtpError as exc:
             return Response({'error': str(exc)}, status=400)
         # Aion Messaging is the sole OTP provider - the code itself is never
         # known to Django, so there is nothing to echo back even in DEBUG
         # (see the removed debug_code field's history in git for context).
-        return Response({'status': 'sent', 'verification_id': verification_id})
+        return Response({'status': 'sent', 'channel': serializer.validated_data['channel'], 'verification_id': verification_id})
 
 
 class VerifyOtpView(APIView):
@@ -36,11 +40,18 @@ class VerifyOtpView(APIView):
         serializer = VerifyOtpSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
-            user = verify_otp(
-                serializer.validated_data['phone_number'],
-                serializer.validated_data['code'],
-                serializer.validated_data['verification_id'],
-            )
+            if serializer.validated_data['channel'] == 'email':
+                user = verify_email_code(
+                    serializer.validated_data['email'],
+                    serializer.validated_data['code'],
+                    serializer.validated_data.get('verification_id'),
+                )
+            else:
+                user = verify_otp(
+                    serializer.validated_data['phone_number'],
+                    serializer.validated_data['code'],
+                    serializer.validated_data['verification_id'],
+                )
         except OtpError as exc:
             return Response({'error': str(exc)}, status=400)
 

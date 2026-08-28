@@ -76,14 +76,34 @@ class AuthService {
     return jsonDecode(response.body) as Map<String, dynamic>;
   }
 
+  Future<int> requestEmailCode(String email) async {
+    final response = await _client.post(
+      Uri.parse('${BackendApiService.baseUrl}/auth/otp/request/'),
+      headers: const {'Content-Type': 'application/json'},
+      body: jsonEncode({'channel': 'email', 'email': email}),
+    );
+    if (response.statusCode != 200) {
+      throw Exception(_extractError(response, 'Envoi du code impossible'));
+    }
+    final json = jsonDecode(response.body) as Map<String, dynamic>;
+    final verificationId = (json['verification_id'] as num?)?.toInt();
+    if (verificationId == null) throw Exception('Réponse du serveur invalide');
+    return verificationId;
+  }
+
   /// [verificationId] is the opaque id returned by [requestOtp] - forwarded
   /// verbatim, never generated or interpreted here (see Aion's
   /// /verify/start + /verify/check contract, apps.accounts.services).
-  Future<AuthSession> verifyOtp(String phoneNumber, String code, int verificationId) async {
+  Future<AuthSession> verifyOtp(
+      String phoneNumber, String code, int verificationId) async {
     final response = await _client.post(
       Uri.parse('${BackendApiService.baseUrl}/auth/otp/verify/'),
       headers: const {'Content-Type': 'application/json'},
-      body: jsonEncode({'phone_number': phoneNumber, 'code': code, 'verification_id': verificationId}),
+      body: jsonEncode({
+        'phone_number': phoneNumber,
+        'code': code,
+        'verification_id': verificationId
+      }),
     );
     if (response.statusCode != 200) {
       throw Exception(_extractError(response, 'Code invalide ou expiré'));
@@ -91,6 +111,31 @@ class AuthService {
     final json = jsonDecode(response.body) as Map<String, dynamic>;
     final session = AuthSession(
       phoneNumber: json['phone_number'] as String? ?? phoneNumber,
+      accessToken: json['access'] as String,
+      refreshToken: json['refresh'] as String,
+    );
+    await _persist(session);
+    return session;
+  }
+
+  Future<AuthSession> verifyEmailCode(
+      String email, String code, int verificationId) async {
+    final response = await _client.post(
+      Uri.parse('${BackendApiService.baseUrl}/auth/otp/verify/'),
+      headers: const {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'channel': 'email',
+        'email': email,
+        'code': code,
+        'verification_id': verificationId,
+      }),
+    );
+    if (response.statusCode != 200) {
+      throw Exception(_extractError(response, 'Code invalide ou expiré'));
+    }
+    final json = jsonDecode(response.body) as Map<String, dynamic>;
+    final session = AuthSession(
+      phoneNumber: json['phone_number'] as String? ?? email,
       accessToken: json['access'] as String,
       refreshToken: json['refresh'] as String,
     );
@@ -111,7 +156,8 @@ class AuthService {
     if (phone == null || access == null || refresh == null) return null;
 
     if (!_isExpired(access)) {
-      return AuthSession(phoneNumber: phone, accessToken: access, refreshToken: refresh);
+      return AuthSession(
+          phoneNumber: phone, accessToken: access, refreshToken: refresh);
     }
 
     try {
@@ -127,7 +173,8 @@ class AuthService {
       // still-expired access token rather than forcing a fresh OTP. Any
       // API call made with this stale token will surface its own error,
       // which is the caller's normal error-handling path, not this one's.
-      return AuthSession(phoneNumber: phone, accessToken: access, refreshToken: refresh);
+      return AuthSession(
+          phoneNumber: phone, accessToken: access, refreshToken: refresh);
     }
   }
 
@@ -150,7 +197,8 @@ class AuthService {
   /// this type) - offline, timeout, DNS failure, or a 5xx/unreadable
   /// response from the server. Only the former means the device is no
   /// longer known.
-  Future<AuthSession?> _tryRefresh(String phoneNumber, String refreshToken) async {
+  Future<AuthSession?> _tryRefresh(
+      String phoneNumber, String refreshToken) async {
     http.Response response;
     try {
       response = await _client.post(
@@ -207,13 +255,17 @@ class AuthService {
       final parts = jwt.split('.');
       if (parts.length != 3) return true;
       final normalized = base64Url.normalize(parts[1]);
-      final payload = jsonDecode(utf8.decode(base64Url.decode(normalized))) as Map<String, dynamic>;
+      final payload = jsonDecode(utf8.decode(base64Url.decode(normalized)))
+          as Map<String, dynamic>;
       final exp = payload['exp'];
       if (exp is! int) return true;
-      final expiry = DateTime.fromMillisecondsSinceEpoch(exp * 1000, isUtc: true);
+      final expiry =
+          DateTime.fromMillisecondsSinceEpoch(exp * 1000, isUtc: true);
       // 30s safety margin: a token about to expire mid-request should not
       // be treated as still valid.
-      return DateTime.now().toUtc().isAfter(expiry.subtract(const Duration(seconds: 30)));
+      return DateTime.now()
+          .toUtc()
+          .isAfter(expiry.subtract(const Duration(seconds: 30)));
     } catch (_) {
       return true;
     }

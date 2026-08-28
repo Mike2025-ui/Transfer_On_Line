@@ -34,8 +34,10 @@ class _PhoneVerificationScreenState extends State<PhoneVerificationScreen> {
   final _codeCtrl = TextEditingController();
 
   bool _codeSent = false;
+  bool _useEmail = false;
   bool _loading = false;
   String _phoneNumber = '';
+  String _email = '';
   int? _verificationId;
 
   // Resend timer management
@@ -52,6 +54,10 @@ class _PhoneVerificationScreenState extends State<PhoneVerificationScreen> {
   }
 
   Future<void> _requestCode() async {
+    if (_useEmail) {
+      await _requestEmailCode();
+      return;
+    }
     final phone = _phoneCtrl.text.trim();
 
     // Validate phone number
@@ -83,6 +89,27 @@ class _PhoneVerificationScreenState extends State<PhoneVerificationScreen> {
     }
   }
 
+  Future<void> _requestEmailCode() async {
+    final email = _phoneCtrl.text.trim();
+    if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+4').hasMatch(email)) {
+      _showError('Entrez une adresse email valide');
+      return;
+    }
+    setState(() => _loading = true);
+    try {
+      _email = email;
+      _verificationId = await _auth.requestEmailCode(email);
+      if (!mounted) return;
+      setState(() => _codeSent = true);
+      _startResendTimer();
+      _showSuccess('Code de vérification envoyé par email');
+    } catch (error) {
+      if (mounted) _showError(error.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
   Future<void> _verifyCode() async {
     final code = _codeCtrl.text.trim();
 
@@ -99,14 +126,17 @@ class _PhoneVerificationScreenState extends State<PhoneVerificationScreen> {
 
     setState(() => _loading = true);
     try {
-          // The backend verifies the code with Aion and persists the JWT tokens.
-          await _auth.verifyOtp(_phoneNumber, code, verificationId);
-      
-          if (!mounted) return;
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const HomeScreen()),
-          );
+      if (_useEmail) {
+        await _auth.verifyEmailCode(_email, code, verificationId);
+      } else {
+        await _auth.verifyOtp(_phoneNumber, code, verificationId);
+      }
+
+      if (!mounted) return;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const HomeScreen()),
+      );
     } catch (error) {
       if (mounted) {
         _showError(error.toString().replaceFirst('Exception: ', ''));
@@ -124,11 +154,14 @@ class _PhoneVerificationScreenState extends State<PhoneVerificationScreen> {
 
     setState(() => _loading = true);
     try {
-      final otpRequest = await _otpService.requestResend(_phoneNumber);
-
+      if (_useEmail) {
+        _verificationId = await _auth.requestEmailCode(_email);
+      } else {
+        final otpRequest = await _otpService.requestResend(_phoneNumber);
+        _verificationId = otpRequest.verificationId;
+      }
       if (!mounted) return;
-
-      setState(() => _verificationId = otpRequest.verificationId);
+      setState(() {});
       _codeCtrl.clear();
       _startResendTimer();
       _showSuccess('Nouveau code envoyé par SMS');
@@ -237,11 +270,39 @@ class _PhoneVerificationScreenState extends State<PhoneVerificationScreen> {
                   _fieldShell(
                     child: TextField(
                       controller: _phoneCtrl,
-                      keyboardType: TextInputType.phone,
-                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      keyboardType: _useEmail
+                          ? TextInputType.emailAddress
+                          : TextInputType.phone,
+                      inputFormatters: _useEmail
+                          ? []
+                          : [FilteringTextInputFormatter.digitsOnly],
                       style: _fieldStyle(),
-                      decoration: _fieldDecoration('Exemple : 07XXXXXXXX'),
+                      decoration: _fieldDecoration(_useEmail
+                          ? 'votre@email.com'
+                          : 'Exemple : 07XXXXXXXX'),
                     ),
+                  ),
+                  const SizedBox(height: 12),
+                  SegmentedButton<bool>(
+                    segments: const [
+                      ButtonSegment(
+                          value: false,
+                          label: Text('Téléphone'),
+                          icon: Icon(Icons.phone)),
+                      ButtonSegment(
+                          value: true,
+                          label: Text('Email'),
+                          icon: Icon(Icons.email)),
+                    ],
+                    selected: {_useEmail},
+                    onSelectionChanged: _loading
+                        ? null
+                        : (selection) {
+                            setState(() {
+                              _useEmail = selection.first;
+                              _phoneCtrl.clear();
+                            });
+                          },
                   ),
                   const SizedBox(height: 24),
                   _submitButton('CONTINUER', _requestCode),

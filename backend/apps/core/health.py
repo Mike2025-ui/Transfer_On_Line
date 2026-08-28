@@ -27,6 +27,8 @@ def check_database():
 
 
 def check_redis():
+    if not settings.REDIS_URL:
+        return 'not_configured'
     try:
         import redis
         from redis.backoff import NoBackoff
@@ -76,5 +78,8 @@ def gateway_summary():
             'online_count': Gateway.objects.filter(status='online').count(),
             'total_count': Gateway.objects.count(),
         }
+    except OperationalError as exc:
+        logger.error('Health check: gateway summary unavailable: %s', exc)
+        return {'status': 'down', 'online_count': 0, 'total_count': 0}
     finally:
         connections['default'].close()
