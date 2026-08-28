@@ -14,6 +14,8 @@ Application de souscription et transfert de forfaits avec Flutter, Django REST F
 
 CinetPay est l'unique fournisseur de paiement. Le client crée une transaction via `POST /api/transactions/execute/`, l'API initialise le checkout CinetPay et retourne `checkout_url`. La Gateway Android ne reçoit une transaction dans `GET /api/transactions/pending/` qu'après notification CinetPay validée par l'endpoint `POST /api/payments/cinetpay/notify/`.
 
+Les codes USSD composés par la Gateway sont configurés depuis le dashboard (opérateur + service, avec variables de template) et non plus codés en dur — voir [backend/docs/operators-ussd-codes.md](backend/docs/operators-ussd-codes.md).
+
 ## Lancement backend
 
 1. Copier `backend/.env.example` vers `backend/.env`.

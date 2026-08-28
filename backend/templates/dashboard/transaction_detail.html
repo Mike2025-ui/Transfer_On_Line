@@ -1,0 +1,101 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container-fluid px-4">
+    <a href="{% url 'transactions' %}" class="btn btn-sm btn-outline-secondary mb-3"><i class="fas fa-arrow-left me-1"></i> Retour</a>
+
+    <div class="row g-4 mb-4">
+        <div class="col-md-6">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-header bg-transparent border-0"><h5 class="card-title mb-0">Détails</h5></div>
+                <div class="card-body">
+                    <table class="table table-borderless mb-0">
+                        <tr><th class="text-muted" style="width:40%;">Référence</th><td class="fw-semibold">{{ tx.reference }}</td></tr>
+                        <tr><th class="text-muted">Statut</th><td><span class="badge badge-status-{{ tx.status }}">{{ tx.get_status_display }}</span></td></tr>
+                        <tr><th class="text-muted">Créée le</th><td>{{ tx.created_at|date:"d/m/Y H:i:s" }}</td></tr>
+                        <tr><th class="text-muted">Mise à jour</th><td>{{ tx.updated_at|date:"d/m/Y H:i:s" }}</td></tr>
+                        <tr><th class="text-muted">Opérateur</th><td>{{ tx.operator.name }}</td></tr>
+                        <tr><th class="text-muted">Service</th><td>{{ tx.service.name }}</td></tr>
+                        <tr><th class="text-muted">Téléphone</th><td>{{ tx.phone_number }}</td></tr>
+                        <tr><th class="text-muted">Montant</th><td>{{ tx.amount|floatformat:0 }} F</td></tr>
+                        <tr><th class="text-muted">Commission</th><td>{{ tx.commission|floatformat:0 }} F</td></tr>
+                        <tr><th class="text-muted">Gateway</th><td>{{ tx.gateway.name|default:"-" }}</td></tr>
+                        <tr><th class="text-muted">Prochain retry</th><td>{{ tx.next_retry_at|date:"d/m/Y H:i:s"|default:"-" }}</td></tr>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-header bg-transparent border-0"><h5 class="card-title mb-0">Paiement</h5></div>
+                <div class="card-body">
+                    {% if tx.payment %}
+                    <table class="table table-borderless mb-0">
+                        <tr><th class="text-muted" style="width:40%;">Provider</th><td>{{ tx.payment.get_method_display }}</td></tr>
+                        <tr><th class="text-muted">Référence</th><td>{{ tx.payment.reference }}</td></tr>
+                        <tr><th class="text-muted">Référence provider</th><td>{{ tx.payment.provider_transaction_id|default:"-" }}</td></tr>
+                        <tr><th class="text-muted">Statut</th><td><span class="badge badge-status-{{ tx.payment.status }}">{{ tx.payment.get_status_display }}</span></td></tr>
+                        <tr><th class="text-muted">Créé le</th><td>{{ tx.payment.created_at|date:"d/m/Y H:i:s" }}</td></tr>
+                    </table>
+                    {% else %}
+                    <p class="text-muted mb-0">Aucun paiement associé.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card border-0 shadow-sm mb-4">
+        <div class="card-header bg-transparent border-0"><h5 class="card-title mb-0">Tentatives ({{ attempts|length }})</h5></div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>#</th><th>Statut</th><th>SIM</th><th>Code USSD</th>
+                            <th>Envoyée</th><th>Terminée</th><th>Raison d'échec</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for attempt in attempts %}
+                        <tr>
+                            <td>{{ attempt.attempt_number }}</td>
+                            <td><span class="badge badge-status-{{ attempt.status }}">{{ attempt.get_status_display }}</span></td>
+                            <td>{% if attempt.gateway_sim %}{{ attempt.gateway_sim.gateway.name }} / {{ attempt.gateway_sim.msisdn|default:attempt.gateway_sim.slot }}{% else %}-{% endif %}</td>
+                            <td><code>{{ attempt.ussd_code|default:"-" }}</code></td>
+                            <td>{{ attempt.dispatched_at|date:"d/m/Y H:i:s"|default:"-" }}</td>
+                            <td>{{ attempt.completed_at|date:"d/m/Y H:i:s"|default:"-" }}</td>
+                            <td>{{ attempt.get_failure_reason_display|default:"-" }}</td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="7" class="text-center text-muted py-4">Aucune tentative enregistrée (moteur legacy ou aucune assignation).</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="card border-0 shadow-sm">
+        <div class="card-header bg-transparent border-0"><h5 class="card-title mb-0">Historique (TransactionEvent)</h5></div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead><tr><th>Date</th><th>Type</th><th>Détails</th></tr></thead>
+                    <tbody>
+                        {% for event in events %}
+                        <tr>
+                            <td class="text-nowrap">{{ event.created_at|date:"d/m/Y H:i:s" }}</td>
+                            <td><code>{{ event.event_type }}</code></td>
+                            <td><small class="text-muted">{{ event.metadata }}</small></td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="3" class="text-center text-muted py-4">Aucun événement enregistré.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

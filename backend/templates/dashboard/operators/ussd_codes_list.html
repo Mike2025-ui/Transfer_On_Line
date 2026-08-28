@@ -1,0 +1,128 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container-fluid px-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <a href="{% url 'operators' %}" class="text-muted small"><i class="fas fa-arrow-left me-1"></i> Tous les opérateurs</a>
+        <a href="{% url 'ussd_code_create' pk=operator.pk %}" class="btn btn-primary">
+            <i class="fas fa-plus me-1"></i> Nouveau code
+        </a>
+    </div>
+
+    <div class="card border-0 shadow-sm mb-4">
+        <div class="card-body">
+            <form method="get" class="row g-2 align-items-center">
+                <div class="col-md-4">
+                    <input type="text" name="q" value="{{ query }}" class="form-control" placeholder="Rechercher par libellé ou template...">
+                </div>
+                <div class="col-md-3">
+                    <select name="service" class="form-select">
+                        <option value="">Tous les services</option>
+                        {% for service in services %}
+                        <option value="{{ service.id }}" {% if service_filter == service.id|stringformat:'s' %}selected{% endif %}>{{ service.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <select name="active" class="form-select">
+                        <option value="" {% if not active_filter %}selected{% endif %}>Tous les statuts</option>
+                        <option value="active" {% if active_filter == 'active' %}selected{% endif %}>Actifs</option>
+                        <option value="inactive" {% if active_filter == 'inactive' %}selected{% endif %}>Inactifs</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <button type="submit" class="btn btn-outline-primary w-100"><i class="fas fa-search me-1"></i> Filtrer</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="card border-0 shadow-sm mb-4">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Libellé</th>
+                            <th>Service</th>
+                            <th>Template</th>
+                            <th>Statut</th>
+                            <th class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for code in page_obj %}
+                        <tr data-code-id="{{ code.pk }}">
+                            <td class="fw-semibold">
+                                {{ code.label }}
+                                {% if code.is_default %}<span class="badge bg-info text-dark ms-1">défaut</span>{% endif %}
+                            </td>
+                            <td>{{ code.service.name|default:"Tous services" }}</td>
+                            <td><code>{{ code.template }}</code></td>
+                            <td>
+                                <span class="badge toggle-badge {% if code.is_active %}bg-success{% else %}bg-secondary{% endif %}"
+                                      data-active="{{ code.is_active|yesno:'true,false' }}">
+                                    {% if code.is_active %}Actif{% else %}Inactif{% endif %}
+                                </span>
+                            </td>
+                            <td class="text-end">
+                                <button type="button" class="btn btn-sm btn-outline-secondary toggle-btn" data-code-id="{{ code.pk }}" title="Activer/désactiver">
+                                    <i class="fas fa-power-off"></i>
+                                </button>
+                                <a href="{% url 'ussd_code_edit' pk=code.pk %}" class="btn btn-sm btn-outline-secondary" title="Modifier">
+                                    <i class="fas fa-pen"></i>
+                                </a>
+                                <a href="{% url 'ussd_code_delete' pk=code.pk %}" class="btn btn-sm btn-outline-danger" title="Supprimer">
+                                    <i class="fas fa-trash"></i>
+                                </a>
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="5" class="text-center text-muted py-4">Aucun code USSD pour cet opérateur</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    {% if page_obj.paginator.num_pages > 1 %}
+    <nav>
+        <ul class="pagination justify-content-center">
+            {% for page_num in page_obj.paginator.page_range %}
+            <li class="page-item {% if page_obj.number == page_num %}active{% endif %}">
+                <a class="page-link" href="?q={{ query }}&service={{ service_filter }}&active={{ active_filter }}&page={{ page_num }}">{{ page_num }}</a>
+            </li>
+            {% endfor %}
+        </ul>
+    </nav>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.querySelectorAll('.toggle-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+        const codeId = btn.dataset.codeId;
+        fetch(`/dashboard/codes/${codeId}/toggle/`, {
+            method: 'POST',
+            headers: { 'X-CSRFToken': '{{ csrf_token }}' },
+        })
+            .then(function (response) { return response.json().then(function (data) { return { ok: response.ok, data: data }; }); })
+            .then(function (result) {
+                if (!result.ok) {
+                    alert(result.data.error || 'Une erreur est survenue.');
+                    return;
+                }
+                const row = document.querySelector(`tr[data-code-id="${codeId}"]`);
+                const badge = row.querySelector('.toggle-badge');
+                badge.textContent = result.data.is_active ? 'Actif' : 'Inactif';
+                badge.classList.toggle('bg-success', result.data.is_active);
+                badge.classList.toggle('bg-secondary', !result.data.is_active);
+            })
+            .catch(function () { alert('Une erreur réseau est survenue.'); });
+    });
+});
+</script>
+{% endblock %}

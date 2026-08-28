@@ -2,12 +2,7 @@
 
 {% block content %}
 <div class="container-fluid px-4">
-    <div class="d-flex justify-content-between align-items-center pt-3 pb-2 mb-3 border-bottom">
-        <h1 class="h2">Tableau de bord</h1>
-        <span class="badge bg-primary rounded-pill px-3 py-2">Aujourd'hui</span>
-    </div>
-
-    <div class="row g-4 mb-4">
+    <div class="row g-3 mb-4">
         <div class="col-md-4 col-sm-6">
             <div class="card h-100 border-0 shadow-sm">
                 <div class="card-body">
@@ -15,7 +10,7 @@
                         <div>
                             <h6 class="text-muted fw-normal">Transactions aujourd'hui</h6>
                             <h2 class="mb-0">{{ transactions_today }}</h2>
-                            <small class="text-success"><i class="fas fa-arrow-up"></i> {{ pct_vs_yesterday|floatformat:1 }}% vs hier</small>
+                            <small class="text-muted">{{ pct_vs_yesterday|floatformat:1 }}% vs hier</small>
                         </div>
                         <div class="bg-light rounded-circle p-2"><i class="fas fa-exchange-alt text-primary fa-lg"></i></div>
                     </div>
@@ -27,9 +22,9 @@
                 <div class="card-body">
                     <div class="d-flex justify-content-between align-items-start">
                         <div>
-                            <h6 class="text-muted fw-normal">Montant total encaissé</h6>
+                            <h6 class="text-muted fw-normal">Montant encaissé (succès, jour)</h6>
                             <h2 class="mb-0">{{ amount_today|floatformat:0 }} F</h2>
-                            <small class="text-success"><i class="fas fa-arrow-up"></i> {{ amount_pct|floatformat:1 }}% vs hier</small>
+                            <small class="text-muted">{{ amount_pct|floatformat:1 }}% vs hier</small>
                         </div>
                         <div class="bg-light rounded-circle p-2"><i class="fas fa-wallet text-success fa-lg"></i></div>
                     </div>
@@ -41,95 +36,104 @@
                 <div class="card-body">
                     <div class="d-flex justify-content-between align-items-start">
                         <div>
-                            <h6 class="text-muted fw-normal">Commission générée (1%)</h6>
-                            <h2 class="mb-0">{{ commission_today|floatformat:0 }} F</h2>
-                            <small class="text-success"><i class="fas fa-arrow-up"></i> {{ amount_pct|floatformat:1 }}% vs hier</small>
-                        </div>
-                        <div class="bg-light rounded-circle p-2"><i class="fas fa-percent text-warning fa-lg"></i></div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-4 col-sm-6">
-            <div class="card h-100 border-0 shadow-sm">
-                <div class="card-body">
-                    <div class="d-flex justify-content-between align-items-start">
-                        <div>
-                            <h6 class="text-muted fw-normal">Transactions réussies</h6>
-                            <h2 class="mb-0">{{ success_count }}</h2>
-                            <small class="text-muted">{{ success_percent|floatformat:2 }}% du total</small>
+                            <h6 class="text-muted fw-normal">Taux de réussite</h6>
+                            <h2 class="mb-0">{{ success_percent|floatformat:1 }}%</h2>
+                            <small class="text-muted">{{ success_count }} réussie{{ success_count|pluralize }} sur {{ transactions_today|default:0 }} aujourd'hui</small>
                         </div>
                         <div class="bg-light rounded-circle p-2"><i class="fas fa-check-circle text-success fa-lg"></i></div>
                     </div>
                 </div>
             </div>
         </div>
-        <div class="col-md-4 col-sm-6">
-            <div class="card h-100 border-0 shadow-sm">
-                <div class="card-body">
-                    <div class="d-flex justify-content-between align-items-start">
-                        <div>
-                            <h6 class="text-muted fw-normal">Transactions échouées</h6>
-                            <h2 class="mb-0">{{ failed_count }}</h2>
-                            <small class="text-muted">{{ failed_percent|floatformat:2 }}% du total</small>
-                        </div>
-                        <div class="bg-light rounded-circle p-2"><i class="fas fa-times-circle text-danger fa-lg"></i></div>
-                    </div>
-                </div>
+        <div class="col-md-3 col-sm-6">
+            <div class="stat-tile d-flex justify-content-between align-items-center">
+                <div><div class="stat-value">{{ success_count }}</div><div class="stat-label">Réussies</div></div>
+                <div class="stat-icon" style="background:#e3f6ea;color:#0e6e4a;"><i class="fas fa-check"></i></div>
             </div>
         </div>
-        <div class="col-md-4 col-sm-6">
-            <div class="card h-100 border-0 shadow-sm">
-                <div class="card-body">
-                    <div class="d-flex justify-content-between align-items-start">
-                        <div>
-                            <h6 class="text-muted fw-normal">En attente</h6>
-                            <h2 class="mb-0">{{ pending_count }}</h2>
-                            <small class="text-muted">{{ pending_percent|floatformat:2 }}% du total</small>
-                        </div>
-                        <div class="bg-light rounded-circle p-2"><i class="fas fa-clock text-warning fa-lg"></i></div>
-                    </div>
-                </div>
+        <div class="col-md-3 col-sm-6">
+            <div class="stat-tile d-flex justify-content-between align-items-center">
+                <div><div class="stat-value">{{ failed_count }}</div><div class="stat-label">Échouées</div></div>
+                <div class="stat-icon" style="background:#fbe9e7;color:#c0392b;"><i class="fas fa-xmark"></i></div>
             </div>
+        </div>
+        <div class="col-md-3 col-sm-6">
+            <div class="stat-tile d-flex justify-content-between align-items-center">
+                <div><div class="stat-value">{{ pending_count }}</div><div class="stat-label">En attente</div></div>
+                <div class="stat-icon" style="background:#fff6e0;color:#b8860a;"><i class="fas fa-clock"></i></div>
+            </div>
+        </div>
+        <div class="col-md-3 col-sm-6">
+            <div class="stat-tile d-flex justify-content-between align-items-center">
+                <div><div class="stat-value">{{ commission_today|floatformat:0 }} F</div><div class="stat-label">Commission (jour)</div></div>
+                <div class="stat-icon" style="background:#eef0ff;color:#4338ca;"><i class="fas fa-percent"></i></div>
+            </div>
+        </div>
+        <div class="col-md-3 col-sm-6">
+            <a href="{% url 'gateways' %}" class="text-decoration-none text-reset">
+                <div class="stat-tile d-flex justify-content-between align-items-center">
+                    <div><div class="stat-value">{{ gateways_online }}</div><div class="stat-label">Gateways en ligne</div></div>
+                    <div class="stat-icon" style="background:#e3f6ea;color:#0e6e4a;"><i class="fas fa-server"></i></div>
+                </div>
+            </a>
+        </div>
+        <div class="col-md-3 col-sm-6">
+            <a href="{% url 'gateways' %}" class="text-decoration-none text-reset">
+                <div class="stat-tile d-flex justify-content-between align-items-center">
+                    <div><div class="stat-value">{{ gateways_offline }}</div><div class="stat-label">Gateways hors ligne</div></div>
+                    <div class="stat-icon" style="background:#fbe9e7;color:#c0392b;"><i class="fas fa-server"></i></div>
+                </div>
+            </a>
+        </div>
+        <div class="col-md-3 col-sm-6">
+            <a href="{% url 'sims' %}" class="text-decoration-none text-reset">
+                <div class="stat-tile d-flex justify-content-between align-items-center">
+                    <div><div class="stat-value">{{ sims_available }}</div><div class="stat-label">SIM disponibles</div></div>
+                    <div class="stat-icon" style="background:#e6f0fb;color:#1a5fb4;"><i class="fas fa-sim-card"></i></div>
+                </div>
+            </a>
+        </div>
+        <div class="col-md-3 col-sm-6">
+            <a href="{% url 'payments' %}" class="text-decoration-none text-reset">
+                <div class="stat-tile d-flex justify-content-between align-items-center">
+                    <div><div class="stat-value">{{ payments_success }} / {{ payments_pending }}</div><div class="stat-label">Paiements réussis / en attente</div></div>
+                    <div class="stat-icon" style="background:#eef0ff;color:#4338ca;"><i class="fas fa-money-bill-wave"></i></div>
+                </div>
+            </a>
         </div>
     </div>
 
     <div class="row g-4 mb-4">
-        <div class="col-md-4">
+        <div class="col-md-3">
             <div class="card border-0 shadow-sm h-100">
-                <div class="card-header bg-transparent border-0 d-flex justify-content-between align-items-center">
-                    <h5 class="card-title mb-0">Statut des gateways</h5>
-                    <a href="{% url 'gateways' %}" class="btn btn-sm btn-outline-primary">Voir toutes</a>
-                </div>
+                <div class="card-header bg-transparent border-0"><h5 class="card-title mb-0">Par service</h5></div>
                 <div class="card-body">
-                    <canvas id="gatewayChart" style="max-height: 200px;"></canvas>
-                    <div class="mt-3">
-                        {% for service in services_distribution %}
-                        <div class="d-flex justify-content-between align-items-center mb-1">
-                            <span>{{ service.name }}</span>
-                            <span>{{ service.count }} ({{ service.count|floatformat:0 }}%)</span>
-                        </div>
-                        {% empty %}
-                        <p class="text-muted">Aucune donnée</p>
-                        {% endfor %}
-                    </div>
+                    <canvas id="serviceChart" style="max-height: 180px;"></canvas>
                 </div>
             </div>
         </div>
-        <div class="col-md-8">
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-header bg-transparent border-0"><h5 class="card-title mb-0">Par opérateur</h5></div>
+                <div class="card-body">
+                    <canvas id="operatorChart" style="max-height: 180px;"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
             <div class="card border-0 shadow-sm h-100">
                 <div class="card-header bg-transparent border-0">
-                    <h5 class="card-title mb-0">Activité en temps réel</h5>
+                    <h5 class="card-title mb-0">Activité récente</h5>
                 </div>
-                <div class="card-body" style="max-height: 300px; overflow-y: auto;">
+                <div class="card-body" style="max-height: 260px; overflow-y: auto;">
                     <ul class="list-group list-group-flush">
-                        {% for activity in real_time_activities %}
+                        {% for activity in recent_activities %}
                         <li class="list-group-item d-flex justify-content-between align-items-start border-0 px-0">
                             <div><i class="fas fa-circle text-success me-2" style="font-size: 0.5rem;"></i> {{ activity.message }}</div>
                             <span class="text-muted small">{{ activity.time }}</span>
                         </li>
                         {% empty %}
-                        <li class="list-group-item text-muted">Aucune activité</li>
+                        <li class="list-group-item text-muted border-0 px-0">Aucun événement enregistré pour l'instant.</li>
                         {% endfor %}
                     </ul>
                 </div>
@@ -145,7 +149,7 @@
         <div class="card-body p-0">
             <div class="table-responsive">
                 <table class="table table-hover align-middle mb-0">
-                    <thead class="table-light">
+                    <thead>
                         <tr>
                             <th>Référence</th>
                             <th>Date / Heure</th>
@@ -159,26 +163,18 @@
                     </thead>
                     <tbody>
                         {% for tx in recent_transactions %}
-                        <tr>
-                            <td><span class="fw-bold">TOL-{{ tx.reference|truncatechars:8 }}</span></td>
+                        <tr onclick="window.location='{% url 'transaction_detail' pk=tx.pk %}'" style="cursor:pointer;">
+                            <td><span class="fw-bold">{{ tx.reference|truncatechars:14 }}</span></td>
                             <td>{{ tx.created_at|date:"d/m/Y H:i:s" }}</td>
                             <td>{{ tx.phone_number }}</td>
                             <td>{{ tx.operator.name }}</td>
                             <td>{{ tx.service.name }}</td>
                             <td>{{ tx.amount|floatformat:0 }} F</td>
-                            <td>
-                                {% if tx.status == 'success' %}
-                                <span class="badge bg-success">SUCCESS</span>
-                                {% elif tx.status == 'failed' %}
-                                <span class="badge bg-danger">FAILED</span>
-                                {% else %}
-                                <span class="badge bg-warning text-dark">PENDING</span>
-                                {% endif %}
-                            </td>
+                            <td><span class="badge badge-status-{{ tx.status }}">{{ tx.get_status_display }}</span></td>
                             <td>{{ tx.gateway.name|default:"-" }}</td>
                         </tr>
                         {% empty %}
-                        <tr><td colspan="8" class="text-center text-muted">Aucune transaction récente</td></tr>
+                        <tr><td colspan="8" class="text-center text-muted py-4">Aucune transaction récente</td></tr>
                         {% endfor %}
                     </tbody>
                 </table>
@@ -190,27 +186,18 @@
 
 {% block extra_js %}
 <script>
-    const ctx = document.getElementById('gatewayChart').getContext('2d');
-    const services = [
-        {% for service in services_distribution %}
-        { label: "{{ service.name }}", value: {{ service.count|default:0 }} },
-        {% endfor %}
-    ];
-    new Chart(ctx, {
-        type: 'doughnut',
-        data: {
-            labels: services.map(s => s.label),
-            datasets: [{
-                data: services.map(s => s.value),
-                backgroundColor: ['#0d6efd', '#198754', '#ffc107', '#dc3545', '#6f42c1'],
-                borderWidth: 0
-            }]
-        },
-        options: {
-            responsive: true,
-            plugins: { legend: { position: 'bottom' } },
-            cutout: '60%'
-        }
-    });
+    function donut(canvasId, labels, values) {
+        new Chart(document.getElementById(canvasId).getContext('2d'), {
+            type: 'doughnut',
+            data: { labels: labels, datasets: [{ data: values, backgroundColor: ['#0e6e4a', '#16a366', '#b8860a', '#c0392b', '#1a5fb4', '#4338ca'], borderWidth: 0 }] },
+            options: { responsive: true, plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 11 } } } }, cutout: '60%' }
+        });
+    }
+    donut('serviceChart',
+        [{% for s in services_distribution %}"{{ s.name }}",{% endfor %}],
+        [{% for s in services_distribution %}{{ s.count|default:0 }},{% endfor %}]);
+    donut('operatorChart',
+        [{% for o in operators_distribution %}"{{ o.name }}",{% endfor %}],
+        [{% for o in operators_distribution %}{{ o.count|default:0 }},{% endfor %}]);
 </script>
 {% endblock %}

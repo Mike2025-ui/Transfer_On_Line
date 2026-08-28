@@ -1,5 +1,73 @@
 {% extends 'base.html' %}
+
 {% block content %}
-<h2>Transactions</h2>
-<p>Liste des transactions à venir...</p>
+<div class="container-fluid px-4">
+    <div class="row g-3 mb-4">
+        <div class="col-md-3 col-sm-6">
+            <div class="stat-tile d-flex justify-content-between align-items-center">
+                <div><div class="stat-value">{{ stats.total_gateways }}</div><div class="stat-label">Gateways actives</div></div>
+                <div class="stat-icon" style="background:#e6f0fb;color:#1a5fb4;"><i class="fas fa-server"></i></div>
+            </div>
+        </div>
+        <div class="col-md-3 col-sm-6">
+            <div class="stat-tile d-flex justify-content-between align-items-center">
+                <div><div class="stat-value">{{ stats.online_gateways }}</div><div class="stat-label">En ligne</div></div>
+                <div class="stat-icon" style="background:#e3f6ea;color:#0e6e4a;"><i class="fas fa-signal"></i></div>
+            </div>
+        </div>
+        <div class="col-md-3 col-sm-6">
+            <div class="stat-tile d-flex justify-content-between align-items-center">
+                <div><div class="stat-value">{{ stats.offline_gateways }}</div><div class="stat-label">Hors ligne</div></div>
+                <div class="stat-icon" style="background:#fbe9e7;color:#c0392b;"><i class="fas fa-plug-circle-xmark"></i></div>
+            </div>
+        </div>
+        <div class="col-md-3 col-sm-6">
+            <div class="stat-tile d-flex justify-content-between align-items-center">
+                <div><div class="stat-value">{{ stats.average_battery_level|default:"-" }}{% if stats.average_battery_level %}%{% endif %}</div><div class="stat-label">Batterie moyenne</div></div>
+                <div class="stat-icon" style="background:#fff6e0;color:#b8860a;"><i class="fas fa-battery-three-quarters"></i></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card border-0 shadow-sm mb-4">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>UUID</th><th>Statut</th><th>Batterie</th><th>Temp.</th><th>RAM</th><th>Stockage</th>
+                            <th>Réseau</th><th>Signal</th><th>IP</th><th>Version</th><th>Dernière connexion</th>
+                            <th>Occupé</th><th>Tâches</th><th>SIM</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for gw in gateways %}
+                        <tr>
+                            <td class="fw-semibold">{{ gw.name }}</td>
+                            <td>
+                                {% if gw.is_online %}<span class="badge badge-status-success">En ligne</span>
+                                {% else %}<span class="badge badge-status-failed">Hors ligne</span>{% endif %}
+                            </td>
+                            <td>{% if gw.battery_level != None %}{{ gw.battery_level }}%{% else %}-{% endif %}</td>
+                            <td>{% if gw.temperature != None %}{{ gw.temperature|floatformat:1 }}°C{% else %}-{% endif %}</td>
+                            <td>{% if gw.ram_available_mb != None %}{{ gw.ram_available_mb }} Mo{% else %}-{% endif %}</td>
+                            <td>{% if gw.storage_available_mb != None %}{{ gw.storage_available_mb }} Mo{% else %}-{% endif %}</td>
+                            <td>{{ gw.network_type|default:"-" }}</td>
+                            <td>{% if gw.signal_strength != None %}{{ gw.signal_strength }} dBm{% else %}-{% endif %}</td>
+                            <td>{{ gw.ip_address|default:"-" }}</td>
+                            <td>{{ gw.app_version|default:"-" }}</td>
+                            <td>{{ gw.last_heartbeat|date:"d/m/Y H:i:s"|default:"Jamais" }}</td>
+                            <td>{% if gw.in_flight > 0 %}<span class="badge bg-warning text-dark">{{ gw.in_flight }} en cours</span>{% else %}<span class="badge bg-light text-dark">Libre</span>{% endif %}</td>
+                            <td>{{ gw.in_flight }} / {{ gw.max_concurrent_tasks }}</td>
+                            <td>{{ gw.sims|length }}</td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="14" class="text-center text-muted py-4">Aucune gateway enregistrée</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}

@@ -1,0 +1,75 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container-fluid px-4">
+    <div class="card border-0 shadow-sm mb-4">
+        <div class="card-body">
+            <form method="get" class="row g-2 align-items-center">
+                <div class="col-md-4">
+                    <select name="operator" class="form-select">
+                        <option value="">Tous les opérateurs</option>
+                        {% for op in operators %}
+                        <option value="{{ op.id }}" {% if operator_id == op.id|stringformat:"s" %}selected{% endif %}>{{ op.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <select name="active" class="form-select">
+                        <option value="">Toutes</option>
+                        <option value="active" {% if active == 'active' %}selected{% endif %}>Actives</option>
+                        <option value="inactive" {% if active == 'inactive' %}selected{% endif %}>Inactives</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <button type="submit" class="btn btn-outline-primary w-100"><i class="fas fa-search"></i> Filtrer</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="card border-0 shadow-sm mb-4">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>Gateway</th><th>Slot</th><th>Opérateur</th><th>Numéro</th><th>État</th>
+                            <th>Réussites</th><th>Échecs</th><th>Échecs consécutifs</th><th>Dernière activité</th>
+                            <th title="Score indicatif recalculé via GatewayScoreService.score() - aucune nouvelle logique de sélection">Score</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in page_obj %}
+                        {% with sim=row.sim %}
+                        <tr>
+                            <td class="fw-semibold">{{ sim.gateway.name }}</td>
+                            <td>{{ sim.slot }}</td>
+                            <td>{{ sim.operator.name }}</td>
+                            <td>{{ sim.msisdn|default:"-" }}</td>
+                            <td>{% if sim.is_active %}<span class="badge badge-status-success">Active</span>{% else %}<span class="badge bg-secondary">Inactive</span>{% endif %}</td>
+                            <td>{{ sim.success_count }}</td>
+                            <td>{{ sim.failure_count }}</td>
+                            <td>
+                                {% if sim.consecutive_failures > 0 %}
+                                <span class="badge badge-status-pending">{{ sim.consecutive_failures }}</span>
+                                {% else %}0{% endif %}
+                            </td>
+                            <td>{{ sim.last_used_at|date:"d/m/Y H:i:s"|default:"Jamais" }}</td>
+                            <td>{{ row.score }}</td>
+                        </tr>
+                        {% endwith %}
+                        {% empty %}
+                        <tr><td colspan="10" class="text-center text-muted py-4">Aucune SIM enregistrée</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    <p class="text-muted small">
+        Le score est calculé par <code>GatewayScoreService.score()</code> (algorithme réel du Scheduler, non dupliqué) —
+        indicatif : composant "charge" recalculé sur l'état actuel, sans les autres filtres d'éligibilité
+        (<code>GatewayManager.eligible_sims()</code>) appliqués lors d'une vraie sélection.
+    </p>
+</div>
+{% endblock %}

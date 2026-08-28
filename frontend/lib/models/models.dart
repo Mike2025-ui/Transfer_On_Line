@@ -7,7 +7,7 @@ class Transaction {
   final int amount;
   final String paymentMethod;
   final DateTime date;
-  final String status; // 'ok' | 'fail' | 'pending'
+  final String status; // 'ok' | 'fail' | 'pending' | 'cancelled'
 
   Transaction({
     required this.id,
@@ -27,6 +27,8 @@ class Transaction {
         return 'Réussie';
       case 'fail':
         return 'Échouée';
+      case 'cancelled':
+        return 'Annulée';
       default:
         return 'En attente';
     }
@@ -87,6 +89,48 @@ class AppNotification {
     this.date,
     this.heure,
   });
+}
+
+class OperatorItem {
+  final int id;
+  final String name;
+  final String code;
+
+  const OperatorItem({required this.id, required this.name, required this.code});
+
+  factory OperatorItem.fromJson(Map<String, dynamic> json) {
+    return OperatorItem(
+      id: json['id'] as int,
+      name: json['name'] as String,
+      code: json['code'] as String? ?? '',
+    );
+  }
+}
+
+class ServiceItem {
+  final int id;
+  final String name;
+  final String code;
+
+  const ServiceItem({required this.id, required this.name, required this.code});
+
+  factory ServiceItem.fromJson(Map<String, dynamic> json) {
+    return ServiceItem(
+      id: json['id'] as int,
+      name: json['name'] as String,
+      code: json['code'] as String? ?? '',
+    );
+  }
+}
+
+class AmountItem {
+  final double amount;
+
+  const AmountItem({required this.amount});
+
+  factory AmountItem.fromJson(Map<String, dynamic> json) {
+    return AmountItem(amount: (json['amount'] as num).toDouble());
+  }
 }
 
 class OperationConfig {

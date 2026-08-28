@@ -1,5 +1,103 @@
 {% extends 'base.html' %}
+
 {% block content %}
-<h2>Transactions</h2>
-<p>Liste des transactions à venir...</p>
+<div class="container-fluid px-4">
+    <ul class="nav nav-tabs mb-4">
+        <li class="nav-item"><a class="nav-link {% if tab == 'audit' %}active{% endif %}" href="?tab=audit">Actions admin (AuditLog)</a></li>
+        <li class="nav-item"><a class="nav-link {% if tab == 'transactions' %}active{% endif %}" href="?tab=transactions">Cycle de vie transactions (TransactionEvent)</a></li>
+        <li class="nav-item"><a class="nav-link {% if tab == 'webhooks' %}active{% endif %}" href="?tab=webhooks">Webhooks (WebhookEvent)</a></li>
+    </ul>
+
+    {% if tab == 'audit' %}
+    <div class="card border-0 shadow-sm mb-4">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead><tr><th>Date</th><th>Admin</th><th>Action</th><th>Détails</th></tr></thead>
+                    <tbody>
+                        {% for log in audit_page %}
+                        <tr>
+                            <td class="text-nowrap">{{ log.timestamp|date:"d/m/Y H:i:s" }}</td>
+                            <td>{{ log.admin|default:"-" }}</td>
+                            <td><code>{{ log.action }}</code></td>
+                            <td>{{ log.details }}</td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="4" class="text-center text-muted py-4">Aucune entrée</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% if audit_page.paginator.num_pages > 1 %}
+    <nav><ul class="pagination justify-content-center">
+        {% for page_num in audit_page.paginator.page_range %}
+        <li class="page-item {% if audit_page.number == page_num %}active{% endif %}"><a class="page-link" href="?tab=audit&page={{ page_num }}">{{ page_num }}</a></li>
+        {% endfor %}
+    </ul></nav>
+    {% endif %}
+
+    {% elif tab == 'transactions' %}
+    <div class="card border-0 shadow-sm mb-4">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead><tr><th>Date</th><th>Transaction</th><th>Type</th><th>Détails</th></tr></thead>
+                    <tbody>
+                        {% for event in tx_event_page %}
+                        <tr>
+                            <td class="text-nowrap">{{ event.created_at|date:"d/m/Y H:i:s" }}</td>
+                            <td><a href="{% url 'transaction_detail' pk=event.transaction_id %}">{{ event.transaction.reference|truncatechars:16 }}</a></td>
+                            <td><code>{{ event.event_type }}</code></td>
+                            <td><small class="text-muted">{{ event.metadata }}</small></td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="4" class="text-center text-muted py-4">Aucune entrée</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% if tx_event_page.paginator.num_pages > 1 %}
+    <nav><ul class="pagination justify-content-center">
+        {% for page_num in tx_event_page.paginator.page_range %}
+        <li class="page-item {% if tx_event_page.number == page_num %}active{% endif %}"><a class="page-link" href="?tab=transactions&page={{ page_num }}">{{ page_num }}</a></li>
+        {% endfor %}
+    </ul></nav>
+    {% endif %}
+
+    {% elif tab == 'webhooks' %}
+    <div class="card border-0 shadow-sm mb-4">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead><tr><th>Reçu</th><th>Provider</th><th>Type</th><th>Référence paiement</th><th>Traité</th></tr></thead>
+                    <tbody>
+                        {% for wh in webhook_page %}
+                        <tr>
+                            <td class="text-nowrap">{{ wh.received_at|date:"d/m/Y H:i:s" }}</td>
+                            <td class="text-capitalize">{{ wh.provider }}</td>
+                            <td><code>{{ wh.event_type|default:"-" }}</code></td>
+                            <td>{{ wh.payment_reference|default:"-" }}</td>
+                            <td>{% if wh.processed %}<span class="badge badge-status-success">Oui</span>{% else %}<span class="badge badge-status-pending">Non</span>{% endif %}</td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="5" class="text-center text-muted py-4">Aucune entrée — rappel : CinetPay ne journalise pas de WebhookEvent aujourd'hui (voir audit paiement), seul GeniusPay le fait.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% if webhook_page.paginator.num_pages > 1 %}
+    <nav><ul class="pagination justify-content-center">
+        {% for page_num in webhook_page.paginator.page_range %}
+        <li class="page-item {% if webhook_page.number == page_num %}active{% endif %}"><a class="page-link" href="?tab=webhooks&page={{ page_num }}">{{ page_num }}</a></li>
+        {% endfor %}
+    </ul></nav>
+    {% endif %}
+    {% endif %}
+</div>
 {% endblock %}

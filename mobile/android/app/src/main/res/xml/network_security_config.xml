@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Stabilisation RC1 (priorité critique n°2 - renforcement HTTPS sans casser
+  l'existant). Sans ce fichier, Android bloque déjà TOUT trafic HTTP en
+  clair par défaut pour un build "release" à partir de targetSdk 28+ (seuls
+  les builds debug l'autorisent implicitement) - le build release construit
+  pour ce RC échouerait donc silencieusement à joindre le backend par
+  défaut (http://172.20.10.3:8000/api, voir GatewayApi.baseUrl), sans que
+  rien ne le signale avant un test réel sur téléphone.
+
+  Ce fichier n'affaiblit rien : il n'autorise le clair QUE pour l'adresse
+  LAN de développement déjà utilisée par défaut, jamais pour un autre hôte.
+  Toute vraie mise en production DOIT passer TOL_API_BASE_URL en
+  https://... au moment du build (option dart-define) ; une fois fait, cette
+  exception ne s'applique plus à rien (HTTPS n'est jamais bloqué par une
+  config réseau, quelle qu'elle soit).
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">172.20.10.3</domain>
+    </domain-config>
+</network-security-config>

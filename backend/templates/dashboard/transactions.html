@@ -1,5 +1,112 @@
 {% extends 'base.html' %}
+
 {% block content %}
-<h2>Transactions</h2>
-<p>Liste des transactions à venir...</p>
+<div class="container-fluid px-4">
+    <div class="card border-0 shadow-sm mb-4">
+        <div class="card-body">
+            <form method="get" class="row g-2 align-items-center">
+                <div class="col-md-3">
+                    <input type="text" name="q" value="{{ query }}" class="form-control" placeholder="Référence ou téléphone...">
+                </div>
+                <div class="col-md-2">
+                    <select name="status" class="form-select">
+                        <option value="">Tous les statuts</option>
+                        {% for value, label in status_choices %}
+                        <option value="{{ value }}" {% if status == value %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <select name="operator" class="form-select">
+                        <option value="">Tous les opérateurs</option>
+                        {% for op in operators %}
+                        <option value="{{ op.id }}" {% if operator_id == op.id|stringformat:"s" %}selected{% endif %}>{{ op.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <select name="service" class="form-select">
+                        <option value="">Tous les services</option>
+                        {% for s in services %}
+                        <option value="{{ s.id }}" {% if service_id == s.id|stringformat:"s" %}selected{% endif %}>{{ s.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <select name="sort" class="form-select">
+                        <option value="date" {% if sort == 'date' %}selected{% endif %}>Plus récentes</option>
+                        <option value="date_asc" {% if sort == 'date_asc' %}selected{% endif %}>Plus anciennes</option>
+                        <option value="amount" {% if sort == 'amount' %}selected{% endif %}>Montant décroissant</option>
+                        <option value="amount_asc" {% if sort == 'amount_asc' %}selected{% endif %}>Montant croissant</option>
+                        <option value="status" {% if sort == 'status' %}selected{% endif %}>Statut</option>
+                    </select>
+                </div>
+                <div class="col-md-1">
+                    <button type="submit" class="btn btn-outline-primary w-100"><i class="fas fa-search"></i></button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="card border-0 shadow-sm mb-4">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>Référence</th>
+                            <th>Date</th>
+                            <th>Opérateur</th>
+                            <th>Service</th>
+                            <th>Montant</th>
+                            <th>Statut</th>
+                            <th>Gateway</th>
+                            <th>SIM</th>
+                            <th>Paiement</th>
+                            <th>Tentatives</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for tx in page_obj %}
+                        <tr onclick="window.location='{% url 'transaction_detail' pk=tx.pk %}'" style="cursor:pointer;">
+                            <td class="fw-semibold">{{ tx.reference|truncatechars:16 }}</td>
+                            <td>{{ tx.created_at|date:"d/m/Y H:i" }}</td>
+                            <td>{{ tx.operator.name }}</td>
+                            <td>{{ tx.service.name }}</td>
+                            <td>{{ tx.amount|floatformat:0 }} F</td>
+                            <td><span class="badge badge-status-{{ tx.status }}">{{ tx.get_status_display }}</span></td>
+                            <td>{{ tx.gateway.name|default:"-" }}</td>
+                            <td>
+                                {% if tx.latest_sim %}
+                                    {% if tx.latest_sim.msisdn %}{{ tx.latest_sim.msisdn }}{% else %}Slot {{ tx.latest_sim.slot }}{% endif %}
+                                {% else %}-{% endif %}
+                            </td>
+                            <td>
+                                {% if tx.payment %}
+                                <span class="badge badge-status-{{ tx.payment.status }}">{{ tx.payment.get_method_display }}</span>
+                                {% else %}-{% endif %}
+                            </td>
+                            <td>{{ tx.attempt_count }}</td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="10" class="text-center text-muted py-4">Aucune transaction trouvée</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    {% if page_obj.paginator.num_pages > 1 %}
+    <nav>
+        <ul class="pagination justify-content-center">
+            {% for page_num in page_obj.paginator.page_range %}
+            <li class="page-item {% if page_obj.number == page_num %}active{% endif %}">
+                <a class="page-link" href="?q={{ query }}&status={{ status }}&operator={{ operator_id }}&service={{ service_id }}&sort={{ sort }}&page={{ page_num }}">{{ page_num }}</a>
+            </li>
+            {% endfor %}
+        </ul>
+    </nav>
+    {% endif %}
+</div>
 {% endblock %}

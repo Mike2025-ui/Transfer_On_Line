@@ -1,9 +1,29 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.CALL_PHONE" />
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <uses-permission android:name="android.permission.READ_PHONE_NUMBERS" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Autonomous Gateway loop (Phase C): keeps the polling/heartbeat/dial
+         cycle running with the screen off. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- Required on API 33+ for the foreground service's persistent
+         notification to actually be visible - requested at runtime from
+         MainActivity before/alongside starting the service. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Sideloaded phones have no MDM to grant this silently - it is
+         requested explicitly from an onboarding screen a human taps through
+         once per phone (see requestBatteryOptimizationExemption). -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- SMS delivery (Phase C, Étape 7) - OTP codes today, see
+         apps.accounts.services.request_otp / apps.devices.models.SmsTask. -->
+    <uses-permission android:name="android.permission.SEND_SMS" />
     <application
         android:label="gateway_apk"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:networkSecurityConfig="@xml/network_security_config">
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -31,6 +51,56 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+
+        <!-- Autonomous Gateway loop (Phase C). dataSync: the real work is
+             periodic network polling/sync, not an actual telephone call -
+             see build.gradle.kts's targetSdk comment for why 34 is pinned. -->
+        <service
+            android:name=".GatewayForegroundService"
+            android:foregroundServiceType="dataSync"
+            android:exported="false" />
+
+        <!-- BOOT_COMPLETED is one of the few background-start exemptions
+             Android still honors on API 31+ - see BootReceiver's doc. -->
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- SMS sent/delivered outcomes (Étape 7) - targeted explicitly via
+             PendingIntent, never broadcast system-wide, so no intent-filter
+             is needed or declared here. -->
+        <receiver android:name=".SmsSentReceiver" android:exported="false" />
+        <receiver android:name=".SmsDeliveredReceiver" android:exported="false" />
+
+        <!-- Prototype Phase 8.2 (lecture/écriture de la boîte de dialogue USSD
+             système) - activation strictement manuelle par l'utilisateur dans
+             Paramètres > Accessibilité, jamais accordée automatiquement par
+             l'app. Non connecté au Backend ni à TelephonyGateway à ce stade. -->
+        <service
+            android:name=".UssdAccessibilityService"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/ussd_accessibility_service_config" />
+        </service>
+
+        <!-- UI de test isolée (Phase 8.2, preuve technique) - jamais lancée
+             depuis MainActivity/Flutter, pas d'icône dans le launcher
+             (exported=false) : accessible uniquement via
+             `adb shell am start -n com.example.gateway_apk/.UssdTestActivity`
+             pendant les tests sur device réel. -->
+        <activity
+            android:name=".UssdTestActivity"
+            android:exported="false"
+            android:label="USSD Test (Debug)" />
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

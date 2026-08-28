@@ -13,7 +13,9 @@ void main() {
   testWidgets('Gateway app loads and shows title', (WidgetTester tester) async {
     await tester.pumpWidget(const GatewayApp());
 
-    expect(find.text('Gateway Android'), findsOneWidget);
+    // "Gateway Android" legitimately appears twice: once in the AppBar
+    // title, once as the status card's own heading.
+    expect(find.text('Gateway Android'), findsNWidgets(2));
     expect(find.byType(AppBar), findsOneWidget);
   });
 }

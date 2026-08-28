@@ -1,13 +1,20 @@
+import 'dart:async';
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_theme.dart';
 import '../models/models.dart';
+import '../services/auth_service.dart';
 import '../services/backend_api_service.dart';
+import '../services/transaction_service.dart';
 import '../screens/notifications_screen.dart';
 import '../widgets/widgets.dart';
 
 class Step4PaymentScreen extends StatefulWidget {
+  final int operatorId;
+  final int serviceId;
   final String operator;
   final String service;
   final String operation;
@@ -15,9 +22,19 @@ class Step4PaymentScreen extends StatefulWidget {
   final int amount;
   final Function(Transaction) onTransactionAdded;
   final Function(AppNotification) onNotificationAdded;
+  // Business-model audit (frontend, §17): the same evolving notification
+  // list HomeScreen holds, threaded down screen by screen exactly like
+  // onNotificationAdded already is - so SuccessScreen's "VOIR LES
+  // NOTIFICATIONS" button can open the real list instead of the static
+  // sampleNotifications fixture.
+  final List<AppNotification> notifications;
+  final BackendApiService? backendApiService;
+  final AuthService? authService;
 
   const Step4PaymentScreen({
     super.key,
+    required this.operatorId,
+    required this.serviceId,
     required this.operator,
     required this.service,
     required this.operation,
@@ -25,6 +42,9 @@ class Step4PaymentScreen extends StatefulWidget {
     required this.amount,
     required this.onTransactionAdded,
     required this.onNotificationAdded,
+    required this.notifications,
+    this.backendApiService,
+    this.authService,
   });
 
   @override
@@ -32,8 +52,18 @@ class Step4PaymentScreen extends StatefulWidget {
 }
 
 class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
-  final BackendApiService _api = BackendApiService();
+  late final BackendApiService _api = widget.backendApiService ?? BackendApiService();
+  late final AuthService _auth = widget.authService ?? AuthService();
+  // Business-model audit Phase 5: one key per checkout attempt (this screen
+  // instance), generated once and reused across every internal retry of
+  // _confirm() - a genuinely new attempt only happens when the user leaves
+  // and re-enters this screen, which creates a new instance/key.
+  late final String _idempotencyKey = _generateIdempotencyKey();
   bool _loading = false;
+  String _selectedPaymentMethod = 'cinetpay';
+
+  String get _paymentLabel =>
+      _selectedPaymentMethod == 'geniuspay' ? 'GeniusPay' : 'CinetPay';
 
   int get _fee => (widget.amount * 0.01).round();
   int get _total => widget.amount + _fee;
@@ -60,7 +90,13 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
   @override
   Widget build(BuildContext context) {
     final isTransfer = widget.operation.contains('Transfert');
-    return Scaffold(
+    return PopScope(
+      // §15 de l'audit : bloquer la fermeture accidentelle de l'écran
+      // pendant la création de la transaction - une fois la requête HTTP en
+      // vol, un retour arrière ne l'annule pas côté Backend, il ferait juste
+      // perdre à l'utilisateur le fil de ce qui se passe.
+      canPop: !_loading,
+      child: Scaffold(
       backgroundColor: Colors.white,
       body: Column(
         children: [
@@ -204,7 +240,17 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
                     ),
                   ),
                   const SizedBox(height: 22),
-                  _cinetPayPanel(),
+                  _paymentMethodPanel(
+                    id: 'cinetpay',
+                    title: 'Paiement CinetPay',
+                    subtitle: 'Mobile Money, carte et canaux activés sur votre compte marchand.',
+                  ),
+                  const SizedBox(height: 10),
+                  _paymentMethodPanel(
+                    id: 'geniuspay',
+                    title: 'Paiement GeniusPay',
+                    subtitle: 'Wave, Orange Money, MTN, Moov et carte bancaire.',
+                  ),
                   const SizedBox(height: 16),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -233,6 +279,7 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
             ),
           ),
         ],
+      ),
       ),
     );
   }
@@ -271,12 +318,24 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
     );
   }
 
-  Widget _cinetPayPanel() => Container(
+  Widget _paymentMethodPanel({
+    required String id,
+    required String title,
+    required String subtitle,
+  }) {
+    final selected = _selectedPaymentMethod == id;
+    return InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onTap: () => setState(() => _selectedPaymentMethod = id),
+      child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: const Color(0xFFE7EAF2)),
+          border: Border.all(
+            color: selected ? AppColors.success : const Color(0xFFE7EAF2),
+            width: selected ? 2 : 1,
+          ),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withValues(alpha: 0.04),
@@ -287,14 +346,18 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
         ),
         child: Row(
           children: [
-            const Icon(Icons.verified_user_rounded, color: AppColors.success, size: 34),
+            Icon(
+              selected ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+              color: selected ? AppColors.success : AppColors.textSecondary,
+              size: 28,
+            ),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Paiement CinetPay',
+                    title,
                     style: GoogleFonts.nunito(
                       fontSize: 17,
                       fontWeight: FontWeight.w900,
@@ -302,7 +365,7 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
                     ),
                   ),
                   Text(
-                    'Mobile Money, carte et canaux activés sur votre compte marchand.',
+                    subtitle,
                     style: GoogleFonts.nunito(fontSize: 14, color: AppColors.textSecondary),
                   ),
                 ],
@@ -310,21 +373,23 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
             ),
           ],
         ),
-      );
+      ),
+    );
+  }
 
   Future<void> _confirm() async {
     setState(() => _loading = true);
     try {
       final result = await _confirmServer();
       if (result.checkoutUrl.isEmpty) {
-        throw Exception('URL de paiement CinetPay indisponible');
+        throw Exception('URL de paiement $_paymentLabel indisponible');
       }
       final launched = await launchUrl(
         Uri.parse(result.checkoutUrl),
         mode: LaunchMode.externalApplication,
       );
       if (!launched) {
-        throw Exception('Impossible d’ouvrir CinetPay');
+        throw Exception('Impossible d’ouvrir $_paymentLabel');
       }
       final now = DateTime.now();
       final transaction = Transaction(
@@ -334,7 +399,7 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
         operation: widget.operation,
         phone: widget.phone,
         amount: widget.amount,
-        paymentMethod: 'CinetPay',
+        paymentMethod: _paymentLabel,
         date: now,
         status: 'pending',
       );
@@ -343,7 +408,12 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
       if (!mounted) return;
       Navigator.push(
         context,
-        MaterialPageRoute(builder: (_) => SuccessScreen(transaction: transaction)),
+        MaterialPageRoute(
+          builder: (_) => SuccessScreen(
+            transaction: transaction,
+            notifications: widget.notifications,
+          ),
+        ),
       );
     } catch (error) {
       if (!mounted) return;
@@ -357,12 +427,18 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
 
   Future<BackendTransactionResult> _confirmServer() async {
     try {
+      final accessToken = await _auth.currentAccessToken();
       return await _api.createTransaction(
+        operatorId: widget.operatorId,
+        serviceId: widget.serviceId,
         operator: widget.operator,
         service: widget.service,
         operation: widget.operation,
         phone: widget.phone,
         amount: widget.amount,
+        paymentMethod: _selectedPaymentMethod,
+        accessToken: accessToken,
+        idempotencyKey: _idempotencyKey,
       );
     } catch (_) {
       rethrow;
@@ -377,7 +453,7 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
       title: success
           ? '${transaction.operation} ${transaction.service} réussie'
           : pending
-              ? 'Paiement CinetPay en attente'
+              ? 'Paiement $_paymentLabel en attente'
               : '${transaction.operation} ${transaction.service} échouée',
       message:
           'Numéro : ${transaction.phone}\nMontant : ${transaction.amount} FCFA\nFrais : ${transaction.fee} FCFA\nTotal débité : ${transaction.total} FCFA\nMoyen de paiement : ${transaction.paymentMethod}',
@@ -401,13 +477,197 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
 
 }
 
-class SuccessScreen extends StatelessWidget {
+/// Random UUID v4, generated locally with no added dependency - only used as
+/// an opaque Idempotency-Key value, never parsed or displayed.
+String _generateIdempotencyKey() {
+  final random = Random.secure();
+  final bytes = List<int>.generate(16, (_) => random.nextInt(256));
+  bytes[6] = (bytes[6] & 0x0F) | 0x40; // version 4
+  bytes[8] = (bytes[8] & 0x3F) | 0x80; // variant 10xx
+  String hex(int start, int end) => bytes
+      .sublist(start, end)
+      .map((b) => b.toRadixString(16).padLeft(2, '0'))
+      .join();
+  return '${hex(0, 4)}-${hex(4, 6)}-${hex(6, 8)}-${hex(8, 10)}-${hex(10, 16)}';
+}
+
+class SuccessScreen extends StatefulWidget {
   final Transaction transaction;
+  final List<AppNotification> notifications;
+  final BackendApiService? backendApiService;
+  final AuthService? authService;
 
   const SuccessScreen({
     super.key,
     required this.transaction,
+    required this.notifications,
+    this.backendApiService,
+    this.authService,
   });
+
+  @override
+  State<SuccessScreen> createState() => _SuccessScreenState();
+}
+
+class _SuccessScreenState extends State<SuccessScreen> with WidgetsBindingObserver {
+  /// Calendrier de vérification progressif (audit frontend D4, §6) : des
+  /// vérifications rapprochées au début, de plus en plus espacées ensuite -
+  /// jamais un `Timer.periodic` à cadence fixe qui marteler le Backend, et
+  /// surtout jamais un plafond qui déclare l'opération abandonnée. Une
+  /// session USSD interactive peut dépasser largement l'ancienne limite de
+  /// 60s (voir UssdAccessibilityService/D4 côté Gateway - jamais mentionné
+  /// ici, seul le Backend importe pour ce Client).
+  static const List<Duration> _pollDelays = [
+    Duration(seconds: 3),
+    Duration(seconds: 3),
+    Duration(seconds: 4),
+    Duration(seconds: 5),
+    Duration(seconds: 5),
+    Duration(seconds: 10),
+    Duration(seconds: 15),
+    Duration(seconds: 15),
+    Duration(seconds: 30),
+    Duration(seconds: 30),
+  ];
+  // Rythme de croisière une fois le calendrier ci-dessus épuisé (120s
+  // cumulés) - continue indéfiniment tant que le Backend répond "pending",
+  // sans jamais déclarer l'opération terminée de son propre chef.
+  static const _steadyPollDelay = Duration(seconds: 60);
+  // Seuil à partir duquel l'écran informe explicitement l'utilisateur que
+  // l'attente se prolonge et propose une vérification manuelle immédiate -
+  // le suivi automatique, lui, continue de tourner sans interruption.
+  static const _extendedWaitThreshold = Duration(seconds: 60);
+
+  late final BackendApiService _api = widget.backendApiService ?? BackendApiService();
+  late final AuthService _auth = widget.authService ?? AuthService();
+  late Transaction _transaction = widget.transaction;
+  Timer? _pollTimer;
+  int _attempts = 0;
+  bool _checking = false;
+  bool _pollingStarted = false;
+  // Temps cumulé des délais programmés déjà écoulés (audit frontend D4, §8) -
+  // délibérément PAS une horloge murale (`DateTime.now()`) : dans les tests
+  // widget, `tester.pump(duration)` avance l'horloge virtuelle des `Timer`
+  // mais jamais `DateTime.now()`, qui resterait bloqué sur l'instant réel du
+  // test. En comptant les délais réellement programmés/écoulés, l'attente
+  // prolongée reste déterministe en test ET fidèle en production (elle ne
+  // progresse que lorsqu'un tick programmé se déclenche réellement).
+  Duration _elapsedPolling = Duration.zero;
+  bool _lifecycleObserverAdded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Opening the checkout URL only means the browser opened - it is not
+    // proof of anything. Only a status still 'pending' needs confirming;
+    // never re-poll an already-resolved local transaction.
+    if (_transaction.status == 'pending') {
+      _pollingStarted = true;
+      WidgetsBinding.instance.addObserver(this);
+      _lifecycleObserverAdded = true;
+      // Vérification immédiate (0s) plutôt que d'attendre le premier délai
+      // du calendrier - voir _checkStatus/_scheduleNext pour la suite.
+      _checkStatus();
+    }
+  }
+
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    if (_lifecycleObserverAdded) WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Audit frontend D4, §9 : au retour au premier plan, vérifier
+    // immédiatement plutôt que d'attendre le prochain tick programmé - le
+    // Backend a pu terminer le traitement pendant que l'app était en
+    // arrière-plan.
+    if (state == AppLifecycleState.resumed && _transaction.status == 'pending' && !_checking) {
+      _pollTimer?.cancel();
+      _checkStatus();
+    }
+  }
+
+  Duration _nextPollDelay() {
+    if (_attempts < _pollDelays.length) return _pollDelays[_attempts];
+    return _steadyPollDelay;
+  }
+
+  /// True une fois l'attente prolongée au-delà de [_extendedWaitThreshold] -
+  /// pilote uniquement le texte affiché et la présence du bouton de
+  /// vérification manuelle, jamais une décision de statut.
+  bool get _isLongWait => _pollingStarted && _elapsedPolling >= _extendedWaitThreshold;
+
+  Future<void> _checkStatus() async {
+    if (_checking || !mounted || _transaction.status != 'pending') return;
+    _checking = true;
+    var stillPending = false;
+    try {
+      final accessToken = await _auth.currentAccessToken();
+      // transaction.id already holds the backend `reference` (see
+      // _confirm() above: `id: result.reference`), which is exactly what
+      // GET /transactions/<reference>/status/ expects.
+      final result = await _api.getTransactionStatus(_transaction.id, accessToken: accessToken);
+      if (result.isPending) {
+        stillPending = true;
+      } else {
+        final newStatus = result.isSuccess ? 'ok' : (result.isCancelled ? 'cancelled' : 'fail');
+        final updated = Transaction(
+          id: _transaction.id,
+          operator: _transaction.operator,
+          service: _transaction.service,
+          operation: _transaction.operation,
+          phone: _transaction.phone,
+          amount: _transaction.amount,
+          paymentMethod: _transaction.paymentMethod,
+          date: _transaction.date,
+          status: newStatus,
+        );
+        if (mounted) setState(() => _transaction = updated);
+        await _persistStatus(updated);
+      }
+    } on TransactionNotFoundException {
+      // Never fabricate an outcome for a transaction the backend doesn't
+      // recognize - just stop asking.
+    } catch (_) {
+      // Transient network/server error on this one tick only - stay
+      // pending and retry on the next scheduled tick. A polling error must
+      // never be turned into FAILED: only the Backend decides the outcome.
+      stillPending = true;
+    } finally {
+      _checking = false;
+    }
+    if (stillPending && mounted && _transaction.status == 'pending') {
+      final delay = _nextPollDelay();
+      _attempts++;
+      _elapsedPolling += delay;
+      setState(() {}); // reflect a newly-crossed _isLongWait threshold, if any
+      _pollTimer?.cancel();
+      _pollTimer = Timer(delay, _checkStatus);
+    }
+  }
+
+  /// Bouton "VÉRIFIER MAINTENANT" (audit frontend D4, §8) : court-circuite
+  /// l'attente du prochain tick programmé sans perturber le calendrier -
+  /// _checkStatus reprogramme normalement la suite s'il reste pending.
+  void _checkNow() {
+    if (_checking) return;
+    _pollTimer?.cancel();
+    _checkStatus();
+  }
+
+  /// Corrects the locally-persisted record too, not just what is shown on
+  /// this screen - so the fix reaches the actual source of the P0-2 defect
+  /// (a transaction permanently stuck at 'pending' in local history).
+  Future<void> _persistStatus(Transaction updated) async {
+    final saved = await TransactionService.load();
+    final index = saved.indexWhere((t) => t.id == updated.id);
+    if (index == -1) return;
+    saved[index] = updated;
+    await TransactionService.save(saved);
+  }
 
   String _operatorLogo(String operator) {
     if (operator == 'MTN') return 'assets/images/mtn.jpg';
@@ -430,9 +690,10 @@ class SuccessScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = transaction;
+    final t = _transaction;
     final isSuccess = t.status == 'ok';
     final isPending = t.status == 'pending';
+    final isCancelled = t.status == 'cancelled';
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
@@ -482,14 +743,26 @@ class SuccessScreen extends StatelessWidget {
                       shape: BoxShape.circle,
                     ),
                     child: Icon(
-                      isSuccess ? Icons.check_rounded : isPending ? Icons.hourglass_top_rounded : Icons.close_rounded,
+                      isSuccess
+                          ? Icons.check_rounded
+                          : isPending
+                              ? Icons.hourglass_top_rounded
+                              : isCancelled
+                                  ? Icons.cancel_outlined
+                                  : Icons.close_rounded,
                       color: Colors.white,
                       size: 42,
                     ),
                   ),
                   const SizedBox(height: 14),
                   Text(
-                    isSuccess ? 'Transaction réussie' : isPending ? 'Paiement en attente' : 'Transaction échouée',
+                    isSuccess
+                        ? 'Transaction réussie'
+                        : isPending
+                            ? 'Paiement en attente'
+                            : isCancelled
+                                ? 'Paiement annulé'
+                                : 'Transaction échouée',
                     style: GoogleFonts.nunito(
                       fontSize: 22,
                       fontWeight: FontWeight.w900,
@@ -501,8 +774,10 @@ class SuccessScreen extends StatelessWidget {
                     isSuccess
                         ? 'Votre opération a été effectuée avec succès'
                         : isPending
-                            ? 'Finalisez le paiement CinetPay. La Gateway Android exécutera ensuite l’opération.'
-                            : 'Une erreur est survenue lors du paiement. Vérifiez votre solde ou réessayez.',
+                            ? 'Finalisez le paiement ${t.paymentMethod}. Votre opération sera ensuite traitée automatiquement.'
+                            : isCancelled
+                                ? 'Le paiement a été annulé. Vous pouvez réessayer si vous le souhaitez.'
+                                : 'Une erreur est survenue lors du paiement. Vérifiez votre solde ou réessayez.',
                     style: GoogleFonts.nunito(
                       fontSize: 16,
                       fontWeight: FontWeight.w600,
@@ -588,7 +863,7 @@ class SuccessScreen extends StatelessWidget {
                       const Icon(Icons.verified_user_outlined,
                           color: AppColors.success, size: 30),
                       'Statut',
-                      isSuccess ? 'Réussie' : isPending ? 'En attente' : 'Échouée',
+                      t.statusLabel,
                       AppColors.success,
                       last: true),
                 ],
@@ -622,8 +897,12 @@ class SuccessScreen extends StatelessWidget {
                                 color: AppColors.textPrimary)),
                         Text(
                           isPending
-                              ? 'Votre paiement CinetPay est ouvert. Après confirmation, la Gateway Android traitera automatiquement l’opération.\n\nMontant du forfait : ${t.amount} FCFA\nFrais de service : ${t.fee} FCFA\nTotal à payer : ${t.total} FCFA'
-                              : 'Votre forfait ${t.service} a été activé avec succès.\n\nMontant du forfait : ${t.amount} FCFA\nFrais de service : ${t.fee} FCFA\nTotal débité : ${t.total} FCFA',
+                              ? 'Votre paiement ${t.paymentMethod} est ouvert. Après confirmation, votre opération sera traitée automatiquement.\n\nMontant du forfait : ${t.amount} FCFA\nFrais de service : ${t.fee} FCFA\nTotal à payer : ${t.total} FCFA'
+                              : isSuccess
+                                  ? 'Votre forfait ${t.service} a été activé avec succès.\n\nMontant du forfait : ${t.amount} FCFA\nFrais de service : ${t.fee} FCFA\nTotal débité : ${t.total} FCFA'
+                                  : isCancelled
+                                      ? 'Le paiement ${t.paymentMethod} a été annulé avant sa confirmation. Aucun montant n’a été débité.'
+                                      : 'Le paiement ${t.paymentMethod} n’a pas pu être confirmé. Vérifiez votre solde ou réessayez depuis l’accueil.',
                           style: GoogleFonts.nunito(
                             fontSize: 15,
                             height: 1.25,
@@ -637,6 +916,51 @@ class SuccessScreen extends StatelessWidget {
                 ],
               ),
             ),
+            if (isPending && _isLongWait) ...[
+              const SizedBox(height: 18),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: AppColors.amberLight,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFFF5E0B8)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.schedule_rounded, color: AppColors.amber, size: 24),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'Votre opération est toujours en cours.',
+                            style: GoogleFonts.nunito(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w900,
+                              color: AppColors.amber,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Cela peut prendre un peu plus de temps que d\'habitude. Le suivi continue automatiquement - vous pouvez aussi vérifier maintenant.',
+                      style: GoogleFonts.nunito(fontSize: 13, color: AppColors.textSecondary),
+                    ),
+                    const SizedBox(height: 12),
+                    TolButton(
+                      label: 'VÉRIFIER MAINTENANT',
+                      color: AppColors.amber,
+                      loading: _checking,
+                      onTap: _checkNow,
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 18),
             TolButton(
               label: 'VOIR LES NOTIFICATIONS',
@@ -644,7 +968,7 @@ class SuccessScreen extends StatelessWidget {
                 context,
                 MaterialPageRoute(
                   builder: (_) =>
-                      NotificationsScreen(notifications: sampleNotifications),
+                      NotificationsScreen(notifications: widget.notifications),
                 ),
               ),
             ),

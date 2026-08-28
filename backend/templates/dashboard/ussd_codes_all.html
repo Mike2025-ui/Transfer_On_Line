@@ -1,0 +1,81 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container-fluid px-4">
+    <div class="card border-0 shadow-sm mb-4">
+        <div class="card-body">
+            <form method="get" class="row g-2 align-items-center">
+                <div class="col-md-3">
+                    <input type="text" name="q" value="{{ query }}" class="form-control" placeholder="Libellé ou template...">
+                </div>
+                <div class="col-md-3">
+                    <select name="operator" class="form-select">
+                        <option value="">Tous les opérateurs</option>
+                        {% for op in operators %}
+                        <option value="{{ op.id }}" {% if operator_id == op.id|stringformat:"s" %}selected{% endif %}>{{ op.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <select name="service" class="form-select">
+                        <option value="">Tous les services</option>
+                        {% for s in services %}
+                        <option value="{{ s.id }}" {% if service_id == s.id|stringformat:"s" %}selected{% endif %}>{{ s.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <select name="active" class="form-select">
+                        <option value="">Tous</option>
+                        <option value="active" {% if active == 'active' %}selected{% endif %}>Actifs</option>
+                        <option value="inactive" {% if active == 'inactive' %}selected{% endif %}>Inactifs</option>
+                    </select>
+                </div>
+                <div class="col-md-1">
+                    <button type="submit" class="btn btn-outline-primary w-100"><i class="fas fa-search"></i></button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="card border-0 shadow-sm mb-4">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead><tr><th>Opérateur</th><th>Service</th><th>Libellé</th><th>Template</th><th>Statut</th><th class="text-end">Actions</th></tr></thead>
+                    <tbody>
+                        {% for code in page_obj %}
+                        <tr>
+                            <td>{{ code.operator.name }}</td>
+                            <td>{{ code.service.name|default:"Tous services" }}</td>
+                            <td>{{ code.label }}{% if code.is_default %} <span class="badge bg-light text-dark">défaut</span>{% endif %}</td>
+                            <td><code>{{ code.template }}</code></td>
+                            <td>{% if code.is_active %}<span class="badge badge-status-success">Actif</span>{% else %}<span class="badge bg-secondary">Inactif</span>{% endif %}</td>
+                            <td class="text-end">
+                                <a href="{% url 'ussd_codes' pk=code.operator.pk %}" class="btn btn-sm btn-outline-primary" title="Voir dans l'opérateur"><i class="fas fa-building"></i></a>
+                                <a href="{% url 'ussd_code_edit' pk=code.pk %}" class="btn btn-sm btn-outline-secondary" title="Modifier"><i class="fas fa-pen"></i></a>
+                                <a href="{% url 'ussd_code_delete' pk=code.pk %}" class="btn btn-sm btn-outline-danger" title="Supprimer"><i class="fas fa-trash"></i></a>
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="6" class="text-center text-muted py-4">Aucun code USSD trouvé</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    {% if page_obj.paginator.num_pages > 1 %}
+    <nav>
+        <ul class="pagination justify-content-center">
+            {% for page_num in page_obj.paginator.page_range %}
+            <li class="page-item {% if page_obj.number == page_num %}active{% endif %}">
+                <a class="page-link" href="?q={{ query }}&operator={{ operator_id }}&service={{ service_id }}&active={{ active }}&page={{ page_num }}">{{ page_num }}</a>
+            </li>
+            {% endfor %}
+        </ul>
+    </nav>
+    {% endif %}
+</div>
+{% endblock %}

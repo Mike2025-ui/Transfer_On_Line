@@ -1,0 +1,67 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container-fluid px-4">
+    <div class="d-flex justify-content-end mb-3">
+        <a href="{% url 'service_create' %}" class="btn btn-primary"><i class="fas fa-plus me-1"></i> Nouveau service</a>
+    </div>
+
+    <div class="card border-0 shadow-sm mb-4">
+        <div class="card-body">
+            <form method="get" class="row g-2 align-items-center">
+                <div class="col-md-6">
+                    <input type="text" name="q" value="{{ query }}" class="form-control" placeholder="Rechercher par nom ou code...">
+                </div>
+                <div class="col-md-3">
+                    <select name="status" class="form-select">
+                        <option value="" {% if not status %}selected{% endif %}>Tous les statuts</option>
+                        <option value="active" {% if status == 'active' %}selected{% endif %}>Actifs</option>
+                        <option value="inactive" {% if status == 'inactive' %}selected{% endif %}>Inactifs</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <button type="submit" class="btn btn-outline-primary w-100"><i class="fas fa-search me-1"></i> Filtrer</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="card border-0 shadow-sm mb-4">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead><tr><th>Nom</th><th>Code</th><th>Statut</th><th>Codes USSD associés</th><th class="text-end">Actions</th></tr></thead>
+                    <tbody>
+                        {% for service in page_obj %}
+                        <tr>
+                            <td class="fw-semibold">{{ service.name }}</td>
+                            <td><code>{{ service.code }}</code></td>
+                            <td>{% if service.is_active %}<span class="badge badge-status-success">Actif</span>{% else %}<span class="badge bg-secondary">Inactif</span>{% endif %}</td>
+                            <td>{{ service.ussd_code_count }} code{{ service.ussd_code_count|pluralize }}</td>
+                            <td class="text-end">
+                                <a href="{% url 'service_edit' pk=service.pk %}" class="btn btn-sm btn-outline-secondary" title="Modifier"><i class="fas fa-pen"></i></a>
+                                <a href="{% url 'service_delete' pk=service.pk %}" class="btn btn-sm btn-outline-danger" title="Supprimer"><i class="fas fa-trash"></i></a>
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="5" class="text-center text-muted py-4">Aucun service trouvé</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    {% if page_obj.paginator.num_pages > 1 %}
+    <nav>
+        <ul class="pagination justify-content-center">
+            {% for page_num in page_obj.paginator.page_range %}
+            <li class="page-item {% if page_obj.number == page_num %}active{% endif %}">
+                <a class="page-link" href="?q={{ query }}&status={{ status }}&page={{ page_num }}">{{ page_num }}</a>
+            </li>
+            {% endfor %}
+        </ul>
+    </nav>
+    {% endif %}
+</div>
+{% endblock %}

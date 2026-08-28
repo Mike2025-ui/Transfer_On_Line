@@ -4,9 +4,9 @@ import os
 import sys
 
 # ---------- FORCER LE VIRTUALENV ----------
-VENV_PYTHON = r'C:\Users\TOSHIBA\transfer_on_line\venv\Scripts\python.exe'
-if sys.executable != VENV_PYTHON:
-    os.execv(VENV_PYTHON, [VENV_PYTHON] + sys.argv)
+#VENV_PYTHON = r'C:\Users\TOSHIBA\transfer_on_line\venv\Scripts\python.exe'
+#if sys.executable != VENV_PYTHON:
+#    os.execv(VENV_PYTHON, [VENV_PYTHON] + sys.argv)
 # ------------------------------------------
 
 def main():

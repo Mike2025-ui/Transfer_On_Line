@@ -28,9 +28,15 @@ class Step1OperatorScreen extends StatelessWidget {
       context,
       MaterialPageRoute(
         builder: (_) => Step2ServiceScreen(
+          // This screen is unreachable (never instantiated anywhere in the
+          // app - confirmed dead code, HomeScreen is the real entry point)
+          // and only ever carried operator names, never ids - kept
+          // compiling with a placeholder rather than invented data.
+          operatorId: -1,
           operator: op,
           onTransactionAdded: onTransactionAdded,
           onNotificationAdded: onNotificationAdded,
+          notifications: const [],
         ),
       ),
     );

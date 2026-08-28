@@ -1,24 +1,69 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_animate/flutter_animate.dart';
-import '../theme/app_theme.dart';
 import '../models/models.dart';
+import '../services/auth_service.dart';
+import '../theme/app_theme.dart';
+import 'phone_verification_screen.dart';
 
 // ─── Profile Screen — Profil utilisateur ─────────────────────────────────────
-// Affiche les informations de l'utilisateur, ses statistiques et ses paramètres.
+// Audit frontend D4 (§18) : cet écran affichait un nom/email fictifs et un
+// bouton "Déconnexion" qui ne faisait rien. Le Backend (apps.accounts) ne
+// connaît qu'un numéro de téléphone - il n'y a pas de nom/email à afficher,
+// donc aucun n'est inventé ici. Les statistiques viennent des vraies
+// transactions locales (TransactionService, via HomeScreen), pas d'exemples.
 
-class ProfileScreen extends StatelessWidget {
-  const ProfileScreen({super.key});
+class ProfileScreen extends StatefulWidget {
+  final List<Transaction> transactions;
+  final AuthService? authService;
 
-  // Données de démo pour la présentation
-  static const _name = 'Konan Yves';
-  static const _email = 'k.yves@afritech-ci.com';
-  static const _phone = '07 01 23 45 67';
-  static const _memberSince = 'Membre depuis Jan 2025';
+  const ProfileScreen({super.key, required this.transactions, this.authService});
+
+  @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  late final AuthService _auth = widget.authService ?? AuthService();
+  String? _phone;
+  bool _loggingOut = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPhone();
+  }
+
+  Future<void> _loadPhone() async {
+    try {
+      final phone = await _auth.currentPhoneNumber();
+      if (mounted) setState(() => _phone = phone);
+    } catch (_) {
+      // A secure-storage read failure must never crash this screen - the
+      // header simply falls back to its "non disponible" placeholder.
+    }
+  }
+
+  /// Déconnexion réelle (audit frontend D4, §18) : efface la session stockée
+  /// via AuthService.logout() (déjà testé, cf. auth_service_test.dart) puis
+  /// ramène vers l'écran de vérification du numéro, en vidant toute la pile
+  /// de navigation - un utilisateur déconnecté ne doit jamais pouvoir
+  /// revenir en arrière vers un écran qui suppose une session active.
+  Future<void> _logout() async {
+    if (_loggingOut) return;
+    setState(() => _loggingOut = true);
+    await _auth.logout();
+    if (!mounted) return;
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(builder: (_) => const PhoneVerificationScreen()),
+      (route) => false,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    final txns = sampleTransactions;
+    final txns = widget.transactions;
     final totalOk = txns.where((t) => t.status == 'ok').fold(0, (a, t) => a + t.amount);
     final okCount = txns.where((t) => t.status == 'ok').length;
     final pct = txns.isEmpty ? 0 : (okCount / txns.length * 100).round();
@@ -27,7 +72,6 @@ class ProfileScreen extends StatelessWidget {
       backgroundColor: AppColors.background,
       body: CustomScrollView(
         slivers: [
-          // ── Header ──
           SliverToBoxAdapter(child: _buildHeader(context)),
 
           // ── Statistiques ──
@@ -70,7 +114,15 @@ class ProfileScreen extends StatelessWidget {
                           fontWeight: FontWeight.w900,
                           color: AppColors.textPrimary)),
                   const SizedBox(height: 12),
-                  ..._buildOperatorStats(txns),
+                  if (txns.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Text('Aucune transaction pour le moment.',
+                          style: GoogleFonts.nunito(
+                              fontSize: 13, color: AppColors.textSecondary)),
+                    )
+                  else
+                    ..._buildOperatorStats(txns),
                 ],
               ).animate().fadeIn(delay: 400.ms),
             ),
@@ -115,12 +167,18 @@ class ProfileScreen extends StatelessWidget {
                   width: double.infinity,
                   height: 52,
                   child: OutlinedButton.icon(
-                    onPressed: () {},
+                    onPressed: _loggingOut ? null : _logout,
                     style: OutlinedButton.styleFrom(
                       side: const BorderSide(color: AppColors.red, width: 1.5),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                     ),
-                    icon: const Icon(Icons.logout_rounded, color: AppColors.red, size: 20),
+                    icon: _loggingOut
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(color: AppColors.red, strokeWidth: 2),
+                          )
+                        : const Icon(Icons.logout_rounded, color: AppColors.red, size: 20),
                     label: Text('Déconnexion',
                         style: GoogleFonts.nunito(
                             fontSize: 15,
@@ -160,7 +218,6 @@ class ProfileScreen extends StatelessWidget {
       ),
       child: Column(
         children: [
-          // Avatar avec initiales
           Container(
             width: 84,
             height: 84,
@@ -169,41 +226,22 @@ class ProfileScreen extends StatelessWidget {
               shape: BoxShape.circle,
               border: Border.all(color: Colors.white.withValues(alpha: 0.3), width: 2),
             ),
-            child: Center(
-              child: Text(
-                _name.split(' ').map((p) => p[0]).take(2).join(),
-                style: GoogleFonts.nunito(
-                    fontSize: 32, fontWeight: FontWeight.w900, color: Colors.white),
-              ),
+            child: const Center(
+              child: Icon(Icons.person_rounded, size: 40, color: Colors.white),
             ),
           ).animate().scale(duration: 500.ms, curve: Curves.elasticOut),
 
           const SizedBox(height: 14),
 
-          Text(_name,
-              style: GoogleFonts.nunito(
-                  fontSize: 22, fontWeight: FontWeight.w900, color: Colors.white))
-              .animate(delay: 100.ms).fadeIn(),
-
-          const SizedBox(height: 4),
-
-          Text(_email,
-              style: GoogleFonts.nunito(fontSize: 13, color: Colors.white60))
-              .animate(delay: 150.ms).fadeIn(),
-
-          const SizedBox(height: 4),
-
           Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-            const Icon(Icons.phone_rounded, color: Colors.white38, size: 14),
-            const SizedBox(width: 4),
-            Text(_phone,
-                style: GoogleFonts.nunito(fontSize: 12, color: Colors.white54)),
-            const SizedBox(width: 16),
-            const Icon(Icons.calendar_today_rounded, color: Colors.white38, size: 14),
-            const SizedBox(width: 4),
-            Text(_memberSince,
-                style: GoogleFonts.nunito(fontSize: 12, color: Colors.white54)),
-          ]).animate(delay: 200.ms).fadeIn(),
+            const Icon(Icons.phone_rounded, color: Colors.white60, size: 16),
+            const SizedBox(width: 6),
+            Text(
+              _phone ?? 'Numéro non disponible',
+              style: GoogleFonts.nunito(
+                  fontSize: 18, fontWeight: FontWeight.w900, color: Colors.white),
+            ),
+          ]).animate(delay: 100.ms).fadeIn(),
         ],
       ),
     );

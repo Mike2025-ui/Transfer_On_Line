@@ -3,67 +3,73 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Transfer On Line - Admin</title>
+    <title>{{ title|default:"Tableau de bord" }} - Transfer On Line</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        body { background-color: #f8f9fa; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        :root {
+            --tol-ink: #0f2419;
+            --tol-green: #0e6e4a;
+            --tol-green-dark: #0a3d29;
+            --tol-green-bright: #16a366;
+            --tol-paper: #f4f6f5;
+            --tol-line: #e2e6e4;
+            --tol-amber: #b8860a;
+            --tol-red: #c0392b;
+        }
+        body { background-color: var(--tol-paper); font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: var(--tol-ink); }
+
         .sidebar {
             min-height: 100vh;
-            background: linear-gradient(180deg, #0d6efd 0%, #0a58ca 100%);
+            background: linear-gradient(180deg, var(--tol-green-dark) 0%, var(--tol-ink) 100%);
             color: white;
-            box-shadow: 2px 0 10px rgba(0,0,0,0.1);
             position: sticky;
             top: 0;
             overflow-y: auto;
         }
-        .sidebar .nav-link {
-            color: rgba(255,255,255,0.8);
-            padding: 12px 16px;
-            border-radius: 8px;
-            transition: all 0.3s ease;
-            margin-bottom: 2px;
-        }
-        .sidebar .nav-link:hover {
-            color: white;
-            background-color: rgba(255,255,255,0.15);
-            transform: translateX(5px);
-        }
-        .sidebar .nav-link.active {
-            background-color: rgba(255,255,255,0.2);
-            color: white;
-            font-weight: 600;
-        }
-        .sidebar .nav-link i { width: 24px; text-align: center; }
-        .sidebar .brand {
-            border-bottom: 1px solid rgba(255,255,255,0.1);
-            padding: 20px 0 15px 0;
-        }
-        .sidebar .brand h4 { font-weight: 700; letter-spacing: 1px; margin-bottom: 2px; }
-        .sidebar .brand small { font-weight: 300; opacity: 0.8; }
-        .card {
-            border: none;
-            border-radius: 12px;
-            transition: transform 0.2s ease, box-shadow 0.2s ease;
-        }
-        .card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 25px rgba(0,0,0,0.08) !important;
-        }
-        .card .card-header { background: transparent; border-bottom: 1px solid rgba(0,0,0,0.05); }
-        .badge { font-weight: 500; padding: 5px 12px; border-radius: 20px; }
-        .table > :not(caption) > * > * { padding: 12px 15px; }
-        .table tbody tr:hover { background-color: rgba(13, 110, 253, 0.04); }
-        .footer { border-top: 1px solid rgba(0,0,0,0.05); padding-top: 15px; margin-top: 20px; }
+        .sidebar .brand { padding: 22px 20px 16px; border-bottom: 1px solid rgba(255,255,255,0.08); display: flex; align-items: center; gap: 10px; }
+        .sidebar .brand .logo { width: 34px; height: 34px; border-radius: 8px; background: var(--tol-green-bright); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+        .sidebar .brand h4 { font-weight: 700; letter-spacing: 0.3px; margin: 0; font-size: 1.05rem; line-height: 1.15; }
+        .sidebar .brand small { font-weight: 300; opacity: 0.65; font-size: 0.72rem; }
+        .sidebar .nav-section-label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.08em; color: rgba(255,255,255,0.4); padding: 14px 16px 6px; }
+        .sidebar .nav-link { color: rgba(255,255,255,0.78); padding: 9px 14px; border-radius: 7px; margin: 1px 8px; font-size: 0.92rem; transition: background-color .15s ease, color .15s ease; }
+        .sidebar .nav-link:hover { color: #fff; background-color: rgba(255,255,255,0.08); }
+        .sidebar .nav-link.active { background-color: var(--tol-green-bright); color: #fff; font-weight: 600; }
+        .sidebar .nav-link i { width: 20px; text-align: center; margin-right: 10px; }
+
+        .topbar { background: #fff; border-bottom: 1px solid var(--tol-line); padding: 14px 24px; }
+        .topbar h1 { font-size: 1.25rem; font-weight: 700; margin: 0; color: var(--tol-ink); }
+
+        .card { border: 1px solid var(--tol-line); border-radius: 10px; box-shadow: none; }
+        .card .card-header { background: transparent; border-bottom: 1px solid var(--tol-line); font-weight: 600; }
+        .stat-tile { border: 1px solid var(--tol-line); border-radius: 10px; background: #fff; padding: 16px 18px; }
+        .stat-tile .stat-icon { width: 42px; height: 42px; border-radius: 9px; display: flex; align-items: center; justify-content: center; font-size: 1.05rem; }
+        .stat-tile .stat-value { font-size: 1.5rem; font-weight: 700; line-height: 1.1; }
+        .stat-tile .stat-label { color: #6b7a72; font-size: 0.8rem; }
+
+        .badge-status-success, .badge-status-accepted { background: #e3f6ea; color: #0e6e4a; }
+        .badge-status-failed, .badge-status-refused, .badge-status-cancelled { background: #fbe9e7; color: var(--tol-red); }
+        .badge-status-pending { background: #fff6e0; color: var(--tol-amber); }
+        .badge-status-processing, .badge-status-executing, .badge-status-dispatched, .badge-status-assigned { background: #e6f0fb; color: #1a5fb4; }
+        .badge-status-expired { background: #eee; color: #666; }
+        .badge { font-weight: 600; padding: 5px 11px; border-radius: 20px; font-size: 0.76rem; }
+
+        .table > :not(caption) > * > * { padding: 11px 14px; vertical-align: middle; }
+        .table thead th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; color: #6b7a72; border-bottom: 2px solid var(--tol-line); font-weight: 700; }
+        .table tbody tr:hover { background-color: rgba(14, 110, 74, 0.035); }
+
+        .health-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+        .health-dot.ok { background: var(--tol-green-bright); }
+        .health-dot.down { background: var(--tol-red); }
+        .health-dot.not_configured { background: #b5b5b5; }
+
+        .footer { border-top: 1px solid var(--tol-line); padding-top: 15px; margin-top: 24px; }
         ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 10px; }
-        ::-webkit-scrollbar-thumb { background: #0d6efd; border-radius: 10px; }
-        ::-webkit-scrollbar-thumb:hover { background: #0a58ca; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 10px; }
         @media (max-width: 768px) {
             .sidebar { min-height: auto; position: relative; }
-            .sidebar .brand { padding: 15px 0; }
-            .sidebar .nav-link { padding: 10px 12px; }
         }
     </style>
 </head>
@@ -72,58 +78,36 @@
         <div class="row g-0">
             <nav class="col-md-2 sidebar p-0">
                 <div class="position-sticky" style="top: 0;">
-                    <div class="brand text-center">
-                        <h4 class="fw-bold"><i class="fas fa-arrow-right me-2"></i>Transfer OL</h4>
-                        <small>Dashboard Admin</small>
+                    <div class="brand">
+                        <div class="logo"><i class="fas fa-arrow-right text-white"></i></div>
+                        <div>
+                            <h4>TRANSFER<br>ONLINE</h4>
+                            <small>Back Office</small>
+                        </div>
                     </div>
-                    <ul class="nav flex-column p-3">
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}" href="{% url 'dashboard' %}">
-                                <i class="fas fa-chart-pie me-2"></i> Tableau de bord
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.resolver_match.url_name == 'transactions' %}active{% endif %}" href="{% url 'transactions' %}">
-                                <i class="fas fa-exchange-alt me-2"></i> Transactions
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.resolver_match.url_name == 'refunds' %}active{% endif %}" href="{% url 'refunds' %}">
-                                <i class="fas fa-undo me-2"></i> Remboursements
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.resolver_match.url_name == 'gateways' %}active{% endif %}" href="{% url 'gateways' %}">
-                                <i class="fas fa-server me-2"></i> Gateways
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.resolver_match.url_name == 'clients' %}active{% endif %}" href="{% url 'clients' %}">
-                                <i class="fas fa-users me-2"></i> Clients
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.resolver_match.url_name == 'reports' %}active{% endif %}" href="{% url 'reports' %}">
-                                <i class="fas fa-chart-bar me-2"></i> Rapports
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.resolver_match.url_name == 'notifications' %}active{% endif %}" href="{% url 'notifications' %}">
-                                <i class="fas fa-bell me-2"></i> Notifications
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.resolver_match.url_name == 'settings' %}active{% endif %}" href="{% url 'settings' %}">
-                                <i class="fas fa-cog me-2"></i> Paramètres
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.resolver_match.url_name == 'audit' %}active{% endif %}" href="{% url 'audit' %}">
-                                <i class="fas fa-clipboard-list me-2"></i> Journal d'audit
-                            </a>
-                        </li>
+                    {% with current=request.resolver_match.url_name %}
+                    <ul class="nav flex-column pt-2 pb-3">
+                        <li class="nav-section-label">Pilotage</li>
+                        <li class="nav-item"><a class="nav-link {% if current == 'dashboard' %}active{% endif %}" href="{% url 'dashboard' %}"><i class="fas fa-gauge-high"></i>Vue d'ensemble</a></li>
+                        <li class="nav-item"><a class="nav-link {% if current == 'transactions' or current == 'transaction_detail' %}active{% endif %}" href="{% url 'transactions' %}"><i class="fas fa-exchange-alt"></i>Transactions</a></li>
+                        <li class="nav-item"><a class="nav-link {% if current == 'payments' %}active{% endif %}" href="{% url 'payments' %}"><i class="fas fa-money-bill-wave"></i>Paiements</a></li>
+
+                        <li class="nav-section-label">Infrastructure Gateway</li>
+                        <li class="nav-item"><a class="nav-link {% if current == 'gateways' %}active{% endif %}" href="{% url 'gateways' %}"><i class="fas fa-server"></i>Gateways</a></li>
+                        <li class="nav-item"><a class="nav-link {% if current == 'sims' %}active{% endif %}" href="{% url 'sims' %}"><i class="fas fa-sim-card"></i>SIM</a></li>
+                        <li class="nav-item"><a class="nav-link {% if current == 'scheduler' %}active{% endif %}" href="{% url 'scheduler' %}"><i class="fas fa-diagram-project"></i>Scheduler</a></li>
+
+                        <li class="nav-section-label">Configuration métier</li>
+                        <li class="nav-item"><a class="nav-link {% if current == 'operators' or current == 'operator_create' or current == 'operator_edit' or current == 'operator_delete' or current == 'ussd_codes' or current == 'operators_history' %}active{% endif %}" href="{% url 'operators' %}"><i class="fas fa-building"></i>Opérateurs</a></li>
+                        <li class="nav-item"><a class="nav-link {% if current == 'services' or current == 'service_create' or current == 'service_edit' or current == 'service_delete' %}active{% endif %}" href="{% url 'services' %}"><i class="fas fa-box-open"></i>Services / Forfaits</a></li>
+                        <li class="nav-item"><a class="nav-link {% if current == 'ussd_codes_all' or current == 'ussd_code_create' or current == 'ussd_code_edit' or current == 'ussd_code_delete' %}active{% endif %}" href="{% url 'ussd_codes_all' %}"><i class="fas fa-hashtag"></i>Codes USSD</a></li>
+
+                        <li class="nav-section-label">Supervision</li>
+                        <li class="nav-item"><a class="nav-link {% if current == 'audit' %}active{% endif %}" href="{% url 'audit' %}"><i class="fas fa-clipboard-list"></i>Logs / Événements</a></li>
+                        <li class="nav-item"><a class="nav-link {% if current == 'system_health' %}active{% endif %}" href="{% url 'system_health' %}"><i class="fas fa-heart-pulse"></i>Santé du système</a></li>
                     </ul>
-                    <hr class="border-light mx-3">
+                    {% endwith %}
+                    <hr class="border-light mx-3 opacity-25">
                     <div class="p-3 pb-4">
                         <a href="/admin/" class="btn btn-outline-light btn-sm w-100" style="border-radius: 20px;">
                             <i class="fas fa-lock me-2"></i> Admin Django
@@ -132,22 +116,16 @@
                 </div>
             </nav>
 
-            <main class="col-md-10 ms-sm-auto px-md-4 py-4">
-                <div class="d-flex justify-content-end align-items-center mb-3 pb-2 border-bottom">
-                    <div class="d-flex align-items-center">
-                        <i class="fas fa-user-circle me-2 text-primary" style="font-size: 1.8rem;"></i>
-                        <span class="fw-semibold me-3">Admin</span>
-                        <span class="badge bg-light text-dark rounded-pill px-3 py-2">
-                            <i class="fas fa-circle text-success me-1" style="font-size: 0.6rem;"></i>
-                            En ligne
-                        </span>
-                    </div>
+            <main class="col-md-10 ms-sm-auto p-0">
+                <div class="topbar d-flex justify-content-between align-items-center">
+                    <h1>{{ title|default:"Tableau de bord" }}</h1>
                 </div>
-                {% block content %}{% endblock %}
-                <footer class="footer text-muted text-center small pt-3 mt-4">
-                    <p class="mb-0">© 2026 <strong>TRANSFER ON LINE</strong> - Tous droits réservés.</p>
-                    <p class="mb-0">Développé par <strong>AFRITECH-CI</strong> <i class="fas fa-code text-primary ms-1"></i></p>
-                </footer>
+                <div class="px-md-4 py-4">
+                    {% block content %}{% endblock %}
+                    <footer class="footer text-muted text-center small pt-3 mt-4">
+                        <p class="mb-0">© 2026 <strong>TRANSFER ON LINE</strong> - Back Office technique et métier.</p>
+                    </footer>
+                </div>
             </main>
         </div>
     </div>

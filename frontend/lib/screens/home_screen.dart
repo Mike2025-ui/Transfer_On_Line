@@ -1,26 +1,41 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../models/models.dart';
+import '../services/auth_service.dart';
+import '../services/backend_api_service.dart';
 import '../services/transaction_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/widgets.dart';
+import 'history_screen.dart';
 import 'notifications_screen.dart';
+import 'profile_screen.dart';
 import 'step2_service.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({super.key, this.backendApiService, this.authService});
+
+  final BackendApiService? backendApiService;
+  final AuthService? authService;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  late final BackendApiService _api = widget.backendApiService ?? BackendApiService();
+  late final AuthService _auth = widget.authService ?? AuthService();
   final List<AppNotification> _notifications = sampleNotifications;
   List<Transaction> _transactions = List.from(sampleTransactions);
+
+  List<OperatorItem>? _operators;
+  bool _loadingOperators = true;
+  String? _operatorsError;
 
   @override
   void initState() {
     super.initState();
     _loadTransactions();
+    _loadOperators();
   }
 
   Future<void> _loadTransactions() async {
@@ -28,6 +43,165 @@ class _HomeScreenState extends State<HomeScreen> {
     if (saved.isNotEmpty && mounted) {
       setState(() => _transactions = saved);
     }
+    // Audit frontend D4, §10 : une transaction restée localement "pending"
+    // (app fermée ou tuée avant résolution) doit être revérifiée auprès du
+    // Backend - jamais supposée encore active sans vérifier, et jamais
+    // relancée en parallèle pour toutes à la fois (voir _reconcilePending).
+    if (saved.isNotEmpty) await _reconcilePending(saved);
+  }
+
+  /// Traitement séquentiel, une transaction à la fois - évite de déclencher
+  /// plusieurs requêtes HTTP simultanées au démarrage si plusieurs
+  /// transactions sont restées pending. Une erreur réseau/serveur sur l'une
+  /// d'elles n'empêche jamais de vérifier les suivantes.
+  Future<void> _reconcilePending(List<Transaction> loaded) async {
+    final pendingRefs = loaded.where((t) => t.status == 'pending').map((t) => t.id).toSet();
+    if (pendingRefs.isEmpty) return;
+    String? accessToken;
+    try {
+      accessToken = await _auth.currentAccessToken();
+    } catch (_) {
+      // Reading the stored session must never crash the reconciliation - an
+      // unauthenticated status check still works (both endpoints are
+      // AllowAny), it just won't be attributed to a signed-in user.
+    }
+    var current = List<Transaction>.from(loaded);
+    var changed = false;
+    for (final reference in pendingRefs) {
+      try {
+        final result = await _api.getTransactionStatus(reference, accessToken: accessToken);
+        if (result.isPending) continue; // toujours en cours - rien à changer
+        final index = current.indexWhere((t) => t.id == reference);
+        if (index == -1) continue;
+        final t = current[index];
+        final newStatus = result.isSuccess ? 'ok' : (result.isCancelled ? 'cancelled' : 'fail');
+        current[index] = Transaction(
+          id: t.id,
+          operator: t.operator,
+          service: t.service,
+          operation: t.operation,
+          phone: t.phone,
+          amount: t.amount,
+          paymentMethod: t.paymentMethod,
+          date: t.date,
+          status: newStatus,
+        );
+        changed = true;
+      } on TransactionNotFoundException {
+        // Ne jamais fabriquer un résultat pour une transaction inconnue du
+        // Backend - le dossier local reste inchangé.
+      } catch (_) {
+        // Erreur réseau/serveur transitoire - reste pending localement,
+        // une prochaine ouverture de l'app retentera.
+      }
+    }
+    if (!changed) return;
+    await TransactionService.save(current);
+    if (mounted) setState(() => _transactions = current);
+  }
+
+  Future<void> _loadOperators() async {
+    setState(() {
+      _loadingOperators = true;
+      _operatorsError = null;
+    });
+    try {
+      final operators = await _api.getOperators();
+      if (!mounted) return;
+      setState(() {
+        _operators = operators;
+        _loadingOperators = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _operatorsError = 'Impossible de charger les opérateurs.';
+        _loadingOperators = false;
+      });
+    }
+  }
+
+  Color _operatorCardColor(String name) {
+    switch (name) {
+      case 'Orange':
+        return const Color(0xFFFF5A00);
+      case 'MTN':
+        return const Color(0xFFF7C716);
+      case 'Moov':
+        return const Color(0xFF0057DD);
+      default:
+        return AppColors.primary;
+    }
+  }
+
+  Color _operatorCardTextColor(String name) {
+    return name == 'MTN' ? AppColors.textPrimary : Colors.white;
+  }
+
+  String _operatorLogoAsset(String name) {
+    switch (name) {
+      case 'Orange':
+        return 'assets/images/Orange_logo.png';
+      case 'MTN':
+        return 'assets/images/mtn.jpg';
+      case 'Moov':
+        return 'assets/images/moov.jpeg';
+      default:
+        // No known asset for this operator - Image.asset's errorBuilder in
+        // _operatorCard falls back to a generic icon instead of crashing.
+        return '';
+    }
+  }
+
+  Widget _operatorsSection() {
+    if (_loadingOperators) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 20),
+        child: Center(child: CircularProgressIndicator(color: Colors.white)),
+      );
+    }
+    if (_operatorsError != null) {
+      return Column(
+        children: [
+          Text(
+            _operatorsError!,
+            textAlign: TextAlign.center,
+            style: GoogleFonts.nunito(
+              color: Colors.white70,
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 14),
+          TolButton(label: 'RÉESSAYER', onTap: _loadOperators),
+        ],
+      );
+    }
+    final operators = _operators ?? [];
+    if (operators.isEmpty) {
+      return Text(
+        'Aucun opérateur disponible.',
+        textAlign: TextAlign.center,
+        style: GoogleFonts.nunito(
+          color: Colors.white70,
+          fontSize: 16,
+          fontWeight: FontWeight.w700,
+        ),
+      );
+    }
+    final cards = <Widget>[];
+    for (var i = 0; i < operators.length; i++) {
+      final operator = operators[i];
+      cards.add(_operatorCard(
+        operatorId: operator.id,
+        name: operator.name,
+        color: _operatorCardColor(operator.name),
+        logo: _operatorLogoAsset(operator.name),
+        textColor: _operatorCardTextColor(operator.name),
+      ));
+      if (i != operators.length - 1) cards.add(const SizedBox(height: 16));
+    }
+    return Column(children: cards);
   }
 
   void _addTransaction(Transaction transaction) {
@@ -99,6 +273,31 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                         ),
                         const Spacer(),
+                        _headerIconButton(
+                          icon: Icons.receipt_long_rounded,
+                          tooltip: 'Historique',
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => HistoryScreen(transactions: _transactions),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        _headerIconButton(
+                          icon: Icons.person_outline_rounded,
+                          tooltip: 'Profil',
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => ProfileScreen(
+                                authService: _auth,
+                                transactions: _transactions,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
                         _notificationButton(unread),
                       ],
                     ),
@@ -155,24 +354,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
                     const SizedBox(height: 16),
-                    _operatorCard(
-                      name: 'Orange',
-                      color: const Color(0xFFFF5A00),
-                      logo: 'assets/images/Orange_logo.png',
-                    ),
-                    const SizedBox(height: 16),
-                    _operatorCard(
-                      name: 'MTN',
-                      color: const Color(0xFFF7C716),
-                      logo: 'assets/images/mtn.jpg',
-                      textColor: AppColors.textPrimary,
-                    ),
-                    const SizedBox(height: 16),
-                    _operatorCard(
-                      name: 'Moov',
-                      color: const Color(0xFF0057DD),
-                      logo: 'assets/images/moov.jpeg',
-                    ),
+                    _operatorsSection(),
                     const SizedBox(height: 34),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -221,6 +403,29 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _headerIconButton({
+    required IconData icon,
+    required String tooltip,
+    required VoidCallback onTap,
+  }) {
+    return Tooltip(
+      message: tooltip,
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.08),
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
+          ),
+          child: Icon(icon, color: Colors.white, size: 22),
         ),
       ),
     );
@@ -305,6 +510,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _operatorCard({
+    required int operatorId,
     required String name,
     required Color color,
     required String logo,
@@ -315,9 +521,11 @@ class _HomeScreenState extends State<HomeScreen> {
         context,
         MaterialPageRoute(
           builder: (_) => Step2ServiceScreen(
+            operatorId: operatorId,
             operator: name,
             onTransactionAdded: _addTransaction,
             onNotificationAdded: _addNotification,
+            notifications: _notifications,
           ),
         ),
       ),

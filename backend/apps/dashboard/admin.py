@@ -1,3 +1,2 @@
-from django.contrib import admin
-
-# Register your models here.
+# Dashboard admin - models are managed in core app admin
+pass

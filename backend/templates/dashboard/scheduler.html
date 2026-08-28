@@ -1,0 +1,94 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container-fluid px-4">
+    {% if not engine_enabled %}
+    <div class="alert alert-info d-flex align-items-center mb-4">
+        <i class="fas fa-circle-info me-2"></i>
+        <div>
+            <strong>Moteur de transaction (Scheduler/ReservationManager) désactivé</strong>
+            (<code>USE_NEW_TRANSACTION_ENGINE=False</code>). Les transactions actuelles utilisent la sélection legacy
+            (<code>GatewayManager.select_operator_gateway()</code>) — opérateur-safe et scorée comme le nouveau moteur,
+            mais sans réservation ni <code>TransactionAttempt</code>. Les données ci-dessous ne reflètent que
+            l'activité historique/test, pas un flux de production en cours.
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="row g-3 mb-4">
+        <div class="col-md-3 col-sm-6">
+            <div class="stat-tile"><div class="stat-value">{{ pending_transactions }}</div><div class="stat-label">Transactions en attente</div></div>
+        </div>
+        <div class="col-md-3 col-sm-6">
+            <div class="stat-tile"><div class="stat-value">{{ due_retries }}</div><div class="stat-label">Retries dus</div></div>
+        </div>
+        {% for status, count in attempt_status_counts.items %}
+        <div class="col-md-3 col-sm-6">
+            <div class="stat-tile"><div class="stat-value">{{ count }}</div><div class="stat-label text-capitalize">Tentatives « {{ status }} »</div></div>
+        </div>
+        {% endfor %}
+    </div>
+
+    {% if failure_reason_counts %}
+    <div class="card border-0 shadow-sm mb-4">
+        <div class="card-header bg-transparent border-0"><h5 class="card-title mb-0">Raisons d'échec</h5></div>
+        <div class="card-body">
+            <div class="d-flex flex-wrap gap-3">
+                {% for reason, count in failure_reason_counts.items %}
+                <div><span class="badge badge-status-failed">{{ reason }}</span> <span class="fw-bold ms-1">{{ count }}</span></div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="card border-0 shadow-sm mb-4">
+        <div class="card-header bg-transparent border-0"><h5 class="card-title mb-0">Dernières tentatives (TransactionAttempt)</h5></div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead><tr><th>Transaction</th><th>#</th><th>Statut</th><th>Gateway</th><th>SIM</th><th>Créée</th><th>Raison échec</th></tr></thead>
+                    <tbody>
+                        {% for attempt in recent_attempts %}
+                        <tr>
+                            <td><a href="{% url 'transaction_detail' pk=attempt.transaction_id %}">{{ attempt.transaction.reference|truncatechars:16 }}</a></td>
+                            <td>{{ attempt.attempt_number }}</td>
+                            <td><span class="badge badge-status-{{ attempt.status }}">{{ attempt.get_status_display }}</span></td>
+                            <td>{{ attempt.gateway_sim.gateway.name|default:"-" }}</td>
+                            <td>{% if attempt.gateway_sim %}{{ attempt.gateway_sim.operator.name }}{% else %}-{% endif %}</td>
+                            <td>{{ attempt.created_at|date:"d/m/Y H:i:s" }}</td>
+                            <td>{{ attempt.get_failure_reason_display|default:"-" }}</td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="7" class="text-center text-muted py-4">Aucune tentative enregistrée</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="card border-0 shadow-sm">
+        <div class="card-header bg-transparent border-0"><h5 class="card-title mb-0">Événements de dispatching / retry (TransactionEvent)</h5></div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead><tr><th>Date</th><th>Transaction</th><th>Type</th><th>Détails</th></tr></thead>
+                    <tbody>
+                        {% for event in recent_events %}
+                        <tr>
+                            <td class="text-nowrap">{{ event.created_at|date:"d/m/Y H:i:s" }}</td>
+                            <td><a href="{% url 'transaction_detail' pk=event.transaction_id %}">{{ event.transaction.reference|truncatechars:16 }}</a></td>
+                            <td><code>{{ event.event_type }}</code></td>
+                            <td><small class="text-muted">{{ event.metadata }}</small></td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="4" class="text-center text-muted py-4">Aucun événement de dispatching/retry enregistré</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

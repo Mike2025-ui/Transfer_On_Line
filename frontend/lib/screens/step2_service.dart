@@ -2,19 +2,26 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../theme/app_theme.dart';
 import '../models/models.dart';
+import '../services/backend_api_service.dart';
 import '../widgets/widgets.dart';
 import 'step3_info.dart';
 
 class Step2ServiceScreen extends StatefulWidget {
+  final int operatorId;
   final String operator;
   final Function(Transaction) onTransactionAdded;
   final Function(AppNotification) onNotificationAdded;
+  final List<AppNotification> notifications;
+  final BackendApiService? backendApiService;
 
   const Step2ServiceScreen({
     super.key,
+    required this.operatorId,
     required this.operator,
     required this.onTransactionAdded,
     required this.onNotificationAdded,
+    required this.notifications,
+    this.backendApiService,
   });
 
   @override
@@ -22,29 +29,83 @@ class Step2ServiceScreen extends StatefulWidget {
 }
 
 class _Step2ServiceScreenState extends State<Step2ServiceScreen> {
-  String _service = 'Internet';
+  late final BackendApiService _api = widget.backendApiService ?? BackendApiService();
+
+  String? _service;
+  int? _selectedServiceId;
   String _operation = 'Souscription pour moi';
 
-  final services = const [
-    {
-      'name': 'Appels',
-      'sub': 'Forfaits voix',
-      'icon': Icons.phone_rounded,
-      'color': 0xFF079A48,
-    },
-    {
-      'name': 'Internet',
-      'sub': 'Forfaits data',
-      'icon': Icons.language_rounded,
-      'color': 0xFF1687F7,
-    },
-    {
-      'name': 'SMS',
-      'sub': 'Forfaits SMS',
-      'icon': Icons.sms_rounded,
-      'color': 0xFF7C2CF0,
-    },
-  ];
+  List<ServiceItem>? _services;
+  bool _loadingServices = true;
+  String? _servicesError;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadServices();
+  }
+
+  Future<void> _loadServices() async {
+    setState(() {
+      _loadingServices = true;
+      _servicesError = null;
+    });
+    try {
+      final services = await _api.getServices();
+      if (!mounted) return;
+      setState(() {
+        _services = services;
+        _loadingServices = false;
+        _service = services.isNotEmpty ? services.first.name : null;
+        _selectedServiceId = services.isNotEmpty ? services.first.id : null;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _servicesError = 'Impossible de charger les services.';
+        _loadingServices = false;
+      });
+    }
+  }
+
+  IconData _serviceIcon(String name) {
+    switch (name) {
+      case 'Appels':
+        return Icons.phone_rounded;
+      case 'Internet':
+        return Icons.language_rounded;
+      case 'SMS':
+        return Icons.sms_rounded;
+      default:
+        return Icons.apps_rounded;
+    }
+  }
+
+  String _serviceSubtitle(String name) {
+    switch (name) {
+      case 'Appels':
+        return 'Forfaits voix';
+      case 'Internet':
+        return 'Forfaits data';
+      case 'SMS':
+        return 'Forfaits SMS';
+      default:
+        return '';
+    }
+  }
+
+  Color _serviceColor(String name) {
+    switch (name) {
+      case 'Appels':
+        return const Color(0xFF079A48);
+      case 'Internet':
+        return const Color(0xFF1687F7);
+      case 'SMS':
+        return const Color(0xFF7C2CF0);
+      default:
+        return AppColors.primary;
+    }
+  }
 
   final operations = const [
     {
@@ -94,17 +155,7 @@ class _Step2ServiceScreenState extends State<Step2ServiceScreen> {
                 children: [
                   const SectionTitle('1. TYPE DE SERVICE'),
                   const SizedBox(height: 8),
-                  Row(
-                    children: services.map((service) {
-                      final isLast = service == services.last;
-                      return Expanded(
-                        child: Padding(
-                          padding: EdgeInsets.only(right: isLast ? 0 : 14),
-                          child: _serviceTile(service),
-                        ),
-                      );
-                    }).toList(),
-                  ),
+                  _servicesSection(),
                   const SizedBox(height: 26),
                   const SectionTitle('2. TYPE D’OPÉRATION'),
                   const SizedBox(height: 8),
@@ -130,11 +181,64 @@ class _Step2ServiceScreenState extends State<Step2ServiceScreen> {
     );
   }
 
-  Widget _serviceTile(Map<String, dynamic> service) {
-    final selected = _service == service['name'];
-    final color = Color(service['color'] as int);
+  Widget _servicesSection() {
+    if (_loadingServices) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 20),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (_servicesError != null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            _servicesError!,
+            textAlign: TextAlign.center,
+            style: GoogleFonts.nunito(
+              color: AppColors.textSecondary,
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 12),
+          TolButton(label: 'RÉESSAYER', onTap: _loadServices),
+        ],
+      );
+    }
+    final services = _services ?? [];
+    if (services.isEmpty) {
+      return Text(
+        'Aucun service disponible.',
+        textAlign: TextAlign.center,
+        style: GoogleFonts.nunito(
+          color: AppColors.textSecondary,
+          fontSize: 15,
+          fontWeight: FontWeight.w700,
+        ),
+      );
+    }
+    return Row(
+      children: services.map((service) {
+        final isLast = service == services.last;
+        return Expanded(
+          child: Padding(
+            padding: EdgeInsets.only(right: isLast ? 0 : 14),
+            child: _serviceTile(service),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _serviceTile(ServiceItem service) {
+    final selected = _service == service.name;
+    final color = _serviceColor(service.name);
     return GestureDetector(
-      onTap: () => setState(() => _service = service['name'] as String),
+      onTap: () => setState(() {
+        _service = service.name;
+        _selectedServiceId = service.id;
+      }),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
         height: 142,
@@ -182,12 +286,12 @@ class _Step2ServiceScreenState extends State<Step2ServiceScreen> {
                       color: color,
                       shape: BoxShape.circle,
                     ),
-                    child: Icon(service['icon'] as IconData,
+                    child: Icon(_serviceIcon(service.name),
                         color: Colors.white, size: 30),
                   ),
                   const SizedBox(height: 20),
                   Text(
-                    service['name'] as String,
+                    service.name,
                     style: GoogleFonts.nunito(
                       fontSize: 16,
                       fontWeight: FontWeight.w900,
@@ -195,7 +299,7 @@ class _Step2ServiceScreenState extends State<Step2ServiceScreen> {
                     ),
                   ),
                   Text(
-                    service['sub'] as String,
+                    _serviceSubtitle(service.name),
                     style: GoogleFonts.nunito(
                       fontSize: 13,
                       fontWeight: FontWeight.w600,
@@ -290,15 +394,21 @@ class _Step2ServiceScreenState extends State<Step2ServiceScreen> {
   }
 
   void _next() {
+    final service = _service;
+    final serviceId = _selectedServiceId;
+    if (service == null || serviceId == null) return;
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => Step3InfoScreen(
+          operatorId: widget.operatorId,
+          serviceId: serviceId,
           operator: widget.operator,
-          service: _service,
+          service: service,
           operation: _operation,
           onTransactionAdded: widget.onTransactionAdded,
           onNotificationAdded: widget.onNotificationAdded,
+          notifications: widget.notifications,
         ),
       ),
     );

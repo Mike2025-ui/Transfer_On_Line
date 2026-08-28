@@ -1,0 +1,109 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container-fluid px-4">
+    <div class="d-flex justify-content-end mb-3">
+        <a href="{% url 'ussd_codes' pk=operator.pk %}" class="btn btn-outline-secondary">
+            <i class="fas fa-arrow-left me-1"></i> Retour
+        </a>
+    </div>
+
+    <div class="card border-0 shadow-sm" style="max-width: 640px;">
+        <div class="card-body">
+            {% if form.non_field_errors %}
+            <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+            {% endif %}
+            <form method="post" novalidate>
+                {% csrf_token %}
+                <div class="mb-3">
+                    <label class="form-label">Service</label>
+                    {{ form.service }}
+                    <div class="form-text">Laisser vide = code générique (repli) pour tous les services de cet opérateur.</div>
+                    {% if form.service.errors %}<div class="text-danger small mt-1">{{ form.service.errors }}</div>{% endif %}
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Montant (FCFA)</label>
+                    {{ form.amount }}
+                    <div class="form-text">Laisser vide = ce code s'applique à n'importe quel montant. Renseigner un montant (ex. 500) uniquement si cet opérateur utilise un code différent pour ce montant précis.</div>
+                    {% if form.amount.errors %}<div class="text-danger small mt-1">{{ form.amount.errors }}</div>{% endif %}
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Libellé</label>
+                    {{ form.label }}
+                    {% if form.label.errors %}<div class="text-danger small mt-1">{{ form.label.errors }}</div>{% endif %}
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Template</label>
+                    {{ form.template }}
+                    <div class="form-text">
+                        Variables disponibles : <code>{numero}</code>, <code>{montant}</code>, <code>{forfait}</code>, <code>{pin}</code>
+                        (<code>{pin}</code> n'a pas de source de données actuellement — voir la documentation).
+                    </div>
+                    {% if form.template.errors %}<div class="text-danger small mt-1">{{ form.template.errors }}</div>{% endif %}
+                </div>
+                <div id="ussd-preview" class="alert alert-secondary d-none"></div>
+                <div class="form-check mb-2">
+                    {{ form.is_active }}
+                    <label class="form-check-label" for="{{ form.is_active.id_for_label }}">Actif</label>
+                </div>
+                <div class="form-check mb-3">
+                    {{ form.is_default }}
+                    <label class="form-check-label" for="{{ form.is_default.id_for_label }}">Code par défaut de l'opérateur</label>
+                </div>
+                <button type="submit" class="btn btn-primary">
+                    <i class="fas fa-save me-1"></i> Enregistrer
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const templateInput = document.getElementById('{{ form.template.id_for_label }}');
+const amountInput = document.getElementById('{{ form.amount.id_for_label }}');
+const previewBox = document.getElementById('ussd-preview');
+let previewTimer = null;
+
+function updatePreview() {
+    const template = templateInput.value;
+    if (!template) {
+        previewBox.classList.add('d-none');
+        return;
+    }
+    // Preview with the montant this row is actually scoped to when one is
+    // set (amount=500 -> aperçu *456*500#) - otherwise keep the existing
+    // example value, unchanged for a generic (amount empty) row.
+    const montant = (amountInput && amountInput.value) ? amountInput.value : '1000';
+    const params = new URLSearchParams({ template: template, numero: '0700000000', montant: montant, forfait: 'Exemple' });
+    fetch(`/dashboard/codes/apercu/?${params.toString()}`)
+        .then(function (response) { return response.json().then(function (data) { return { ok: response.ok, data: data }; }); })
+        .then(function (result) {
+            previewBox.classList.remove('d-none', 'alert-secondary', 'alert-danger');
+            if (result.ok) {
+                previewBox.classList.add('alert-secondary');
+                previewBox.textContent = 'Aperçu : ' + result.data.result;
+            } else {
+                previewBox.classList.add('alert-danger');
+                previewBox.textContent = result.data.error;
+            }
+        })
+        .catch(function () {});
+}
+
+if (templateInput) {
+    templateInput.addEventListener('input', function () {
+        clearTimeout(previewTimer);
+        previewTimer = setTimeout(updatePreview, 300);
+    });
+    if (amountInput) {
+        amountInput.addEventListener('input', function () {
+            clearTimeout(previewTimer);
+            previewTimer = setTimeout(updatePreview, 300);
+        });
+    }
+    updatePreview();
+}
+</script>
+{% endblock %}

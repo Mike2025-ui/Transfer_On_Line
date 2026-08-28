@@ -3,23 +3,32 @@ import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../theme/app_theme.dart';
 import '../models/models.dart';
+import '../services/backend_api_service.dart';
 import '../widgets/widgets.dart';
 import 'step4_payment.dart';
 
 class Step3InfoScreen extends StatefulWidget {
+  final int operatorId;
+  final int serviceId;
   final String operator;
   final String service;
   final String operation;
   final Function(Transaction) onTransactionAdded;
   final Function(AppNotification) onNotificationAdded;
+  final List<AppNotification> notifications;
+  final BackendApiService? backendApiService;
 
   const Step3InfoScreen({
     super.key,
+    required this.operatorId,
+    required this.serviceId,
     required this.operator,
     required this.service,
     required this.operation,
     required this.onTransactionAdded,
     required this.onNotificationAdded,
+    required this.notifications,
+    this.backendApiService,
   });
 
   @override
@@ -27,10 +36,38 @@ class Step3InfoScreen extends StatefulWidget {
 }
 
 class _Step3InfoScreenState extends State<Step3InfoScreen> {
+  late final BackendApiService _api = widget.backendApiService ?? BackendApiService();
   final _phoneCtrl = TextEditingController();
   final _amountCtrl = TextEditingController(text: '1000');
-  final _quickAmounts = [500, 1000, 2000, 5000, 10000, 0];
+  // Default, shown immediately - identical to the values this screen has
+  // always shown. Only replaced in place if the backend has specific
+  // amounts configured for this (operator, service); left untouched on an
+  // empty result or a network error, so the screen never looks different
+  // just because a fetch failed or hasn't resolved yet.
+  List<int> _quickAmounts = [500, 1000, 2000, 5000, 10000, 0];
   int _selectedAmount = 1000;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAmounts();
+  }
+
+  Future<void> _loadAmounts() async {
+    try {
+      final amounts = await _api.getAvailableAmounts(widget.operatorId, widget.serviceId);
+      if (!mounted || amounts.isEmpty) return;
+      setState(() {
+        _quickAmounts = [
+          ...amounts.map((a) => a.amount.round()),
+          0, // "Autre" (custom amount) stays available even with a fixed catalog.
+        ];
+      });
+    } catch (_) {
+      // Silent: the default _quickAmounts above is already a fully working
+      // fallback, and this screen has never shown a loading/error state.
+    }
+  }
 
   bool get _isTransfer => widget.operation.contains('Transfert');
   bool get _isThird => widget.operation.contains('tiers');
@@ -371,6 +408,8 @@ class _Step3InfoScreenState extends State<Step3InfoScreen> {
       context,
       MaterialPageRoute(
         builder: (_) => Step4PaymentScreen(
+          operatorId: widget.operatorId,
+          serviceId: widget.serviceId,
           operator: widget.operator,
           service: widget.service,
           operation: widget.operation,
@@ -378,6 +417,7 @@ class _Step3InfoScreenState extends State<Step3InfoScreen> {
           amount: _selectedAmount,
           onTransactionAdded: widget.onTransactionAdded,
           onNotificationAdded: widget.onNotificationAdded,
+          notifications: widget.notifications,
         ),
       ),
     );

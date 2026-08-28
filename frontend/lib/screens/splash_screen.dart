@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import '../services/auth_service.dart';
 import '../theme/app_theme.dart';
 import 'home_screen.dart';
+import 'phone_verification_screen.dart';
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  SPLASH SCREEN — Premier écran affiché au démarrage de l'app
@@ -29,17 +31,27 @@ class _SplashScreenState extends State<SplashScreen> {
       statusBarIconBrightness: Brightness.light, // Icônes blanches
     ));
 
-    // Redirige vers HomeScreen après 2,5 secondes
-    Future.delayed(const Duration(milliseconds: 2500), _goHome);
+    // Restaure la session en tâche de fond pendant l'animation, puis
+    // redirige après 2,5 secondes vers l'écran principal (appareil connu)
+    // ou vers la vérification du numéro (première utilisation / appareil
+    // non reconnu) - jamais l'OTP juste parce que l'app a été rouverte.
+    _restoreSession = AuthService().restoreSession();
+    Future.delayed(const Duration(milliseconds: 2500), _goNext);
   }
 
-  // Navigue vers l'écran principal avec une animation de fondu
-  void _goHome() {
+  late final Future<AuthSession?> _restoreSession;
+
+  // Navigue vers l'écran principal (ou la vérification du numéro) avec une
+  // animation de fondu.
+  Future<void> _goNext() async {
+    final session = await _restoreSession;
     if (!mounted) return; // Sécurité : vérifie que le widget est encore affiché
+
     Navigator.pushReplacement(
       context,
       PageRouteBuilder(
-        pageBuilder: (_, __, ___) => const HomeScreen(),
+        pageBuilder: (_, __, ___) =>
+            session != null ? const HomeScreen() : const PhoneVerificationScreen(),
         // Transition : fondu enchaîné (fade in/out)
         transitionsBuilder: (_, anim, __, child) =>
             FadeTransition(opacity: anim, child: child),

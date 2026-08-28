@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Affiché par Android dans Réglages > Accessibilité - lu par la
+         personne qui active manuellement le service (activation
+         strictement manuelle, jamais automatique, voir Phase 8.2). -->
+    <string name="ussd_accessibility_service_description">Permet au Gateway de lire et de remplir les écrans USSD système pendant un test manuel. N\'accède à aucune autre information de l\'appareil.</string>
+</resources>
