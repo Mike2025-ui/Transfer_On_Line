@@ -3,47 +3,39 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../services/auth_service.dart';
-import '../services/otp_service.dart';
 import '../theme/app_theme.dart';
 import 'home_screen.dart';
 
 /// Shown only on a first install or on a device the backend no longer
 /// recognizes (see AuthService.restoreSession) - never on every app open.
-/// Two steps: phone number, then the OTP sent to it by SMS via Aion Messaging.
-///
-/// Aion Messaging Integration:
-/// - /verify/start endpoint sends OTP code via SMS
-/// - /verify/check endpoint validates the submitted code
-/// - Handles rate limiting, retries, and resend functionality
+/// Two steps: phone number, then the OTP sent to it by SMS via SMS Pro
+/// Africa (see apps.accounts.services on the backend). Phone number is the
+/// ONLY identifier the user ever sees or enters - no username, no password,
+/// no email, no account-creation screen.
 class PhoneVerificationScreen extends StatefulWidget {
-  const PhoneVerificationScreen({super.key, this.authService, this.otpService});
+  const PhoneVerificationScreen({super.key, this.authService});
 
   final AuthService? authService;
-  final OtpService? otpService;
 
   @override
-  State<PhoneVerificationScreen> createState() =>
-      _PhoneVerificationScreenState();
+  State<PhoneVerificationScreen> createState() => _PhoneVerificationScreenState();
 }
 
 class _PhoneVerificationScreenState extends State<PhoneVerificationScreen> {
   late final AuthService _auth = widget.authService ?? AuthService();
-  late final OtpService _otpService = widget.otpService ?? OtpService();
-
   final _phoneCtrl = TextEditingController();
   final _codeCtrl = TextEditingController();
 
   bool _codeSent = false;
-  bool _useEmail = false;
   bool _loading = false;
   String _phoneNumber = '';
-  String _email = '';
-  int? _verificationId;
 
-  // Resend timer management
+  // Resend cooldown - a UI convenience only (not a security control; the
+  // backend's own 3-attempts/5-minutes limit, see OTP_MAX_ATTEMPTS/
+  // OTP_TTL_MINUTES in apps.accounts.services.otp_service, is what actually
+  // protects the OTP).
   Timer? _resendTimer;
   int _secondsUntilResend = 0;
-  bool _canResend = false;
 
   @override
   void dispose() {
@@ -54,55 +46,52 @@ class _PhoneVerificationScreenState extends State<PhoneVerificationScreen> {
   }
 
   Future<void> _requestCode() async {
-    if (_useEmail) {
-      await _requestEmailCode();
+    if (_phoneCtrl.text.length != 10) {
+      _showError('Le numéro doit contenir 10 chiffres');
       return;
     }
-    final phone = _phoneCtrl.text.trim();
-
-    // Validate phone number
-    if (!OtpService.isValidPhoneNumber(phone)) {
-      _showError('Numéro invalide. Entrez 10 chiffres (ex: 07XXXXXXXX)');
-      return;
-    }
-
     setState(() => _loading = true);
     try {
-      _phoneNumber = phone;
-      final otpRequest = await _otpService.requestOtp(_phoneNumber);
-
+      _phoneNumber = _phoneCtrl.text;
+      await _auth.requestOtp(_phoneNumber);
       if (!mounted) return;
-
-      setState(() {
-        _verificationId = otpRequest.verificationId;
-        _codeSent = true;
-      });
-
-      _startResendTimer();
-      _showSuccess('Code de vérification envoyé par SMS');
+      setState(() => _codeSent = true);
+      _startResendCooldown();
     } catch (error) {
-      if (mounted) {
-        _showError(error.toString().replaceFirst('Exception: ', ''));
-      }
+      _showError(error.toString().replaceFirst('Exception: ', ''));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
-  Future<void> _requestEmailCode() async {
-    final email = _phoneCtrl.text.trim();
-    if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+4').hasMatch(email)) {
-      _showError('Entrez une adresse email valide');
+  Future<void> _verifyCode() async {
+    if (_codeCtrl.text.length < 4) {
+      _showError('Entrez le code reçu par SMS');
       return;
     }
     setState(() => _loading = true);
     try {
-      _email = email;
-      _verificationId = await _auth.requestEmailCode(email);
+      await _auth.verifyOtp(_phoneNumber, _codeCtrl.text);
       if (!mounted) return;
-      setState(() => _codeSent = true);
-      _startResendTimer();
-      _showSuccess('Code de vérification envoyé par email');
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const HomeScreen()),
+      );
+    } catch (error) {
+      _showError(error.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _resendCode() async {
+    if (_secondsUntilResend > 0) return;
+    setState(() => _loading = true);
+    try {
+      await _auth.requestOtp(_phoneNumber);
+      if (!mounted) return;
+      _codeCtrl.clear();
+      _startResendCooldown();
     } catch (error) {
       if (mounted) _showError(error.toString().replaceFirst('Exception: ', ''));
     } finally {
@@ -110,106 +99,20 @@ class _PhoneVerificationScreenState extends State<PhoneVerificationScreen> {
     }
   }
 
-  Future<void> _verifyCode() async {
-    final code = _codeCtrl.text.trim();
-
-    if (code.isEmpty || code.length < 4) {
-      _showError('Entrez le code reçu par SMS');
-      return;
-    }
-
-    final verificationId = _verificationId;
-    if (verificationId == null) {
-      _showError('Veuillez demander un nouveau code');
-      return;
-    }
-
-    setState(() => _loading = true);
-    try {
-      if (_useEmail) {
-        await _auth.verifyEmailCode(_email, code, verificationId);
-      } else {
-        await _auth.verifyOtp(_phoneNumber, code, verificationId);
-      }
-
-      if (!mounted) return;
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const HomeScreen()),
-      );
-    } catch (error) {
-      if (mounted) {
-        _showError(error.toString().replaceFirst('Exception: ', ''));
-      }
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  Future<void> _resendCode() async {
-    if (!_canResend) {
-      _showError('Attendez avant de redemander un code');
-      return;
-    }
-
-    setState(() => _loading = true);
-    try {
-      if (_useEmail) {
-        _verificationId = await _auth.requestEmailCode(_email);
-      } else {
-        final otpRequest = await _otpService.requestResend(_phoneNumber);
-        _verificationId = otpRequest.verificationId;
-      }
-      if (!mounted) return;
-      setState(() {});
-      _codeCtrl.clear();
-      _startResendTimer();
-      _showSuccess('Nouveau code envoyé par SMS');
-    } catch (error) {
-      if (mounted) {
-        _showError(error.toString().replaceFirst('Exception: ', ''));
-      }
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  void _startResendTimer() {
+  void _startResendCooldown() {
     _resendTimer?.cancel();
-    setState(() {
-      _secondsUntilResend = 60;
-      _canResend = false;
-    });
-
-    _resendTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+    setState(() => _secondsUntilResend = 60);
+    _resendTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
       setState(() {
         _secondsUntilResend--;
-        if (_secondsUntilResend <= 0) {
-          _canResend = true;
-          _resendTimer?.cancel();
-        }
+        if (_secondsUntilResend <= 0) _resendTimer?.cancel();
       });
     });
   }
 
   void _showError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.red.shade700,
-        duration: const Duration(seconds: 4),
-      ),
-    );
-  }
-
-  void _showSuccess(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: AppColors.success,
-        duration: const Duration(seconds: 3),
-      ),
-    );
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
@@ -270,39 +173,11 @@ class _PhoneVerificationScreenState extends State<PhoneVerificationScreen> {
                   _fieldShell(
                     child: TextField(
                       controller: _phoneCtrl,
-                      keyboardType: _useEmail
-                          ? TextInputType.emailAddress
-                          : TextInputType.phone,
-                      inputFormatters: _useEmail
-                          ? []
-                          : [FilteringTextInputFormatter.digitsOnly],
+                      keyboardType: TextInputType.phone,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                       style: _fieldStyle(),
-                      decoration: _fieldDecoration(_useEmail
-                          ? 'votre@email.com'
-                          : 'Exemple : 07XXXXXXXX'),
+                      decoration: _fieldDecoration('Exemple : 07XXXXXXXX'),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  SegmentedButton<bool>(
-                    segments: const [
-                      ButtonSegment(
-                          value: false,
-                          label: Text('Téléphone'),
-                          icon: Icon(Icons.phone)),
-                      ButtonSegment(
-                          value: true,
-                          label: Text('Email'),
-                          icon: Icon(Icons.email)),
-                    ],
-                    selected: {_useEmail},
-                    onSelectionChanged: _loading
-                        ? null
-                        : (selection) {
-                            setState(() {
-                              _useEmail = selection.first;
-                              _phoneCtrl.clear();
-                            });
-                          },
                   ),
                   const SizedBox(height: 24),
                   _submitButton('CONTINUER', _requestCode),
@@ -321,33 +196,25 @@ class _PhoneVerificationScreenState extends State<PhoneVerificationScreen> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       TextButton(
-                        onPressed: _loading
-                            ? null
-                            : () => setState(() => _codeSent = false),
+                        onPressed: _loading ? null : () => setState(() => _codeSent = false),
                         child: Text(
                           'Changer de numéro',
-                          style: GoogleFonts.nunito(
-                            color: Colors.white60,
-                            fontWeight: FontWeight.w700,
-                          ),
+                          style: GoogleFonts.nunito(color: Colors.white60, fontWeight: FontWeight.w700),
                         ),
                       ),
                       TextButton(
-                        onPressed: _canResend && !_loading ? _resendCode : null,
+                        onPressed: _secondsUntilResend == 0 && !_loading ? _resendCode : null,
                         child: Text(
-                          _canResend
-                              ? 'Renvoyer le code'
-                              : 'Renvoyer (${_secondsUntilResend}s)',
+                          _secondsUntilResend == 0 ? 'Renvoyer le code' : 'Renvoyer (${_secondsUntilResend}s)',
                           style: GoogleFonts.nunito(
-                            color:
-                                _canResend ? AppColors.success : Colors.white38,
+                            color: _secondsUntilResend == 0 ? AppColors.success : Colors.white38,
                             fontWeight: FontWeight.w700,
                           ),
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 8),
                   _submitButton('VALIDER', _verifyCode),
                 ],
               ],
@@ -379,8 +246,7 @@ class _PhoneVerificationScreenState extends State<PhoneVerificationScreen> {
 
   InputDecoration _fieldDecoration(String hint) => InputDecoration(
         hintText: hint,
-        hintStyle: GoogleFonts.nunito(
-            color: Colors.white38, fontWeight: FontWeight.w600),
+        hintStyle: GoogleFonts.nunito(color: Colors.white38, fontWeight: FontWeight.w600),
         border: InputBorder.none,
       );
 
@@ -392,21 +258,18 @@ class _PhoneVerificationScreenState extends State<PhoneVerificationScreen> {
         style: ElevatedButton.styleFrom(
           backgroundColor: AppColors.success,
           foregroundColor: Colors.white,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           elevation: 6,
         ),
         child: _loading
             ? const SizedBox(
                 width: 22,
                 height: 22,
-                child: CircularProgressIndicator(
-                    color: Colors.white, strokeWidth: 2.4),
+                child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.4),
               )
             : Text(
                 label,
-                style: GoogleFonts.nunito(
-                    fontSize: 17, fontWeight: FontWeight.w900),
+                style: GoogleFonts.nunito(fontSize: 17, fontWeight: FontWeight.w900),
               ),
       ),
     );

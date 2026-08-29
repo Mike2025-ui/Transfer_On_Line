@@ -1,6 +1,7 @@
 import logging
 from datetime import timedelta
 
+from django.conf import settings
 from django.db import transaction as db_transaction
 from django.db.models import Count
 from django.utils import timezone

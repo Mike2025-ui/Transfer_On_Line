@@ -292,7 +292,12 @@ class ConcurrentIdempotentRequestTests(TransactionTestCase):
         gw = Gateway.objects.create(name='Orange - gw1', host='gw1', status='online', is_active=True, last_heartbeat=timezone.now())
         self.sim = GatewaySim.objects.create(gateway=gw, operator=self.orange, slot=0, is_active=True)
 
-    @override_settings(USE_NEW_TRANSACTION_ENGINE=True)
+    # This test requests payment_method='auto' (the client default) and
+    # mocks CinetPayProvider specifically - 'auto' must actually resolve to
+    # cinetpay regardless of the ambient PAYMENT_PROVIDER_ORDER (which is
+    # feexpay,geniuspay in this project's real/local .env), otherwise the
+    # mock is never reached and create_payment.call_count stays 0.
+    @override_settings(USE_NEW_TRANSACTION_ENGINE=True, PAYMENT_PROVIDER_ORDER='cinetpay')
     @patch('apps.payments.providers.cinetpay.CinetPayProvider.create_payment')
     @patch('apps.payments.services.payment_service.redis_lock', return_value=nullcontext())
     def test_two_concurrent_requests_with_the_same_key_produce_a_single_transaction(self, _redis_lock, create_payment):

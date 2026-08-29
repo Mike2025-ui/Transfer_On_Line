@@ -15,7 +15,7 @@ checks would silently stop matching intermediate states it doesn't expect."""
 
 import logging
 
-from apps.core.models import Transaction, TransactionEvent
+from apps.core.models import Notification, Transaction, TransactionEvent
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +72,15 @@ class TransactionStateMachine:
             transaction.status = new_status
             transaction.save(update_fields=['status', 'updated_at'])
             logger.info('%s: %s -> %s', transaction.reference, previous_status, new_status)
+            if TransactionStateMachine.is_terminal(new_status):
+                # Business-model audit: the ONLY place a Notification is
+                # ever created for a Transaction - genuinely confirmed
+                # (this is the single authority for every status change),
+                # never optimistic, never duplicated for a reflexive
+                # re-apply of the same terminal status. No-op for a
+                # Transaction with no authenticated owner (see
+                # Notification.create_for_transaction_status's doc).
+                Notification.create_for_transaction_status(transaction, new_status)
 
         TransactionEvent.log(
             transaction, 'status_changed',

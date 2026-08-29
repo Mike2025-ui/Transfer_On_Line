@@ -284,6 +284,13 @@ class RealisticMobileHeartbeatIntegrationTests(TestCase):
     # activation of USE_NEW_TRANSACTION_ENGINE - this class's assertions
     # (e.g. absence of `sim_slot`) specifically target the flag-off path.
     USE_NEW_TRANSACTION_ENGINE=False,
+    # Same reasoning, for the same reason: this class's tests request
+    # payment_method='auto' (the client default) and mock CinetPayProvider
+    # specifically, so 'auto' must actually resolve to cinetpay regardless
+    # of the ambient PAYMENT_PROVIDER_ORDER (which is feexpay,geniuspay in
+    # this project's real/local .env) - otherwise 'auto' silently tries
+    # feexpay/geniuspay for real instead of ever reaching the mock.
+    PAYMENT_PROVIDER_ORDER='cinetpay',
 )
 @patch('apps.payments.services.payment_service.redis_lock', return_value=nullcontext())
 class CinetPayFlowTests(TestCase):
@@ -424,6 +431,11 @@ class CinetPayFlowTests(TestCase):
     CINETPAY_NOTIFY_URL='https://api.example.com/api/payments/cinetpay/notify/',
     CINETPAY_RETURN_URL='https://app.example.com/payment/success',
     USE_NEW_TRANSACTION_ENGINE=True,
+    # This class's tests request payment_method='auto' and mock
+    # CinetPayProvider specifically - 'auto' must actually resolve to
+    # cinetpay regardless of the ambient PAYMENT_PROVIDER_ORDER (see the
+    # identical note on CinetPayFlowTests above).
+    PAYMENT_PROVIDER_ORDER='cinetpay',
 )
 @patch('apps.payments.services.payment_service.redis_lock', return_value=nullcontext())
 class NewTransactionEngineIntegrationTests(TestCase):
@@ -1016,6 +1028,10 @@ class ExecuteTransactionViewUssdPreflightTests(TestCase):
         self.assertEqual(Payment.objects.count(), 0)
         self.assertEqual(Transaction.objects.count(), 0)
 
+    # 'auto' (the client default) must actually resolve to cinetpay here,
+    # regardless of the ambient PAYMENT_PROVIDER_ORDER - see the identical
+    # note on CinetPayFlowTests above.
+    @override_settings(PAYMENT_PROVIDER_ORDER='cinetpay')
     @patch('apps.payments.providers.cinetpay.CinetPayProvider.create_payment')
     def test_configured_operator_service_still_succeeds(self, create_payment, _redis_lock):
         from apps.payments.providers.base import PaymentInitResult

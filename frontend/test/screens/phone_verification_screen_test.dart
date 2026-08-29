@@ -18,10 +18,11 @@ class _InMemoryStore implements AuthTokenStore {
   Future<void> delete(String key) async => values.remove(key);
 }
 
-/// Aion Messaging is the sole OTP provider - this screen only ever talks to
-/// MY backend (`/auth/otp/request/`, `/auth/otp/verify/`); it never
-/// contacts Aion directly and never sees a plaintext code, only the opaque
-/// `verification_id` the backend returns.
+/// IKODDI is the sole OTP/SMS/WhatsApp provider - this screen only ever
+/// talks to MY backend (`/auth/otp/request/`, `/auth/otp/verify/`); it
+/// never contacts IKODDI directly and never sees a plaintext code. The
+/// backend resolves the pending code by phone_number alone - no external
+/// id to carry between request and verify.
 void main() {
   Future<void> pumpScreen(WidgetTester tester, AuthService auth) async {
     await tester.pumpWidget(MaterialApp(
@@ -49,7 +50,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Entrez le code reçu'), findsOneWidget);
-    expect(find.text('482910'), findsNothing, reason: 'Aion never returns a code to the client - nothing to auto-fill');
+    expect(find.text('482910'), findsNothing, reason: 'the backend never returns a code to the client - nothing to auto-fill');
   });
 
   testWidgets('a request error is shown and the screen stays on the phone step', (tester) async {
@@ -122,13 +123,13 @@ void main() {
     expect(calls, 1, reason: 'exactly one request must have been made');
   });
 
-  testWidgets('a successful verification forwards the exact verification_id and navigates to HomeScreen', (tester) async {
+  testWidgets('a successful verification sends only phone_number/code and navigates to HomeScreen', (tester) async {
     Map<String, dynamic>? verifyBody;
     final auth = AuthService(
       store: _InMemoryStore(),
       client: MockClient((request) async {
         if (request.url.path.contains('/auth/otp/request/')) {
-          return http.Response(jsonEncode({'status': 'sent', 'verification_id': 42}), 200);
+          return http.Response(jsonEncode({'status': 'sent'}), 200);
         }
         verifyBody = jsonDecode(request.body) as Map<String, dynamic>;
         return http.Response(
@@ -147,7 +148,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(verifyBody, isNotNull);
-    expect(verifyBody!['verification_id'], 42);
+    expect(verifyBody!.containsKey('verification_id'), isFalse,
+        reason: 'IKODDI/Django resolve the pending code by phone_number alone - no external id to carry');
     expect(verifyBody!['code'], '482910');
     expect(find.byType(HomeScreen), findsOneWidget);
   });

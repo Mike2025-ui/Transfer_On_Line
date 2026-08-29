@@ -74,19 +74,6 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
     return 'assets/images/Orange_logo.png';
   }
 
-  String _formatTime(DateTime date) {
-    final h = date.hour.toString().padLeft(2, '0');
-    final m = date.minute.toString().padLeft(2, '0');
-    return '$h:$m';
-  }
-
-  String _formatDate(DateTime date) {
-    final d = date.day.toString().padLeft(2, '0');
-    final m = date.month.toString().padLeft(2, '0');
-    final y = date.year.toString();
-    return '$d/$m/$y';
-  }
-
   @override
   Widget build(BuildContext context) {
     final isTransfer = widget.operation.contains('Transfert');
@@ -404,7 +391,12 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
         status: 'pending',
       );
       widget.onTransactionAdded(transaction);
-      widget.onNotificationAdded(_buildNotification(transaction));
+      // Identity architecture (Phase 8): no notification is fabricated here
+      // - a Notification only ever exists once the backend genuinely
+      // confirms a terminal outcome (see TransactionStateMachine.transition
+      // -> Notification.create_for_transaction_status on the backend).
+      // HomeScreen re-fetches the real list from GET /notifications/, it
+      // never invents one from a transaction that just started.
       if (!mounted) return;
       Navigator.push(
         context,
@@ -443,36 +435,6 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
     } catch (_) {
       rethrow;
     }
-  }
-
-  AppNotification _buildNotification(Transaction transaction) {
-    final success = transaction.status == 'ok';
-    final pending = transaction.status == 'pending';
-    final now = DateTime.now();
-    return AppNotification(
-      title: success
-          ? '${transaction.operation} ${transaction.service} réussie'
-          : pending
-              ? 'Paiement $_paymentLabel en attente'
-              : '${transaction.operation} ${transaction.service} échouée',
-      message:
-          'Numéro : ${transaction.phone}\nMontant : ${transaction.amount} FCFA\nFrais : ${transaction.fee} FCFA\nTotal débité : ${transaction.total} FCFA\nMoyen de paiement : ${transaction.paymentMethod}',
-      time: 'Aujourd\'hui · ${_formatTime(now)}',
-      read: false,
-      icon: success ? 'success' : pending ? 'info' : 'error',
-      type: success ? 'success' : pending ? 'info' : 'error',
-      reference: transaction.id,
-      operator: transaction.operator,
-      service: transaction.service,
-      operation: transaction.operation,
-      phone: transaction.phone,
-      amount: '${transaction.amount} FCFA',
-      fee: '${transaction.fee} FCFA',
-      total: '${transaction.total} FCFA',
-      paymentMethod: transaction.paymentMethod,
-      date: _formatDate(now),
-      heure: _formatTime(now),
-    );
   }
 
 }

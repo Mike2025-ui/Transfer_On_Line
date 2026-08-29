@@ -7,16 +7,17 @@ from django.conf import settings as dj_settings
 from django.db import transaction as db_transaction
 from django.db.models import F, Prefetch
 from django.utils import timezone
-from rest_framework.permissions import AllowAny
+from rest_framework.pagination import PageNumberPagination
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.core.correlation import set_correlation_id
 from apps.core.models import (
-    Device, Gateway, Operator, Payment, Service, Transaction, TransactionAttempt, TransactionEvent,
+    Device, Gateway, Notification, Operator, Payment, Service, Transaction, TransactionAttempt, TransactionEvent,
     UssdCode, UssdCodeNotConfigured, UssdCodeRenderError, hash_gateway_secret,
 )
-from apps.core.serializers import gateway_task_payload, resolve_ussd_code, transaction_payload
+from apps.core.serializers import gateway_task_payload, notification_payload, resolve_ussd_code, transaction_payload
 
 logger = logging.getLogger(__name__)
 from apps.core.services.retry_manager import RetryManager
@@ -234,6 +235,16 @@ class GatewayHeartbeatView(APIView):
 
 
 class ExecuteTransactionView(APIView):
+    """AllowAny is kept deliberately (identity architecture audit, Phase 6):
+    the existing transaction engine's test suite (idempotency, cross-operator
+    gateway selection, the new-engine e2e path) creates transactions
+    anonymously via this exact endpoint, and requiring auth here would be an
+    unrelated, invasive change to that engine. The real fix is that
+    Transaction.user is now always populated from request.user when a valid
+    JWT is present (see post() below) - ownership, history and notifications
+    all key off that field, never off AllowAny/anonymous access to this
+    specific endpoint."""
+
     permission_classes = [AllowAny]
 
     @db_transaction.atomic
@@ -316,6 +327,15 @@ class ExecuteTransactionView(APIView):
         )
         tx_fields = dict(
             device=device,
+            # Business-model audit (identity architecture): the owning
+            # identity always comes from the verified JWT (request.user),
+            # never from a user_id/phone_number the client could send
+            # freely - None for a request with no valid Bearer token
+            # (device/AllowAny remains the fallback for backward
+            # compatibility with the existing transaction engine, see
+            # ExecuteTransactionView's class doc), exactly like before this
+            # field existed.
+            user=request.user if request.user.is_authenticated else None,
             service=service,
             operator=operator,
             gateway=gateway,
@@ -420,6 +440,16 @@ class ExecuteTransactionView(APIView):
             TransactionStateMachine.transition(tx, 'failed', reason='payment_init_failed', error=str(exc))
             return Response({'error': str(exc), **transaction_payload(tx)}, status=502)
 
+        # PaymentService.initiate() resolves payment_method='auto' to whichever
+        # concrete provider actually accepted the payment and updates
+        # payment.method accordingly - tx.payment_method was only ever set to
+        # the client's original ('auto' or explicit) request value above, so
+        # it must be refreshed here or every 'auto' transaction would forever
+        # report 'auto' instead of the provider that is actually handling it.
+        if tx.payment_method != payment.method:
+            tx.payment_method = payment.method
+            tx.save(update_fields=['payment_method', 'updated_at'])
+
         return Response(transaction_payload(tx), status=201)
 
 
@@ -429,7 +459,14 @@ class TransactionStatusView(APIView):
     payment checkout URL (it has no other way: it never sees webhooks and
     was never given a polling channel before this). Looked up by
     `reference`, not `id` - the Flutter Client only ever receives
-    `reference` back from ExecuteTransactionView, never the numeric id."""
+    `reference` back from ExecuteTransactionView, never the numeric id.
+
+    AllowAny is kept for the same backward-compatibility reason as
+    ExecuteTransactionView - but ownership IS enforced below whenever the
+    transaction actually has one: an authenticated user can never read a
+    different authenticated user's transaction, even by guessing/sharing a
+    reference. A transaction with no owner (anonymous/device-only flow)
+    keeps its current behavior unchanged."""
 
     permission_classes = [AllowAny]
 
@@ -437,7 +474,10 @@ class TransactionStatusView(APIView):
         tx = Transaction.objects.select_related('service', 'operator', 'gateway', 'payment').filter(
             reference=reference,
         ).first()
-        if tx is None:
+        if tx is None or (tx.user_id is not None and tx.user_id != getattr(request.user, 'id', None)):
+            # Identical response for "doesn't exist" and "isn't yours" -
+            # never confirm to a caller that a reference they don't own
+            # actually exists.
             return Response({'error': 'Transaction not found'}, status=404)
 
         try:
@@ -459,6 +499,73 @@ class TransactionStatusView(APIView):
             'is_cancelled': status_value == 'cancelled',
         })
         return Response(payload)
+
+
+class _PersonalDataPagination(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
+
+class MyTransactionsView(APIView):
+    """Identity architecture (Phase 7): the customer's own purchase
+    history, queried exclusively from `request.user` - never from a
+    phone_number/user_id/device_uid the client could send freely. Requires
+    a real JWT: unlike ExecuteTransactionView/TransactionStatusView, there
+    is no anonymous/device-based equivalent of "my history" to stay
+    backward-compatible with, so this is IsAuthenticated from the start."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        qs = Transaction.objects.filter(user=request.user).select_related(
+            'service', 'operator', 'payment',
+        ).order_by('-created_at')
+        paginator = _PersonalDataPagination()
+        page = paginator.paginate_queryset(qs, request, view=self)
+        results = [transaction_payload(tx) for tx in page]
+        return paginator.get_paginated_response(results)
+
+
+class NotificationListView(APIView):
+    """Identity architecture (Phase 8): every query filtered by
+    `request.user` - a user can never list another user's notifications,
+    regardless of what id/phone_number/anything else is sent."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        qs = Notification.objects.filter(user=request.user).select_related('transaction')
+        paginator = _PersonalDataPagination()
+        page = paginator.paginate_queryset(qs, request, view=self)
+        results = [notification_payload(n) for n in page]
+        return paginator.get_paginated_response(results)
+
+
+class UnreadNotificationCountView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        count = Notification.objects.filter(user=request.user, is_read=False).count()
+        return Response({'unread_count': count})
+
+
+class MarkNotificationReadView(APIView):
+    """Scoped to `request.user` in the same lookup, not checked
+    afterwards: a notification belonging to another user simply does not
+    exist from this caller's point of view (404, not 403 - never confirms
+    it exists for someone else)."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, notification_id):
+        notification = Notification.objects.filter(id=notification_id, user=request.user).first()
+        if notification is None:
+            return Response({'error': 'Notification not found'}, status=404)
+        if not notification.is_read:
+            notification.is_read = True
+            notification.save(update_fields=['is_read'])
+        return Response(notification_payload(notification))
 
 
 class OperatorListView(APIView):

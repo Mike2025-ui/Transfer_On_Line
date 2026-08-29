@@ -1,3 +1,5 @@
+import hashlib
+import hmac
 import logging
 from decimal import Decimal, InvalidOperation
 
@@ -15,6 +17,7 @@ from apps.core.services.transaction_state_machine import InvalidTransitionError
 from apps.payments.models import WebhookEvent
 from apps.payments.providers.cinetpay import CinetPayError, CinetPayProvider
 from apps.payments.providers.geniuspay import status_to_local, verify_webhook_signature
+from apps.payments.providers.jeko import status_to_local as jeko_status_to_local
 from apps.payments.services.payment_service import PaymentService
 
 logger = logging.getLogger(__name__)
@@ -234,3 +237,66 @@ class GeniusPayWebhookView(APIView):
             'payment_status': payment.status,
             'transaction': _safe_transaction_payload(tx) if tx else None,
         })
+
+
+class JekoWebhookView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        secret = settings.JEKO_WEBHOOK_SECRET
+        signature = request.headers.get('Jeko-Signature', '')
+        if not secret or not signature:
+            return Response({'error': 'Webhook not configured'}, status=503)
+
+        expected = hmac.new(secret.encode(), request.body, hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(expected, signature):
+            return Response({'error': 'Invalid signature'}, status=401)
+
+        body = request.data
+        if body.get('event') == 'SERVICE_PROVIDER_LINK_REQUEST':
+            payload = body.get('payload') or {}
+            event_id = str(payload.get('id') or body.get('event'))
+            event_type = 'SERVICE_PROVIDER_LINK_REQUEST'
+            payment_reference = None
+        else:
+            details = body.get('transactionDetails') or {}
+            payment_reference = details.get('reference') or body.get('reference') or body.get('id')
+            event_id = str(body.get('id') or payment_reference or 'unknown')
+            event_type = 'TRANSACTION_COMPLETED'
+
+        event, created = WebhookEvent.objects.get_or_create(
+            provider='jeko',
+            event_id=event_id,
+            defaults={
+                'event_type': event_type,
+                'signature': signature,
+                'headers': {'Jeko-Signature': signature},
+                'payload': body,
+                'payment_reference': payment_reference,
+            },
+        )
+        if not created:
+            return Response({'received': True, 'status': 'duplicate-ignored'})
+
+        if payment_reference is None:
+            event.processed = True
+            event.processed_at = timezone.now()
+            event.save(update_fields=['processed', 'processed_at'])
+            return Response({'received': True})
+
+        payment = Payment.objects.filter(reference=payment_reference, method='jeko').first()
+        if payment is None:
+            payment = Payment.objects.filter(provider_transaction_id=payment_reference, method='jeko').first()
+        if payment is None:
+            return Response({'error': 'Payment not found'}, status=404)
+
+        _apply_status_safely(
+            payment,
+            jeko_status_to_local(body.get('status')),
+            raw_payload=body,
+            event_id=event_id,
+        )
+        event.processed = True
+        event.processed_at = timezone.now()
+        event.save(update_fields=['processed', 'processed_at'])
+        return Response({'received': True, 'payment_reference': payment.reference, 'payment_status': payment.status})

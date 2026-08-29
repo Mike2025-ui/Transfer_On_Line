@@ -8,6 +8,10 @@ urlpatterns = [
     path('gateways/<int:gateway_id>/heartbeat/', views.GatewayHeartbeatView.as_view(), name='api_gateway_heartbeat'),
     path('transactions/execute/', views.ExecuteTransactionView.as_view(), name='api_transaction_execute'),
     path('transactions/<str:reference>/status/', views.TransactionStatusView.as_view(), name='api_transaction_status'),
+    path('transactions/my/', views.MyTransactionsView.as_view(), name='api_transactions_my'),
+    path('notifications/', views.NotificationListView.as_view(), name='api_notifications'),
+    path('notifications/unread-count/', views.UnreadNotificationCountView.as_view(), name='api_notifications_unread_count'),
+    path('notifications/<int:notification_id>/read/', views.MarkNotificationReadView.as_view(), name='api_notifications_read'),
     path('operators/', views.OperatorListView.as_view(), name='api_operators'),
     path('services/', views.ServiceListView.as_view(), name='api_services'),
     path(

@@ -24,8 +24,16 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   late final BackendApiService _api = widget.backendApiService ?? BackendApiService();
   late final AuthService _auth = widget.authService ?? AuthService();
-  final List<AppNotification> _notifications = sampleNotifications;
-  List<Transaction> _transactions = List.from(sampleTransactions);
+  // Identity architecture (Phase 8): starts empty, never sampleNotifications
+  // - a brand-new identity genuinely has zero notifications until the
+  // backend says otherwise; fabricating sample ones would misrepresent the
+  // authenticated user's real history.
+  List<AppNotification> _notifications = [];
+  List<Transaction> _transactions = [];
+  // Backed by GET /notifications/unread-count/, not derived from
+  // _notifications (which only ever holds one page) - stays accurate even
+  // past the first page of history.
+  int _unreadCount = 0;
 
   List<OperatorItem>? _operators;
   bool _loadingOperators = true;
@@ -35,9 +43,16 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _loadTransactions();
+    _loadNotifications();
     _loadOperators();
   }
 
+  /// Identity architecture (Phase 7): the backend (`GET /transactions/my/`,
+  /// filtered by the JWT alone) is now the source of truth for history -
+  /// this is what makes a changed/reinstalled phone recover the exact same
+  /// purchases after a fresh OTP. The local cache (TransactionService)
+  /// stays only as an offline fallback and as the reconciliation seed for
+  /// a transaction that was still pending when the app last closed.
   Future<void> _loadTransactions() async {
     final saved = await TransactionService.load();
     if (saved.isNotEmpty && mounted) {
@@ -48,6 +63,114 @@ class _HomeScreenState extends State<HomeScreen> {
     // Backend - jamais supposée encore active sans vérifier, et jamais
     // relancée en parallèle pour toutes à la fois (voir _reconcilePending).
     if (saved.isNotEmpty) await _reconcilePending(saved);
+
+    final accessToken = await _safeAccessToken();
+    if (accessToken == null) return;
+    try {
+      final remote = await _api.fetchMyTransactions(accessToken: accessToken);
+      if (!mounted) return;
+      setState(() => _transactions = remote.map(_toLocalTransaction).toList());
+      await TransactionService.save(_transactions);
+    } catch (_) {
+      // Backend unreachable/session expired - keep whatever the local
+      // cache/reconciliation above already produced rather than clearing
+      // a screen that was showing real data a moment ago.
+    }
+  }
+
+  Transaction _toLocalTransaction(TransactionSummary s) {
+    final localStatus = switch (s.status) {
+      'success' => 'ok',
+      'cancelled' => 'cancelled',
+      'pending' || 'processing' => 'pending',
+      _ => 'fail',
+    };
+    return Transaction(
+      id: s.reference,
+      operator: s.operator,
+      service: s.service,
+      operation: s.transactionType,
+      phone: s.recipientPhone,
+      amount: s.amount.round(),
+      paymentMethod: s.paymentMethod ?? '',
+      date: s.createdAt ?? DateTime.now(),
+      status: localStatus,
+    );
+  }
+
+  /// Identity architecture (Phase 8): `GET /notifications/` +
+  /// `GET /notifications/unread-count/`, both filtered by the JWT alone -
+  /// this is what makes notifications survive a phone change/reinstall
+  /// exactly like transactions do (Phase 7).
+  Future<void> _loadNotifications() async {
+    final accessToken = await _safeAccessToken();
+    if (accessToken == null) return;
+    try {
+      final remote = await _api.fetchNotifications(accessToken: accessToken);
+      if (!mounted) return;
+      setState(() => _notifications = remote.map(_toAppNotification).toList());
+    } catch (_) {
+      // Leave whatever was already shown - never replace real data with an
+      // empty/fake list just because of a transient error.
+    }
+    try {
+      final count = await _api.fetchUnreadNotificationCount(accessToken: accessToken);
+      if (mounted) setState(() => _unreadCount = count);
+    } catch (_) {
+      // Keep the previous count rather than showing a misleading 0.
+    }
+  }
+
+  AppNotification _toAppNotification(NotificationItem n) {
+    final isSuccess = n.type == 'transaction_success';
+    return AppNotification(
+      id: n.id,
+      title: n.title,
+      message: n.message,
+      time: _formatNotificationTime(n.createdAt),
+      read: n.isRead,
+      icon: isSuccess ? 'success' : 'error',
+      type: isSuccess ? 'success' : 'error',
+      reference: n.transactionReference,
+    );
+  }
+
+  String _formatNotificationTime(DateTime? date) {
+    if (date == null) return '';
+    final local = date.toLocal();
+    final now = DateTime.now();
+    final h = local.hour.toString().padLeft(2, '0');
+    final m = local.minute.toString().padLeft(2, '0');
+    final isToday = local.year == now.year && local.month == now.month && local.day == now.day;
+    final isYesterday = now.difference(local).inDays == 1 && !isToday;
+    if (isToday) return "Aujourd'hui · $h:$m";
+    if (isYesterday) return 'Hier · $h:$m';
+    return '${local.day.toString().padLeft(2, '0')}/${local.month.toString().padLeft(2, '0')}/${local.year} · $h:$m';
+  }
+
+  /// Reading the stored session must never crash a load - an unauthenticated
+  /// screen simply shows nothing personal yet, which matches reality (the
+  /// app always requires OTP before reaching HomeScreen anyway).
+  Future<String?> _safeAccessToken() async {
+    try {
+      return await _auth.currentAccessToken();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _markNotificationRead(AppNotification notification) async {
+    final id = notification.id;
+    if (id == null) return;
+    final accessToken = await _safeAccessToken();
+    if (accessToken == null) return;
+    try {
+      await _api.markNotificationRead(accessToken: accessToken, notificationId: id);
+    } catch (_) {
+      // Best-effort: the local `read` flag (already applied by
+      // NotificationsScreen) is enough for this session; a future load will
+      // pick up the server's real state regardless.
+    }
   }
 
   /// Traitement séquentiel, une transaction à la fois - évite de déclencher
@@ -215,7 +338,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final unread = _notifications.where((n) => !n.read).length;
+    final unread = _unreadCount;
 
     return Scaffold(
       backgroundColor: const Color(0xFF02152A),
@@ -436,11 +559,12 @@ class _HomeScreenState extends State<HomeScreen> {
       onTap: () => Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (_) => NotificationsScreen(notifications: _notifications),
+          builder: (_) => NotificationsScreen(
+            notifications: _notifications,
+            onMarkRead: _markNotificationRead,
+          ),
         ),
-      ).then((_) {
-        if (mounted) setState(() {});
-      }),
+      ).then((_) => _loadNotifications()),
       child: Stack(
         clipBehavior: Clip.none,
         children: [

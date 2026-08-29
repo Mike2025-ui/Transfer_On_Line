@@ -122,9 +122,6 @@ EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'true').lower() == 'true'
 EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
 EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'no-reply@transfer-on-line.local')
-RESEND_API_KEY = os.environ.get('RESEND_API_KEY', '')
-RESEND_FROM_EMAIL = os.environ.get('RESEND_FROM_EMAIL', 'onboarding@resend.dev')
-RESEND_WEBHOOK_SECRET = os.environ.get('RESEND_WEBHOOK_SECRET', '')
 
 LOGIN_REDIRECT_URL = '/dashboard/'
 
@@ -226,15 +223,42 @@ FEEXPAY_CHANNELS = {
 }
 FEEXPAY_TIMEOUT_SECONDS = int(os.environ.get('FEEXPAY_TIMEOUT_SECONDS', '20'))
 PAYMENT_PROVIDER_ORDER = os.environ.get('PAYMENT_PROVIDER_ORDER', 'feexpay,geniuspay')
+# Jèko (https://developer.jeko.africa) - standard merchant Payments API
+# (`/partner_api/payment_requests`, `/partner_api/stores`), see
+# apps/payments/providers/jeko.py. X-API-KEY/X-API-KEY-ID and JEKO_STORE_ID
+# come from Jèko's own dashboard (cockpit.jeko.africa) for Transfer On
+# Line's own business/store - there is no sandbox environment (confirmed by
+# Jèko's own docs), so these always point at the one real environment.
+JEKO_API_KEY = os.environ.get('JEKO_API_KEY', '')
+JEKO_API_KEY_ID = os.environ.get('JEKO_API_KEY_ID', '')
+JEKO_BASE_URL = os.environ.get('JEKO_BASE_URL', 'https://api.jeko.africa')
+JEKO_STORE_ID = os.environ.get('JEKO_STORE_ID', '')
+JEKO_SUCCESS_URL = os.environ.get('JEKO_SUCCESS_URL', 'http://127.0.0.1:3000/payment/success')
+JEKO_ERROR_URL = os.environ.get('JEKO_ERROR_URL', 'http://127.0.0.1:3000/payment/cancel')
+JEKO_WEBHOOK_SECRET = os.environ.get('JEKO_WEBHOOK_SECRET', '')
+JEKO_TIMEOUT_SECONDS = int(os.environ.get('JEKO_TIMEOUT_SECONDS', '20'))
+# Jèko "Service Providers" program (business_onboarding/business_api_keys/...
+# in apps/payments/providers/jeko_service.py) is a SEPARATE, optional
+# marketplace/reseller feature - Jèko's own docs say it "ne concerne pas
+# tous les intégrateurs" and is for platforms that create Jèko accounts FOR
+# OTHER companies. Transfer On Line collects its own payments, so this is
+# not used by the payment flow above; these credentials are only for that
+# unused onboarding client, kept separate from JEKO_API_KEY/_ID on purpose.
+JEKO_PARTNER_API_KEY = os.environ.get('JEKO_PARTNER_API_KEY', '')
+JEKO_PARTNER_API_KEY_ID = os.environ.get('JEKO_PARTNER_API_KEY_ID', '')
 
-# Aion Messaging - the sole OTP provider (see apps/accounts/services.py).
-# /verify/start and /verify/check generate, deliver AND verify the code on
-# Aion's side - Django keeps no OTP state of its own (no mock mode: every
-# request_otp()/verify_otp() call really reaches Aion; tests mock
-# requests.post directly instead, see apps/accounts/tests.py).
-AION_API_KEY = os.environ.get('AION_API_KEY', '')
-AION_BASE_URL = os.environ.get('AION_BASE_URL', 'https://aionmessaging.com/api/v1/')
-AION_SENDER_ID = os.environ.get('AION_SENDER_ID', '')
+# IKODDI (https://docs.ikoddi.com) - the sole OTP/SMS/WhatsApp provider.
+# IKODDI's OTP As A Service generates, sends AND verifies the code itself
+# (see apps/accounts/services/ikoddi_service.py) - Django never generates
+# or stores the code, only the opaque `verificationKey` it returns
+# (apps.accounts.models.PhoneOtp.verification_key). No mock mode: every
+# request_otp() call really reaches IKODDI; tests mock the HTTP call
+# directly instead (see apps/accounts/tests.py).
+IKODDI_API_KEY = os.environ.get('IKODDI_API_KEY', '')
+IKODDI_BASE_URL = os.environ.get('IKODDI_BASE_URL', 'https://api.ikoddi.com/api/v1')
+IKODDI_GROUP_ID = os.environ.get('IKODDI_GROUP_ID', '')
+IKODDI_OTP_APP_ID = os.environ.get('IKODDI_OTP_APP_ID', '')
+IKODDI_TIMEOUT_SECONDS = int(os.environ.get('IKODDI_TIMEOUT_SECONDS', '20'))
 # Only ever read from the environment for a gated real-provider test (see
 # apps/accounts/tests.py) - never a default value used by the application.
 OTP_TEST_PHONE_NUMBER = os.environ.get('OTP_TEST_PHONE_NUMBER', '')

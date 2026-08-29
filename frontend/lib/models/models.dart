@@ -69,6 +69,11 @@ class AppNotification {
   final String? paymentMethod;
   final String? date;
   final String? heure;
+  // Identity architecture (Phase 8): the backend's real Notification.id -
+  // null only for locally-fabricated entries (e.g. sampleNotifications).
+  // Required to call POST /notifications/<id>/read/ - never guessed or
+  // derived from anything else.
+  final int? id;
 
   AppNotification({
     required this.title,
@@ -88,6 +93,7 @@ class AppNotification {
     this.paymentMethod,
     this.date,
     this.heure,
+    this.id,
   });
 }
 

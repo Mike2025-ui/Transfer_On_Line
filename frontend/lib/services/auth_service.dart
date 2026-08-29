@@ -59,12 +59,12 @@ class AuthService {
   static const _accessKey = 'auth_access_token';
   static const _refreshKey = 'auth_refresh_token';
 
-  /// Aion Messaging is the sole OTP provider (see apps.accounts.services on
-  /// the backend) - it generates and delivers the code itself, so the
-  /// response never contains it, in any build. Returns the decoded body,
-  /// e.g. {'status': 'sent', 'verification_id': 42} - the caller must keep
-  /// verification_id and send it back unchanged to [verifyOtp].
-  Future<Map<String, dynamic>> requestOtp(String phoneNumber) async {
+  /// The backend (apps.accounts.services.otp_service) delegates code
+  /// generation, delivery AND verification to IKODDI (OTP As A Service) -
+  /// the response never contains the code, in any build, and there is no
+  /// separate identifier to carry between request and verify: the pending
+  /// code is looked up server-side by phone_number alone.
+  Future<void> requestOtp(String phoneNumber) async {
     final response = await _client.post(
       Uri.parse('${BackendApiService.baseUrl}/auth/otp/request/'),
       headers: const {'Content-Type': 'application/json'},
@@ -73,37 +73,13 @@ class AuthService {
     if (response.statusCode != 200) {
       throw Exception(_extractError(response, 'Envoi du code impossible'));
     }
-    return jsonDecode(response.body) as Map<String, dynamic>;
   }
 
-  Future<int> requestEmailCode(String email) async {
-    final response = await _client.post(
-      Uri.parse('${BackendApiService.baseUrl}/auth/otp/request/'),
-      headers: const {'Content-Type': 'application/json'},
-      body: jsonEncode({'channel': 'email', 'email': email}),
-    );
-    if (response.statusCode != 200) {
-      throw Exception(_extractError(response, 'Envoi du code impossible'));
-    }
-    final json = jsonDecode(response.body) as Map<String, dynamic>;
-    final verificationId = (json['verification_id'] as num?)?.toInt();
-    if (verificationId == null) throw Exception('Réponse du serveur invalide');
-    return verificationId;
-  }
-
-  /// [verificationId] is the opaque id returned by [requestOtp] - forwarded
-  /// verbatim, never generated or interpreted here (see Aion's
-  /// /verify/start + /verify/check contract, apps.accounts.services).
-  Future<AuthSession> verifyOtp(
-      String phoneNumber, String code, int verificationId) async {
+  Future<AuthSession> verifyOtp(String phoneNumber, String code) async {
     final response = await _client.post(
       Uri.parse('${BackendApiService.baseUrl}/auth/otp/verify/'),
       headers: const {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'phone_number': phoneNumber,
-        'code': code,
-        'verification_id': verificationId
-      }),
+      body: jsonEncode({'phone_number': phoneNumber, 'code': code}),
     );
     if (response.statusCode != 200) {
       throw Exception(_extractError(response, 'Code invalide ou expiré'));
@@ -111,31 +87,6 @@ class AuthService {
     final json = jsonDecode(response.body) as Map<String, dynamic>;
     final session = AuthSession(
       phoneNumber: json['phone_number'] as String? ?? phoneNumber,
-      accessToken: json['access'] as String,
-      refreshToken: json['refresh'] as String,
-    );
-    await _persist(session);
-    return session;
-  }
-
-  Future<AuthSession> verifyEmailCode(
-      String email, String code, int verificationId) async {
-    final response = await _client.post(
-      Uri.parse('${BackendApiService.baseUrl}/auth/otp/verify/'),
-      headers: const {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'channel': 'email',
-        'email': email,
-        'code': code,
-        'verification_id': verificationId,
-      }),
-    );
-    if (response.statusCode != 200) {
-      throw Exception(_extractError(response, 'Code invalide ou expiré'));
-    }
-    final json = jsonDecode(response.body) as Map<String, dynamic>;
-    final session = AuthSession(
-      phoneNumber: json['phone_number'] as String? ?? email,
       accessToken: json['access'] as String,
       refreshToken: json['refresh'] as String,
     );

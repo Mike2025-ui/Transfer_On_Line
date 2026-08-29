@@ -64,6 +64,86 @@ class TransactionStatusResult {
   }
 }
 
+/// One row of the customer's own purchase history - `GET /transactions/my/`.
+/// Same fields as `transaction_payload()` on the backend (apps.core.
+/// serializers) - the endpoint is filtered by `request.user`, never by a
+/// phone_number/user_id this class could send.
+class TransactionSummary {
+  const TransactionSummary({
+    required this.reference,
+    required this.transactionType,
+    required this.operator,
+    required this.service,
+    required this.recipientPhone,
+    required this.amount,
+    required this.status,
+    required this.paymentMethod,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  final String reference;
+  final String transactionType;
+  final String operator;
+  final String service;
+  final String recipientPhone;
+  final double amount;
+  final String status;
+  final String? paymentMethod;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+
+  factory TransactionSummary.fromJson(Map<String, dynamic> json) {
+    DateTime? parseDate(String? value) => value == null ? null : DateTime.tryParse(value);
+    return TransactionSummary(
+      reference: json['reference'] as String? ?? '',
+      transactionType: json['transaction_type'] as String? ?? '',
+      operator: json['operator'] as String? ?? '',
+      service: json['service'] as String? ?? '',
+      recipientPhone: json['recipient_phone'] as String? ?? '',
+      amount: (json['amount'] as num?)?.toDouble() ?? 0,
+      status: json['status'] as String? ?? 'pending',
+      paymentMethod: json['payment_method'] as String?,
+      createdAt: parseDate(json['created_at'] as String?),
+      updatedAt: parseDate(json['updated_at'] as String?),
+    );
+  }
+}
+
+/// One row from `GET /notifications/` - always scoped to `request.user` on
+/// the backend (apps.core.models.Notification), never to a device/phone.
+class NotificationItem {
+  const NotificationItem({
+    required this.id,
+    required this.title,
+    required this.message,
+    required this.type,
+    required this.isRead,
+    required this.createdAt,
+    this.transactionReference,
+  });
+
+  final int id;
+  final String title;
+  final String message;
+  final String type;
+  final bool isRead;
+  final DateTime? createdAt;
+  final String? transactionReference;
+
+  factory NotificationItem.fromJson(Map<String, dynamic> json) {
+    return NotificationItem(
+      id: (json['id'] as num).toInt(),
+      title: json['title'] as String? ?? '',
+      message: json['message'] as String? ?? '',
+      type: json['type'] as String? ?? '',
+      isRead: json['is_read'] as bool? ?? false,
+      createdAt: json['created_at'] == null ? null : DateTime.tryParse(json['created_at'] as String),
+      transactionReference: json['transaction_reference'] as String?,
+    );
+  }
+}
+
 class BackendApiService {
   BackendApiService({http.Client? client}) : _client = client ?? http.Client();
 
@@ -208,5 +288,74 @@ class BackendApiService {
       detail = decoded['error'] as String? ?? detail;
     } catch (_) {}
     throw Exception(detail);
+  }
+
+  /// Identity architecture (Phase 7): `GET /transactions/my/`, filtered
+  /// server-side by the JWT alone - a real access token is required, there
+  /// is no anonymous equivalent of "my history".
+  Future<List<TransactionSummary>> fetchMyTransactions({
+    required String accessToken,
+    int page = 1,
+  }) async {
+    final response = await _client.get(
+      Uri.parse('$baseUrl/transactions/my/?page=$page'),
+      headers: {'Accept': 'application/json', 'Authorization': 'Bearer $accessToken'},
+    );
+    if (response.statusCode == 401) {
+      throw Exception('Session expirée');
+    }
+    if (response.statusCode != 200) {
+      throw Exception('Impossible de charger l\'historique (${response.statusCode})');
+    }
+    final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+    final results = decoded['results'] as List? ?? const [];
+    return results.map((e) => TransactionSummary.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
+  /// Identity architecture (Phase 8): `GET /notifications/`, filtered
+  /// server-side by the JWT alone.
+  Future<List<NotificationItem>> fetchNotifications({
+    required String accessToken,
+    int page = 1,
+  }) async {
+    final response = await _client.get(
+      Uri.parse('$baseUrl/notifications/?page=$page'),
+      headers: {'Accept': 'application/json', 'Authorization': 'Bearer $accessToken'},
+    );
+    if (response.statusCode == 401) {
+      throw Exception('Session expirée');
+    }
+    if (response.statusCode != 200) {
+      throw Exception('Impossible de charger les notifications (${response.statusCode})');
+    }
+    final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+    final results = decoded['results'] as List? ?? const [];
+    return results.map((e) => NotificationItem.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
+  Future<int> fetchUnreadNotificationCount({required String accessToken}) async {
+    final response = await _client.get(
+      Uri.parse('$baseUrl/notifications/unread-count/'),
+      headers: {'Accept': 'application/json', 'Authorization': 'Bearer $accessToken'},
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Impossible de charger le compteur (${response.statusCode})');
+    }
+    final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+    return (decoded['unread_count'] as num?)?.toInt() ?? 0;
+  }
+
+  Future<NotificationItem> markNotificationRead({
+    required String accessToken,
+    required int notificationId,
+  }) async {
+    final response = await _client.post(
+      Uri.parse('$baseUrl/notifications/$notificationId/read/'),
+      headers: {'Accept': 'application/json', 'Authorization': 'Bearer $accessToken'},
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Impossible de marquer la notification comme lue (${response.statusCode})');
+    }
+    return NotificationItem.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
   }
 }

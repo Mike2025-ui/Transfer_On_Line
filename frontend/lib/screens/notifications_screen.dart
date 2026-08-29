@@ -6,7 +6,13 @@ import '../widgets/widgets.dart';
 
 class NotificationsScreen extends StatefulWidget {
   final List<AppNotification> notifications;
-  const NotificationsScreen({super.key, required this.notifications});
+  // Identity architecture (Phase 8): called in addition to the local
+  // setState below, so "read" is also persisted server-side
+  // (POST /notifications/<id>/read/) - never only a local UI flag. Optional
+  // so this screen still works standalone (e.g. tests, sampleNotifications
+  // with no backend id).
+  final void Function(AppNotification)? onMarkRead;
+  const NotificationsScreen({super.key, required this.notifications, this.onMarkRead});
 
   @override
   State<NotificationsScreen> createState() => _NotificationsScreenState();
@@ -264,7 +270,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     final time = item.time.split('·').last.trim();
     return GestureDetector(
       onTap: () {
+        final wasUnread = !item.read;
         setState(() => item.read = true);
+        if (wasUnread) widget.onMarkRead?.call(item);
         Navigator.push(
           context,
           MaterialPageRoute(

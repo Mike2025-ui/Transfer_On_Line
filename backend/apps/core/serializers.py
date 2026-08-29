@@ -74,6 +74,21 @@ def transaction_payload(tx, ussd_code=None):
     }
 
 
+def notification_payload(notification):
+    """Flutter-facing shape for one Notification - deliberately excludes
+    `user` (the endpoint that returns this already filtered by
+    request.user, no need to echo the identity back)."""
+    return {
+        'id': notification.id,
+        'title': notification.title,
+        'message': notification.message,
+        'type': notification.type,
+        'is_read': notification.is_read,
+        'created_at': notification.created_at.isoformat() if notification.created_at else None,
+        'transaction_reference': notification.transaction.reference if notification.transaction_id else None,
+    }
+
+
 def gateway_task_payload(tx, ussd_code=None):
     """What the Android Gateway is allowed to see: a validated task to
     execute over USSD. Deliberately excludes payment_method, payment_reference,

@@ -201,21 +201,19 @@ void main() {
   });
 
   group('AuthService.requestOtp', () {
-    test('returns the verification_id Aion assigned via the backend - never a code', () async {
+    test('sends only the phone number - IKODDI/Django own the code, nothing to return here', () async {
       final auth = AuthService(
         store: _InMemoryStore(),
         client: MockClient((request) async {
           expect(request.url.path, contains('/auth/otp/request/'));
           final body = jsonDecode(request.body) as Map<String, dynamic>;
           expect(body['phone_number'], '+2250700000040');
-          return http.Response(jsonEncode({'status': 'sent', 'verification_id': 42}), 200);
+          expect(body.containsKey('channel'), isFalse, reason: 'the email channel was removed - phone is the only path');
+          return http.Response(jsonEncode({'status': 'sent'}), 200);
         }),
       );
 
-      final response = await auth.requestOtp('+2250700000040');
-
-      expect(response['verification_id'], 42);
-      expect(response.containsKey('debug_code'), isFalse, reason: 'Aion is the sole OTP provider - no code ever reaches the client');
+      await auth.requestOtp('+2250700000040');
     });
 
     test('a backend error raises with its message', () async {
@@ -232,15 +230,16 @@ void main() {
   });
 
   group('AuthService.verifyOtp', () {
-    test('forwards the verification_id unchanged and stores the phone number and both tokens on success', () async {
+    test('sends only phone_number and code, and stores the phone number and both tokens on success', () async {
       final store = _InMemoryStore();
       final auth = AuthService(
         store: store,
         client: MockClient((request) async {
           expect(request.url.path, contains('/auth/otp/verify/'));
           final body = jsonDecode(request.body) as Map<String, dynamic>;
-          expect(body['verification_id'], 42);
+          expect(body['phone_number'], '+2250700000004');
           expect(body['code'], '123456');
+          expect(body.containsKey('verification_id'), isFalse, reason: 'no external verification_id concept anymore - Django looks the pending code up by phone_number alone');
           return http.Response(
             jsonEncode({
               'access': _fakeJwt(exp: farFuture),
@@ -252,7 +251,7 @@ void main() {
         }),
       );
 
-      final session = await auth.verifyOtp('+2250700000004', '123456', 42);
+      final session = await auth.verifyOtp('+2250700000004', '123456');
 
       expect(session.phoneNumber, '+2250700000004');
       expect(await store.read('auth_refresh_token'), 'fresh-refresh-token');
@@ -266,7 +265,7 @@ void main() {
       );
 
       expect(
-        () => auth.verifyOtp('+2250700000005', '000000', 42),
+        () => auth.verifyOtp('+2250700000005', '000000'),
         throwsA(predicate((e) => e.toString().contains('Code invalide ou expiré'))),
       );
       await Future<void>.delayed(Duration.zero);

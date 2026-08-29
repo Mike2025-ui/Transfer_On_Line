@@ -277,6 +277,7 @@ class Payment(models.Model):
     METHOD_CHOICES = [
         ('auto', 'Automatique (relais)'),
         ('cinetpay', 'CinetPay'),
+        ('jeko', 'Jèko'),
         ('feexpay', 'FeexPay'),
         ('geniuspay', 'GeniusPay'),
     ]
@@ -404,6 +405,70 @@ class TransactionEvent(models.Model):
 
     def __str__(self):
         return f'{self.transaction.reference} - {self.event_type} @ {self.created_at}'
+
+
+class Notification(models.Model):
+    """A persistent, in-app notification belonging to exactly one
+    authenticated identity (settings.AUTH_USER_MODEL) - never to a phone
+    number, device or Transaction directly, so it survives a phone change
+    or reinstall exactly like Transaction.user does. Created ONLY once a
+    Transaction genuinely reaches a terminal state (see
+    create_for_transaction_status(), called from
+    TransactionStateMachine.transition() - the single authority for every
+    status change) - never optimistically at creation time, and never via
+    an SMS (SMS costs money; this is the in-app channel the business-model
+    audit explicitly asked to be preferred instead)."""
+
+    TYPE_CHOICES = [
+        ('transaction_success', 'Transaction réussie'),
+        ('transaction_failed', 'Transaction échouée'),
+        ('transaction_cancelled', 'Transaction annulée'),
+    ]
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='notifications')
+    title = models.CharField(max_length=200)
+    message = models.TextField()
+    type = models.CharField(max_length=30, choices=TYPE_CHOICES)
+    # SET_NULL, not CASCADE: a Transaction being purged later (if that ever
+    # happens) must never silently delete the user's notification history.
+    transaction = models.ForeignKey(
+        Transaction, on_delete=models.SET_NULL, null=True, blank=True, related_name='notifications',
+    )
+    is_read = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user', 'is_read']),
+            models.Index(fields=['user', 'created_at']),
+        ]
+
+    def __str__(self):
+        return f'{self.title} -> user_id={self.user_id} ({"lu" if self.is_read else "non lu"})'
+
+    @classmethod
+    def create_for_transaction_status(cls, transaction, status):
+        """Called only from TransactionStateMachine.transition(), only for
+        a status that is both terminal and genuinely new (never a reflexive
+        re-apply of the same status). Returns None (no notification
+        created) for a Transaction with no authenticated owner
+        (transaction.user_id is None) - there is no identity to notify."""
+        if transaction.user_id is None:
+            return None
+        labels = {
+            'success': ('Transaction réussie', 'transaction_success'),
+            'failed': ('Transaction échouée', 'transaction_failed'),
+            'cancelled': ('Transaction annulée', 'transaction_cancelled'),
+        }
+        if status not in labels:
+            return None
+        title, notif_type = labels[status]
+        message = f'{transaction.service.name} - {transaction.amount} FCFA - Référence {transaction.reference}'
+        return cls.objects.create(
+            user_id=transaction.user_id, title=title, message=message, type=notif_type, transaction=transaction,
+        )
+
 
 class TransactionAttempt(models.Model):
     """One row per execution attempt for a Transaction - the Reservation
