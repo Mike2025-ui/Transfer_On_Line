@@ -1,6 +1,7 @@
 from datetime import timedelta
 from pathlib import Path
 import os
+import sys
 
 try:
     import dj_database_url
@@ -18,14 +19,27 @@ except ImportError:  # pragma: no cover - python-dotenv is optional
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-local-dev-only')
 DEBUG = os.environ.get('DJANGO_DEBUG', 'false').lower() == 'true'
 
-ALLOWED_HOSTS = [
-    host.strip()
-    for host in os.environ.get(
-        "DJANGO_ALLOWED_HOSTS",
-        "localhost,127.0.0.1,172.20.10.3"
-    ).split(",")
-    if host.strip()
+DEFAULT_ALLOWED_HOSTS = [
+    'www.transfert-online.site',
+    'transfert-online.site',
+    '180.149.198.189',
+    'localhost',
+    '127.0.0.1',
+    '172.20.10.3',
+    '::1',
 ]
+
+raw_allowed_hosts = os.environ.get('DJANGO_ALLOWED_HOSTS', '')
+if raw_allowed_hosts and raw_allowed_hosts.strip():
+    allowed_hosts = [
+        host.strip()
+        for host in raw_allowed_hosts.split(',')
+        if host.strip()
+    ]
+else:
+    allowed_hosts = DEFAULT_ALLOWED_HOSTS
+
+ALLOWED_HOSTS = allowed_hosts
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -124,6 +138,11 @@ EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'no-reply@transfer-on-line.local')
 
 LOGIN_REDIRECT_URL = '/dashboard/'
+# Back Office audit: the custom dashboard has its own login page (see
+# apps.dashboard.views.dashboard_login) - never Django Admin's. Only affects
+# django.contrib.auth's own login_required/user_passes_test default; the
+# dashboard's local staff_member_required() below points here explicitly too.
+LOGIN_URL = 'dashboard_login'
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
@@ -167,62 +186,62 @@ RQ_QUEUES = {
     },
 }
 
-default_origins = 'http://localhost:3000,http://localhost:8080,http://127.0.0.1:3000,http://127.0.0.1:8080'
+default_origins = 'http://localhost:3000,http://localhost:8080,http://127.0.0.1:8000,http://127.0.0.1:8080'
 CORS_ALLOWED_ORIGINS = [
     origin.strip()
     for origin in os.environ.get('CORS_ALLOWED_ORIGINS', default_origins).split(',')
     if origin.strip()
 ]
-default_csrf_origins = 'http://localhost:3000,http://localhost:8000,http://127.0.0.1:3000,http://127.0.0.1:8000'
+default_csrf_origins = (
+    'http://www.transfert-online.site,http://transfert-online.site,'
+    'http://localhost:3000,http://localhost:8000,http://127.0.0.1:3000,http://127.0.0.1:8000'
+)
 CSRF_TRUSTED_ORIGINS = [
     origin.strip()
     for origin in os.environ.get('CSRF_TRUSTED_ORIGINS', default_csrf_origins).split(',')
     if origin.strip()
 ]
 
-SESSION_COOKIE_SECURE = not DEBUG
-CSRF_COOKIE_SECURE = not DEBUG
+# Back Office audit (CSRF 403 root cause): these five settings must be
+# driven by whether the site is ACTUALLY served over HTTPS
+# (DJANGO_SECURE_SSL_REDIRECT), never by DEBUG. The previous `not DEBUG`
+# wiring meant a correctly-configured DEBUG=False production server, while
+# still HTTP-only (no certificate yet - the exact current state of
+# http://www.transfert-online.site/), silently marked the session and CSRF
+# cookies `Secure`. A browser refuses to store or resend a `Secure` cookie
+# over a plain HTTP connection, so the CSRF cookie set on the form's GET
+# request never actually reached the server on the following POST -
+# producing "CSRF verification failed" regardless of a correct
+# {% csrf_token %} in the template. Flipping DJANGO_SECURE_SSL_REDIRECT=true
+# once the certificate is installed now turns on the whole HTTPS-only
+# bundle together - no other code change needed, nothing forced early.
 SECURE_SSL_REDIRECT = os.environ.get('DJANGO_SECURE_SSL_REDIRECT', 'false').lower() == 'true'
-SECURE_HSTS_SECONDS = int(os.environ.get('DJANGO_SECURE_HSTS_SECONDS', '0' if DEBUG else '31536000'))
-SECURE_HSTS_INCLUDE_SUBDOMAINS = not DEBUG
-SECURE_HSTS_PRELOAD = not DEBUG
+SESSION_COOKIE_SECURE = SECURE_SSL_REDIRECT
+CSRF_COOKIE_SECURE = SECURE_SSL_REDIRECT
+SECURE_HSTS_SECONDS = int(os.environ.get('DJANGO_SECURE_HSTS_SECONDS', '31536000' if SECURE_SSL_REDIRECT else '0'))
+SECURE_HSTS_INCLUDE_SUBDOMAINS = SECURE_SSL_REDIRECT
+SECURE_HSTS_PRELOAD = SECURE_SSL_REDIRECT
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
-
-CINETPAY_API_KEY = os.environ.get('CINETPAY_API_KEY', '')
-CINETPAY_SITE_ID = os.environ.get('CINETPAY_SITE_ID', '')
-CINETPAY_SECRET_KEY = os.environ.get('CINETPAY_SECRET_KEY', '')
-CINETPAY_INIT_URL = os.environ.get('CINETPAY_INIT_URL', 'https://api-checkout.cinetpay.com/v2/payment')
-CINETPAY_CHECK_URL = os.environ.get('CINETPAY_CHECK_URL', 'https://api-checkout.cinetpay.com/v2/payment/check')
-CINETPAY_CURRENCY = os.environ.get('CINETPAY_CURRENCY', 'XOF')
-CINETPAY_NOTIFY_URL = os.environ.get('CINETPAY_NOTIFY_URL', 'http://127.0.0.1:8000/api/payments/cinetpay/notify/')
-CINETPAY_RETURN_URL = os.environ.get('CINETPAY_RETURN_URL', 'http://127.0.0.1:3000/payment/success')
-CINETPAY_CANCEL_URL = os.environ.get('CINETPAY_CANCEL_URL', 'http://127.0.0.1:3000/payment/cancel')
-CINETPAY_CHANNELS = os.environ.get('CINETPAY_CHANNELS', 'MOBILE_MONEY')
-CINETPAY_LANG = os.environ.get('CINETPAY_LANG', 'fr')
-CINETPAY_TIMEOUT_SECONDS = int(os.environ.get('CINETPAY_TIMEOUT_SECONDS', '20'))
-CINETPAY_ALLOW_MOCK = os.environ.get('CINETPAY_ALLOW_MOCK', 'true').lower() == 'true'
 
 GENIUSPAY_API_KEY = os.environ.get('GENIUSPAY_API_KEY', '')
 GENIUSPAY_API_SECRET = os.environ.get('GENIUSPAY_API_SECRET', '')
 GENIUSPAY_BASE_URL = os.environ.get('GENIUSPAY_BASE_URL', 'https://geniuspay.ci/api/v1/merchant')
 GENIUSPAY_WEBHOOK_SECRET = os.environ.get('GENIUSPAY_WEBHOOK_SECRET', '')
 GENIUSPAY_CURRENCY = os.environ.get('GENIUSPAY_CURRENCY', 'XOF')
-GENIUSPAY_SUCCESS_URL = os.environ.get('GENIUSPAY_SUCCESS_URL', 'http://127.0.0.1:3000/payment/success')
-GENIUSPAY_ERROR_URL = os.environ.get('GENIUSPAY_ERROR_URL', 'http://127.0.0.1:3000/payment/cancel')
+GENIUSPAY_SUCCESS_URL = os.environ.get('GENIUSPAY_SUCCESS_URL', 'http://www.transfert-online.site/payment/success')
+GENIUSPAY_ERROR_URL = os.environ.get('GENIUSPAY_ERROR_URL', 'http://www.transfert-online.site/payment/cancel')
 GENIUSPAY_TIMEOUT_SECONDS = int(os.environ.get('GENIUSPAY_TIMEOUT_SECONDS', '30'))
-GENIUSPAY_ALLOW_MOCK = os.environ.get('GENIUSPAY_ALLOW_MOCK', 'true').lower() == 'true'
+GENIUSPAY_ALLOW_MOCK = os.environ.get('GENIUSPAY_ALLOW_MOCK', 'false').lower() == 'true'
 
-FEEXPAY_API_KEY = os.environ.get('FEEXPAY_API_KEY', '')
-FEEXPAY_SHOP = os.environ.get('FEEXPAY_SHOP', '')
-FEEXPAY_BASE_URL = os.environ.get('FEEXPAY_BASE_URL', 'https://api-v2.feexpay.me')
-FEEXPAY_CHANNELS = {
-    'mtn': os.environ.get('FEEXPAY_CHANNEL_MTN', 'mtn_ci'),
-    'moov': os.environ.get('FEEXPAY_CHANNEL_MOOV', 'moov_ci'),
-    'wave': os.environ.get('FEEXPAY_CHANNEL_WAVE', 'wave_ci'),
-    'orange': os.environ.get('FEEXPAY_CHANNEL_ORANGE', 'orange_ci'),
-}
-FEEXPAY_TIMEOUT_SECONDS = int(os.environ.get('FEEXPAY_TIMEOUT_SECONDS', '20'))
-PAYMENT_PROVIDER_ORDER = os.environ.get('PAYMENT_PROVIDER_ORDER', 'feexpay,geniuspay')
+# Production audit: Jèko is the sole primary provider, GeniusPay its only
+# fallback (PaymentService._provider_order() tries them in this order for
+# payment_method='auto' and stops at the first that accepts the payment -
+# see apps/payments/services/payment_service.py). CinetPay and FeexPay have
+# been removed entirely (providers, webhook, URLs, settings, Payment.
+# METHOD_CHOICES) - they are no longer selectable at all, not even
+# explicitly, per an explicit request to drop them rather than just
+# deprioritize them.
+PAYMENT_PROVIDER_ORDER = os.environ.get('PAYMENT_PROVIDER_ORDER', 'jeko,geniuspay')
 # Jèko (https://developer.jeko.africa) - standard merchant Payments API
 # (`/partner_api/payment_requests`, `/partner_api/stores`), see
 # apps/payments/providers/jeko.py. X-API-KEY/X-API-KEY-ID and JEKO_STORE_ID
@@ -233,8 +252,8 @@ JEKO_API_KEY = os.environ.get('JEKO_API_KEY', '')
 JEKO_API_KEY_ID = os.environ.get('JEKO_API_KEY_ID', '')
 JEKO_BASE_URL = os.environ.get('JEKO_BASE_URL', 'https://api.jeko.africa')
 JEKO_STORE_ID = os.environ.get('JEKO_STORE_ID', '')
-JEKO_SUCCESS_URL = os.environ.get('JEKO_SUCCESS_URL', 'http://127.0.0.1:3000/payment/success')
-JEKO_ERROR_URL = os.environ.get('JEKO_ERROR_URL', 'http://127.0.0.1:3000/payment/cancel')
+JEKO_SUCCESS_URL = os.environ.get('JEKO_SUCCESS_URL', 'http://www.transfert-online.site/payment/success')
+JEKO_ERROR_URL = os.environ.get('JEKO_ERROR_URL', 'http://www.transfert-online.site/payment/cancel')
 JEKO_WEBHOOK_SECRET = os.environ.get('JEKO_WEBHOOK_SECRET', '')
 JEKO_TIMEOUT_SECONDS = int(os.environ.get('JEKO_TIMEOUT_SECONDS', '20'))
 # Jèko "Service Providers" program (business_onboarding/business_api_keys/...
@@ -246,6 +265,26 @@ JEKO_TIMEOUT_SECONDS = int(os.environ.get('JEKO_TIMEOUT_SECONDS', '20'))
 # unused onboarding client, kept separate from JEKO_API_KEY/_ID on purpose.
 JEKO_PARTNER_API_KEY = os.environ.get('JEKO_PARTNER_API_KEY', '')
 JEKO_PARTNER_API_KEY_ID = os.environ.get('JEKO_PARTNER_API_KEY_ID', '')
+
+# Test safety net (production audit, Jèko has no sandbox environment): with
+# PAYMENT_PROVIDER_ORDER defaulting to 'jeko,geniuspay' and CinetPay/FeexPay
+# removed entirely, a test that mocks JekoProvider.create_payment (the
+# convention this whole test suite uses for payment_method='auto' flows)
+# would otherwise fall through to the real, live Jèko/GeniusPay APIs
+# whenever this machine's own .env happens to carry real credentials for
+# local manual testing - Jèko in particular has no sandbox, so that call
+# would hit production. Forcing 'jeko' and blanking the live keys here, only
+# under the test runner, makes every such test hit its intended mock
+# unconditionally - and if a test forgets to mock at all, _ensure_configured()
+# fails cleanly on the blanked keys instead of silently reaching a real API.
+# A test that genuinely wants to exercise Jèko/GeniusPay already sets its
+# own credentials via @override_settings (see apps/payments/tests.py's
+# JEKO_SETTINGS/IKODDI_SETTINGS-style dicts) - override_settings always
+# wins over this module-level default, so those tests are unaffected.
+if 'test' in sys.argv:
+    PAYMENT_PROVIDER_ORDER = 'jeko'
+    JEKO_API_KEY = JEKO_API_KEY_ID = JEKO_STORE_ID = ''
+    GENIUSPAY_API_KEY = GENIUSPAY_API_SECRET = ''
 
 # IKODDI (https://docs.ikoddi.com) - the sole OTP/SMS/WhatsApp provider.
 # IKODDI's OTP As A Service generates, sends AND verifies the code itself

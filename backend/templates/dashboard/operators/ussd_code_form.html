@@ -13,7 +13,7 @@
             {% if form.non_field_errors %}
             <div class="alert alert-danger">{{ form.non_field_errors }}</div>
             {% endif %}
-            <form method="post" novalidate>
+            <form id="ussd-code-form" method="post" novalidate>
                 {% csrf_token %}
                 <div class="mb-3">
                     <label class="form-label">Service</label>
@@ -46,13 +46,31 @@
                     {{ form.is_active }}
                     <label class="form-check-label" for="{{ form.is_active.id_for_label }}">Actif</label>
                 </div>
-                <div class="form-check mb-3">
+                <div class="form-check mb-4">
                     {{ form.is_default }}
                     <label class="form-check-label" for="{{ form.is_default.id_for_label }}">Code par défaut de l'opérateur</label>
                 </div>
-                <button type="submit" class="btn btn-primary">
-                    <i class="fas fa-save me-1"></i> Enregistrer
+
+                <hr class="my-4">
+                <h5 class="mb-1">Scénario interactif (étapes)</h5>
+                <p class="text-muted small mb-3">
+                    Laissez vide pour un code USSD direct (sans étape, comportement inchangé). Une étape peut
+                    contenir plusieurs valeurs, envoyées dans l'ordre ; « Fin de saisie » clôt le scénario et
+                    attend le résultat de l'opérateur.
+                </p>
+                <div id="steps-container"></div>
+                <button type="button" id="add-step-btn" class="btn btn-outline-secondary btn-sm mb-4">
+                    <i class="fas fa-plus me-1"></i> Ajouter une étape
                 </button>
+
+                {{ steps_initial|json_script:"steps-initial-data" }}
+                <input type="hidden" name="steps_json" id="steps_json">
+                <div class="d-flex gap-2">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save me-1"></i> Enregistrer le scénario
+                    </button>
+                    <a href="{% url 'ussd_codes' pk=operator.pk %}" class="btn btn-outline-secondary">Annuler</a>
+                </div>
             </form>
         </div>
     </div>
@@ -105,5 +123,198 @@ if (templateInput) {
     }
     updatePreview();
 }
+
+// --- Scénario interactif : étapes / valeurs -------------------------------
+// UssdCode -> UssdStep (order, step_type) -> UssdStepField (order,
+// field_type, value) - state est reconstruit en JSON juste avant l'envoi du
+// formulaire (#steps_json) et validé/persisté côté serveur
+// (apps.dashboard.views._parse_steps_json/_save_steps). L'ordre affiché est
+// toujours la position réelle dans le tableau - jamais une valeur saisie à
+// la main, pour ne jamais désynchroniser l'ordre affiché de l'ordre envoyé.
+const VALUE_TYPES = [
+    { key: 'numero', field_type: 'DYNAMIC', label: 'Numéro du client' },
+    { key: 'montant', field_type: 'DYNAMIC', label: 'Montant' },
+    { key: 'forfait', field_type: 'DYNAMIC', label: 'Forfait' },
+    { key: 'fixed', field_type: 'FIXED', label: 'Valeur fixe' },
+];
+
+function valueTypeKey(field) {
+    return field.field_type === 'DYNAMIC' ? field.value : 'fixed';
+}
+
+let scenarioSteps = [];
+try {
+    scenarioSteps = JSON.parse(document.getElementById('steps-initial-data').textContent);
+} catch (e) {
+    scenarioSteps = [];
+}
+
+function renderSteps() {
+    const container = document.getElementById('steps-container');
+    container.innerHTML = '';
+    scenarioSteps.forEach(function (step, stepIndex) {
+        const card = document.createElement('div');
+        card.className = 'card border-0 shadow-sm mb-3';
+        const isFinal = step.step_type === 'FINAL_FIELD';
+
+        let fieldsHtml = '';
+        if (!isFinal) {
+            const rows = (step.fields || []).map(function (field, fieldIndex) {
+                const isFixed = field.field_type === 'FIXED';
+                const options = VALUE_TYPES.map(function (vt) {
+                    const selected = valueTypeKey(field) === vt.key ? 'selected' : '';
+                    return `<option value="${vt.key}" ${selected}>${vt.label}</option>`;
+                }).join('');
+                const valueCell = isFixed
+                    ? `<input type="text" class="form-control form-control-sm field-value-input" data-step="${stepIndex}" data-field="${fieldIndex}" value="${(field.value || '').replace(/"/g, '&quot;')}" placeholder="Ex : 2004">`
+                    : `<span class="text-muted">Automatique</span>`;
+                return `
+                    <tr>
+                        <td class="text-muted">${fieldIndex + 1}</td>
+                        <td>
+                            <select class="form-select form-select-sm field-type-select" data-step="${stepIndex}" data-field="${fieldIndex}">
+                                ${options}
+                            </select>
+                        </td>
+                        <td>${valueCell}</td>
+                        <td class="text-end">
+                            <button type="button" class="btn btn-sm btn-outline-danger remove-field-btn" data-step="${stepIndex}" data-field="${fieldIndex}" title="Supprimer">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary move-field-btn" data-step="${stepIndex}" data-field="${fieldIndex}" data-dir="-1" title="Monter" ${fieldIndex === 0 ? 'disabled' : ''}>
+                                <i class="fas fa-arrow-up"></i>
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary move-field-btn" data-step="${stepIndex}" data-field="${fieldIndex}" data-dir="1" title="Descendre" ${fieldIndex === (step.fields || []).length - 1 ? 'disabled' : ''}>
+                                <i class="fas fa-arrow-down"></i>
+                            </button>
+                        </td>
+                    </tr>`;
+            }).join('');
+            fieldsHtml = `
+                <div class="table-responsive mb-2">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead><tr><th style="width:60px;">Ordre</th><th>Type de valeur</th><th>Valeur</th><th class="text-end">Action</th></tr></thead>
+                        <tbody>${rows || '<tr><td colspan="4" class="text-muted small py-2">Aucune valeur - ajoutez-en au moins une, ou utilisez « Fin de saisie ».</td></tr>'}</tbody>
+                    </table>
+                </div>
+                <button type="button" class="btn btn-outline-secondary btn-sm add-field-btn" data-step="${stepIndex}">
+                    <i class="fas fa-plus me-1"></i> Ajouter une valeur
+                </button>`;
+        } else {
+            fieldsHtml = '<p class="text-muted small mb-0">Fin du scénario - le système attend le résultat renvoyé par l\'opérateur.</p>';
+        }
+
+        card.innerHTML = `
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h6 class="mb-0">Étape ${stepIndex + 1}</h6>
+                    <div>
+                        <button type="button" class="btn btn-sm btn-outline-secondary move-step-btn" data-step="${stepIndex}" data-dir="-1" title="Monter" ${stepIndex === 0 ? 'disabled' : ''}>
+                            <i class="fas fa-arrow-up"></i>
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary move-step-btn" data-step="${stepIndex}" data-dir="1" title="Descendre" ${stepIndex === scenarioSteps.length - 1 ? 'disabled' : ''}>
+                            <i class="fas fa-arrow-down"></i>
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-danger remove-step-btn" data-step="${stepIndex}">
+                            <i class="fas fa-trash me-1"></i> Supprimer l'étape
+                        </button>
+                    </div>
+                </div>
+                <div class="mb-3" style="max-width: 320px;">
+                    <label class="form-label small">Type d'étape</label>
+                    <select class="form-select form-select-sm step-type-select" data-step="${stepIndex}">
+                        <option value="INPUT" ${!isFinal ? 'selected' : ''}>Saisie</option>
+                        <option value="FINAL_FIELD" ${isFinal ? 'selected' : ''}>Fin de saisie (attendre le résultat)</option>
+                    </select>
+                </div>
+                ${fieldsHtml}
+            </div>`;
+        container.appendChild(card);
+    });
+}
+
+document.getElementById('add-step-btn').addEventListener('click', function () {
+    scenarioSteps.push({ order: scenarioSteps.length + 1, step_type: 'INPUT', name: '', fields: [] });
+    renderSteps();
+});
+
+document.getElementById('steps-container').addEventListener('click', function (event) {
+    const btn = event.target.closest('button');
+    if (!btn) return;
+    const stepIndex = btn.dataset.step !== undefined ? parseInt(btn.dataset.step, 10) : null;
+    const fieldIndex = btn.dataset.field !== undefined ? parseInt(btn.dataset.field, 10) : null;
+
+    if (btn.classList.contains('remove-step-btn')) {
+        scenarioSteps.splice(stepIndex, 1);
+        renderSteps();
+    } else if (btn.classList.contains('move-step-btn')) {
+        const dir = parseInt(btn.dataset.dir, 10);
+        const target = stepIndex + dir;
+        if (target >= 0 && target < scenarioSteps.length) {
+            const tmp = scenarioSteps[stepIndex];
+            scenarioSteps[stepIndex] = scenarioSteps[target];
+            scenarioSteps[target] = tmp;
+            renderSteps();
+        }
+    } else if (btn.classList.contains('add-field-btn')) {
+        scenarioSteps[stepIndex].fields = scenarioSteps[stepIndex].fields || [];
+        scenarioSteps[stepIndex].fields.push({ order: scenarioSteps[stepIndex].fields.length + 1, field_type: 'DYNAMIC', value: 'numero' });
+        renderSteps();
+    } else if (btn.classList.contains('remove-field-btn')) {
+        scenarioSteps[stepIndex].fields.splice(fieldIndex, 1);
+        renderSteps();
+    } else if (btn.classList.contains('move-field-btn')) {
+        const dir = parseInt(btn.dataset.dir, 10);
+        const fields = scenarioSteps[stepIndex].fields;
+        const target = fieldIndex + dir;
+        if (target >= 0 && target < fields.length) {
+            const tmp = fields[fieldIndex];
+            fields[fieldIndex] = fields[target];
+            fields[target] = tmp;
+            renderSteps();
+        }
+    }
+});
+
+document.getElementById('steps-container').addEventListener('change', function (event) {
+    const stepIndex = event.target.dataset.step !== undefined ? parseInt(event.target.dataset.step, 10) : null;
+    const fieldIndex = event.target.dataset.field !== undefined ? parseInt(event.target.dataset.field, 10) : null;
+
+    if (event.target.classList.contains('step-type-select')) {
+        scenarioSteps[stepIndex].step_type = event.target.value;
+        if (event.target.value === 'FINAL_FIELD') {
+            scenarioSteps[stepIndex].fields = [];
+        }
+        renderSteps();
+    } else if (event.target.classList.contains('field-type-select')) {
+        const chosen = VALUE_TYPES.find(function (vt) { return vt.key === event.target.value; });
+        const field = scenarioSteps[stepIndex].fields[fieldIndex];
+        field.field_type = chosen.field_type;
+        field.value = chosen.field_type === 'DYNAMIC' ? chosen.key : '';
+        renderSteps();
+    }
+});
+
+document.getElementById('steps-container').addEventListener('input', function (event) {
+    if (!event.target.classList.contains('field-value-input')) return;
+    const stepIndex = parseInt(event.target.dataset.step, 10);
+    const fieldIndex = parseInt(event.target.dataset.field, 10);
+    scenarioSteps[stepIndex].fields[fieldIndex].value = event.target.value;
+});
+
+const ussdForm = document.getElementById('ussd-code-form');
+if (ussdForm) {
+    ussdForm.addEventListener('submit', function () {
+        // Recompute order strictly from array position - never trust a stale
+        // stored `order` value that might no longer match after a move/remove.
+        scenarioSteps.forEach(function (step, stepIndex) {
+            step.order = stepIndex + 1;
+            (step.fields || []).forEach(function (field, fieldIndex) { field.order = fieldIndex + 1; });
+        });
+        document.getElementById('steps_json').value = JSON.stringify(scenarioSteps);
+    });
+}
+
+renderSteps();
 </script>
 {% endblock %}

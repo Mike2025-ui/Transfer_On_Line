@@ -16,6 +16,7 @@ from apps.core.services.retry_manager import RetryManager
 from apps.devices.models import GatewaySim
 from apps.devices.services.gateway_manager import GatewayManager
 from apps.devices.services.reservation_manager import ReservationManager
+from apps.payments.services.payment_service import PaymentService
 
 
 class GatewaySimModelTests(TestCase):
@@ -275,25 +276,26 @@ class RealisticMobileHeartbeatIntegrationTests(TestCase):
 
 
 @override_settings(
-    CINETPAY_API_KEY='api-key',
-    CINETPAY_SITE_ID='site-id',
-    CINETPAY_NOTIFY_URL='https://api.example.com/api/payments/cinetpay/notify/',
-    CINETPAY_RETURN_URL='https://app.example.com/payment/success',
     # Business-model audit Phase 5: made explicit rather than relying on the
     # ambient default, which now depends on the local .env's dev/test
     # activation of USE_NEW_TRANSACTION_ENGINE - this class's assertions
     # (e.g. absence of `sim_slot`) specifically target the flag-off path.
     USE_NEW_TRANSACTION_ENGINE=False,
-    # Same reasoning, for the same reason: this class's tests request
-    # payment_method='auto' (the client default) and mock CinetPayProvider
-    # specifically, so 'auto' must actually resolve to cinetpay regardless
-    # of the ambient PAYMENT_PROVIDER_ORDER (which is feexpay,geniuspay in
-    # this project's real/local .env) - otherwise 'auto' silently tries
-    # feexpay/geniuspay for real instead of ever reaching the mock.
-    PAYMENT_PROVIDER_ORDER='cinetpay',
+    # This class's test requests payment_method='auto' (the client default)
+    # and mocks JekoProvider specifically, so 'auto' must actually resolve
+    # to jeko regardless of the ambient PAYMENT_PROVIDER_ORDER.
+    PAYMENT_PROVIDER_ORDER='jeko',
 )
 @patch('apps.payments.services.payment_service.redis_lock', return_value=nullcontext())
-class CinetPayFlowTests(TestCase):
+class JekoFlowTests(TestCase):
+    """CinetPay's own notify-webhook flow (no signature, re-verify via API)
+    has been removed along with CinetPay itself - the pending-transactions-
+    hidden-until-accepted and notify-doesn't-500-on-a-resolved-transaction
+    behaviors it used to exercise here are covered against GeniusPay's real
+    signed webhook in apps/payments/tests.py instead. Only the provider-
+    agnostic 'auto' checkout-initialization test survives here, retargeted
+    to Jèko (the current default 'auto' provider)."""
+
     def setUp(self):
         self.client = APIClient()
         self.gateway = Gateway.objects.create(
@@ -318,20 +320,14 @@ class CinetPayFlowTests(TestCase):
         # gateway) would never be considered eligible for its own Gateway.
         GatewaySim.objects.create(gateway=self.gateway, operator=self.orange, slot=0, is_active=True)
 
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.create_payment')
-    def test_execute_transaction_initializes_cinetpay_checkout(self, create_payment, _redis_lock):
+    @patch('apps.payments.providers.jeko.JekoProvider.create_payment')
+    def test_execute_transaction_initializes_jeko_checkout(self, create_payment, _redis_lock):
         from apps.payments.providers.base import PaymentInitResult
 
         create_payment.return_value = PaymentInitResult(
-            checkout_url='https://checkout.cinetpay.com/pay/token-123',
+            checkout_url='https://pay.jeko.africa/pay_request/pr/token-123',
             provider_transaction_id='token-123',
-            raw={
-                'code': '201',
-                'data': {
-                    'payment_token': 'token-123',
-                    'payment_url': 'https://checkout.cinetpay.com/pay/token-123',
-                },
-            },
+            raw={'id': 'token-123', 'status': 'pending', 'redirectUrl': 'https://pay.jeko.africa/pay_request/pr/token-123'},
         )
 
         response = self.client.post(
@@ -347,95 +343,19 @@ class CinetPayFlowTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 201)
-        self.assertEqual(response.data['payment_method'], 'cinetpay')
+        self.assertEqual(response.data['payment_method'], 'jeko')
         self.assertEqual(response.data['payment_status'], 'pending')
-        self.assertEqual(response.data['checkout_url'], 'https://checkout.cinetpay.com/pay/token-123')
-        self.assertTrue(Payment.objects.filter(method='cinetpay', amount=Decimal('1000')).exists())
-
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.verify_payment')
-    def test_pending_transactions_are_exposed_only_after_accepted_payment(self, verify_payment, _redis_lock):
-        payment = Payment.objects.create(method='cinetpay', reference='PAY-1', amount=1000)
-        tx = Transaction.objects.create(
-            device_id=self._device_id(),
-            service_id=self._service_id(),
-            operator_id=self._operator_id(),
-            gateway=self.gateway,
-            phone_number='0700000001',
-            amount=1000,
-            payment=payment,
-            payment_method='cinetpay',
-            payment_reference='PAY-1',
-        )
-        self.assertEqual(self.client.get(reverse('api_transaction_pending')).data, [])
-
-        from apps.payments.providers.base import PaymentStatusResult
-
-        verify_payment.return_value = PaymentStatusResult(status='accepted', raw={'data': {'status': 'ACCEPTED'}})
-        notify = self.client.post(reverse('api_cinetpay_notify'), {'transaction_id': 'PAY-1'}, format='json')
-        self.assertEqual(notify.status_code, 200)
-
-        pending = self.client.get(reverse('api_transaction_pending'))
-        self.assertEqual(len(pending.data), 1)
-        self.assertEqual(pending.data[0]['reference'], str(tx.reference))
-        # The Android Gateway must never see which payment provider was used,
-        # its reference/status, or the checkout URL - see gateway_task_payload().
-        for leaked_field in ('payment_method', 'payment_reference', 'payment_status', 'checkout_url'):
-            self.assertNotIn(leaked_field, pending.data[0])
-        # USE_NEW_TRANSACTION_ENGINE defaults to False in this test - no
-        # Scheduler ever ran, so there is no reserved SIM to report.
-        self.assertNotIn('sim_slot', pending.data[0])
-
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.verify_payment')
-    def test_notify_with_an_already_resolved_transaction_does_not_500(self, verify_payment, _redis_lock):
-        """Phase D audit (Critique n°2): the transaction was already resolved
-        to a different terminal status by the time this notify ping arrives
-        (e.g. it was separately cancelled) - the notify view must degrade
-        gracefully, never crash with an unhandled 500."""
-        payment = Payment.objects.create(method='cinetpay', reference='PAY-2', amount=1000, status='pending')
-        tx = Transaction.objects.create(
-            device_id=self._device_id(), service_id=self._service_id(), operator_id=self._operator_id(),
-            gateway=self.gateway, phone_number='0700000001', amount=1000,
-            payment=payment, payment_method='cinetpay', payment_reference='PAY-2', status='cancelled',
-        )
-
-        from apps.payments.providers.base import PaymentStatusResult
-        verify_payment.return_value = PaymentStatusResult(status='accepted', raw={'data': {'status': 'ACCEPTED'}})
-
-        response = self.client.post(reverse('api_cinetpay_notify'), {'transaction_id': 'PAY-2'}, format='json')
-
-        self.assertEqual(response.status_code, 200)
-        payment.refresh_from_db()
-        self.assertEqual(payment.status, 'pending', 'the Payment write must be rolled back, never partially applied')
-        tx.refresh_from_db()
-        self.assertEqual(tx.status, 'cancelled', 'the rejected transition must never apply')
-
-    def _device_id(self):
-        from apps.core.models import Device
-
-        return Device.objects.create(uid='client-app', primary_phone='0700000001').id
-
-    def _service_id(self):
-        from apps.core.models import Service
-
-        return Service.objects.create(name='Internet', code='subscription').id
-
-    def _operator_id(self):
-        # Reuses the operator created in setUp (already has a configured
-        # UssdCode) rather than creating a second, unconfigured 'Orange' row.
-        return self.orange.id
+        self.assertEqual(response.data['checkout_url'], 'https://pay.jeko.africa/pay_request/pr/token-123')
+        self.assertTrue(Payment.objects.filter(method='jeko', amount=Decimal('1000')).exists())
 
 
 @override_settings(
-    CINETPAY_API_KEY='api-key',
-    CINETPAY_SITE_ID='site-id',
-    CINETPAY_NOTIFY_URL='https://api.example.com/api/payments/cinetpay/notify/',
-    CINETPAY_RETURN_URL='https://app.example.com/payment/success',
     USE_NEW_TRANSACTION_ENGINE=True,
     # This class's tests request payment_method='auto' and mock
-    # CinetPayProvider specifically - 'auto' must actually resolve to
-    # cinetpay regardless of the ambient PAYMENT_PROVIDER_ORDER (see the
-    # identical note on CinetPayFlowTests above).
-    PAYMENT_PROVIDER_ORDER='cinetpay',
+    # JekoProvider specifically - 'auto' must actually resolve to jeko
+    # regardless of the ambient PAYMENT_PROVIDER_ORDER (see the identical
+    # note on JekoFlowTests above).
+    PAYMENT_PROVIDER_ORDER='jeko',
 )
 @patch('apps.payments.services.payment_service.redis_lock', return_value=nullcontext())
 class NewTransactionEngineIntegrationTests(TestCase):
@@ -478,14 +398,14 @@ class NewTransactionEngineIntegrationTests(TestCase):
     def _last_event(self, tx, event_type):
         return tx.events.filter(event_type=event_type).order_by('-created_at').first()
 
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.create_payment')
+    @patch('apps.payments.providers.jeko.JekoProvider.create_payment')
     def test_scheduler_picks_a_heartbeat_sourced_sim_over_the_legacy_selector(self, create_payment, _redis_lock):
         """Objectif 3: the eligible GatewaySim comes from a real heartbeat
         POST (not created directly via the ORM) - proves heartbeat ->
         GatewayManager -> Scheduler is genuinely connected end to end."""
         from apps.payments.providers.base import PaymentInitResult
         create_payment.return_value = PaymentInitResult(
-            checkout_url='https://checkout.cinetpay.com/pay/tok', provider_transaction_id='tok', raw={},
+            checkout_url='https://pay.jeko.africa/pay_request/pr/tok', provider_transaction_id='tok', raw={},
         )
         # Online but operator-mismatched - what the old, pre-Phase-7.2 legacy
         # _select_gateway() would have grabbed instead, since it ignored
@@ -523,15 +443,15 @@ class NewTransactionEngineIntegrationTests(TestCase):
         self.assertIsNotNone(event)
         self.assertEqual(event.metadata.get('mechanism'), 'scheduler')
 
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.verify_payment')
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.create_payment')
+    @patch('apps.payments.providers.jeko.JekoProvider.verify_payment')
+    @patch('apps.payments.providers.jeko.JekoProvider.create_payment')
     def test_pending_transactions_expose_sim_slot_when_the_engine_reserved_one(self, create_payment, verify_payment, _redis_lock):
         """Mobile Phase C needs sim_slot to dial on the right physical SIM
         (see gateway_task_payload) - it must reflect the SIM the Scheduler
         actually reserved, not just any SIM on that gateway."""
         from apps.payments.providers.base import PaymentInitResult, PaymentStatusResult
         create_payment.return_value = PaymentInitResult(
-            checkout_url='https://checkout.cinetpay.com/pay/tok', provider_transaction_id='tok', raw={},
+            checkout_url='https://pay.jeko.africa/pay_request/pr/tok', provider_transaction_id='tok', raw={},
         )
         gw = self._online_gateway('mobile-2', battery_level=80)
         GatewaySim.objects.create(gateway=gw, operator=self.orange, slot=1, msisdn='0700000020')
@@ -542,12 +462,12 @@ class NewTransactionEngineIntegrationTests(TestCase):
         self.assertEqual(tx.attempts.get(attempt_number=1).gateway_sim.slot, 1)
 
         verify_payment.return_value = PaymentStatusResult(status='accepted', raw={'data': {'status': 'ACCEPTED'}})
-        self.client.post(reverse('api_cinetpay_notify'), {'transaction_id': tx.payment.reference}, format='json')
+        PaymentService.verify(tx.payment)
 
         pending = self.client.get(reverse('api_transaction_pending'), {'gateway_uuid': gw.host})
         self.assertEqual(pending.data[0]['sim_slot'], 1)
 
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.create_payment')
+    @patch('apps.payments.providers.jeko.JekoProvider.create_payment')
     def test_never_falls_back_to_an_operator_mismatched_gateway_when_no_sim_is_eligible(self, create_payment, _redis_lock):
         """Business-model audit Phase 3 (Blocage 3): an Orange transaction
         must never be assigned to a Gateway that has no Orange SIM, even as
@@ -557,7 +477,7 @@ class NewTransactionEngineIntegrationTests(TestCase):
         dial already uses - no new scheduling system."""
         from apps.payments.providers.base import PaymentInitResult
         create_payment.return_value = PaymentInitResult(
-            checkout_url='https://checkout.cinetpay.com/pay/tok', provider_transaction_id='tok', raw={},
+            checkout_url='https://pay.jeko.africa/pay_request/pr/tok', provider_transaction_id='tok', raw={},
         )
         self._online_gateway('legacy-only')  # online, but no GatewaySim at all - must never be picked
 
@@ -572,8 +492,8 @@ class NewTransactionEngineIntegrationTests(TestCase):
         self.assertEqual(event.metadata.get('mechanism'), 'queued_for_retry')
         self.assertIsNone(event.metadata.get('gateway_id'))
 
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.verify_payment')
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.create_payment')
+    @patch('apps.payments.providers.jeko.JekoProvider.verify_payment')
+    @patch('apps.payments.providers.jeko.JekoProvider.create_payment')
     def test_full_cycle_failed_attempt_retries_on_a_different_sim_then_succeeds(self, create_payment, verify_payment, _redis_lock):
         """The validation target for objectifs 4 & 5: creation -> selection
         -> reservation -> execution -> resultat (echec) -> retry programme
@@ -582,7 +502,7 @@ class NewTransactionEngineIntegrationTests(TestCase):
         -> TransactionEvent."""
         from apps.payments.providers.base import PaymentInitResult, PaymentStatusResult
         create_payment.return_value = PaymentInitResult(
-            checkout_url='https://checkout.cinetpay.com/pay/tok', provider_transaction_id='tok', raw={},
+            checkout_url='https://pay.jeko.africa/pay_request/pr/tok', provider_transaction_id='tok', raw={},
         )
         gw1 = self._online_gateway('mobile-1', battery_level=80)
         gw2 = self._online_gateway('mobile-2', battery_level=80)
@@ -598,8 +518,7 @@ class NewTransactionEngineIntegrationTests(TestCase):
 
         # payment accepted -> transaction becomes actionable
         verify_payment.return_value = PaymentStatusResult(status='accepted', raw={'data': {'status': 'ACCEPTED'}})
-        notify = self.client.post(reverse('api_cinetpay_notify'), {'transaction_id': tx.payment.reference}, format='json')
-        self.assertEqual(notify.status_code, 200)
+        PaymentService.verify(tx.payment)
         tx.refresh_from_db()
         self.assertEqual(tx.status, 'pending')
 
@@ -659,15 +578,15 @@ class NewTransactionEngineIntegrationTests(TestCase):
         self.assertIsNotNone(event)
         self.assertEqual(event.metadata.get('to_status'), 'success')
 
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.verify_payment')
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.create_payment')
+    @patch('apps.payments.providers.jeko.JekoProvider.verify_payment')
+    @patch('apps.payments.providers.jeko.JekoProvider.create_payment')
     def test_retry_exhaustion_after_max_retry_marks_transaction_failed(self, create_payment, verify_payment, _redis_lock):
         """TXN_MAX_RETRY defaults to 3: the 3rd consecutive failure (attempts
         count reaches 3) must stop retrying and finally transition to
         'failed' - proving the loop terminates instead of retrying forever."""
         from apps.payments.providers.base import PaymentInitResult, PaymentStatusResult
         create_payment.return_value = PaymentInitResult(
-            checkout_url='https://checkout.cinetpay.com/pay/tok', provider_transaction_id='tok', raw={},
+            checkout_url='https://pay.jeko.africa/pay_request/pr/tok', provider_transaction_id='tok', raw={},
         )
         gateways = [self._online_gateway(f'mobile-{i}', battery_level=80) for i in range(3)]
         for i, gw in enumerate(gateways):
@@ -676,7 +595,7 @@ class NewTransactionEngineIntegrationTests(TestCase):
         exec_response = self._execute()
         tx = Transaction.objects.get(reference=exec_response.data['reference'])
         verify_payment.return_value = PaymentStatusResult(status='accepted', raw={'data': {'status': 'ACCEPTED'}})
-        self.client.post(reverse('api_cinetpay_notify'), {'transaction_id': tx.payment.reference}, format='json')
+        PaymentService.verify(tx.payment)
 
         for attempt_number in range(1, 4):
             # Business-model audit Phase 7: authenticate as whichever Gateway
@@ -706,8 +625,8 @@ class NewTransactionEngineIntegrationTests(TestCase):
         self.assertEqual(tx.attempts.count(), 3)
         self.assertIsNotNone(self._last_event(tx, 'retry_exhausted'))
 
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.verify_payment')
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.create_payment')
+    @patch('apps.payments.providers.jeko.JekoProvider.verify_payment')
+    @patch('apps.payments.providers.jeko.JekoProvider.create_payment')
     def test_duplicate_result_report_does_not_double_count_sim_stats_or_double_log(self, create_payment, verify_payment, _redis_lock):
         """Phase D audit (Critique n°3): the same USSD result posted twice
         (a realistic duplicate delivery on an unreliable mobile network)
@@ -716,7 +635,7 @@ class NewTransactionEngineIntegrationTests(TestCase):
         twice for one real outcome."""
         from apps.payments.providers.base import PaymentInitResult, PaymentStatusResult
         create_payment.return_value = PaymentInitResult(
-            checkout_url='https://checkout.cinetpay.com/pay/tok', provider_transaction_id='tok', raw={},
+            checkout_url='https://pay.jeko.africa/pay_request/pr/tok', provider_transaction_id='tok', raw={},
         )
         gw = self._online_gateway('mobile-1', battery_level=80)
         sim = GatewaySim.objects.create(gateway=gw, operator=self.orange, slot=0, msisdn='0700000010')
@@ -725,7 +644,7 @@ class NewTransactionEngineIntegrationTests(TestCase):
         exec_response = self._execute()
         tx = Transaction.objects.get(reference=exec_response.data['reference'])
         verify_payment.return_value = PaymentStatusResult(status='accepted', raw={'data': {'status': 'ACCEPTED'}})
-        self.client.post(reverse('api_cinetpay_notify'), {'transaction_id': tx.payment.reference}, format='json')
+        PaymentService.verify(tx.payment)
 
         payload = {'transaction_reference': str(tx.reference), 'success': True, 'result': 'OK'}
         first = self.client.post(reverse('api_transaction_result'), payload, format='json')
@@ -749,15 +668,15 @@ class NewTransactionEngineIntegrationTests(TestCase):
             'the duplicate must never write a second status_changed event',
         )
 
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.verify_payment')
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.create_payment')
+    @patch('apps.payments.providers.jeko.JekoProvider.verify_payment')
+    @patch('apps.payments.providers.jeko.JekoProvider.create_payment')
     def test_duplicate_result_with_a_conflicting_outcome_is_ignored_not_raced(self, create_payment, verify_payment, _redis_lock):
         """A second, contradicting result (e.g. a stale retry from the
         Gateway arriving after the real outcome was already reported) must
         never overwrite an already-terminal Transaction.status."""
         from apps.payments.providers.base import PaymentInitResult, PaymentStatusResult
         create_payment.return_value = PaymentInitResult(
-            checkout_url='https://checkout.cinetpay.com/pay/tok', provider_transaction_id='tok', raw={},
+            checkout_url='https://pay.jeko.africa/pay_request/pr/tok', provider_transaction_id='tok', raw={},
         )
         gw = self._online_gateway('mobile-1', battery_level=80)
         GatewaySim.objects.create(gateway=gw, operator=self.orange, slot=0, msisdn='0700000010')
@@ -766,7 +685,7 @@ class NewTransactionEngineIntegrationTests(TestCase):
         exec_response = self._execute()
         tx = Transaction.objects.get(reference=exec_response.data['reference'])
         verify_payment.return_value = PaymentStatusResult(status='accepted', raw={'data': {'status': 'ACCEPTED'}})
-        self.client.post(reverse('api_cinetpay_notify'), {'transaction_id': tx.payment.reference}, format='json')
+        PaymentService.verify(tx.payment)
 
         first = self.client.post(
             reverse('api_transaction_result'),
@@ -785,7 +704,7 @@ class NewTransactionEngineIntegrationTests(TestCase):
         tx.refresh_from_db()
         self.assertEqual(tx.status, 'success', 'the real, already-committed outcome must never be overwritten')
 
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.create_payment')
+    @patch('apps.payments.providers.jeko.JekoProvider.create_payment')
     def test_reservation_is_released_when_payment_initiation_fails(self, create_payment, _redis_lock):
         """A Scheduler reservation must not be left dangling ('assigned'
         forever, silently eating that SIM's capacity) if PaymentService never
@@ -1002,13 +921,13 @@ class ExecuteTransactionViewUssdPreflightTests(TestCase):
     planning this module - build_ussd_code() now raises when nothing is
     configured, but by the time it used to be called (inside
     transaction_payload(), after PaymentService.initiate() already talked to
-    CinetPay) that would have orphaned a real payment session. The check
-    must reject the request BEFORE any provider call happens."""
+    the payment provider) that would have orphaned a real payment session.
+    The check must reject the request BEFORE any provider call happens."""
 
     def setUp(self):
         self.client = APIClient()
 
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.create_payment')
+    @patch('apps.payments.providers.jeko.JekoProvider.create_payment')
     def test_unconfigured_operator_service_is_rejected_before_any_payment_call(self, create_payment, _redis_lock):
         response = self.client.post(
             reverse('api_transaction_execute'),
@@ -1028,15 +947,15 @@ class ExecuteTransactionViewUssdPreflightTests(TestCase):
         self.assertEqual(Payment.objects.count(), 0)
         self.assertEqual(Transaction.objects.count(), 0)
 
-    # 'auto' (the client default) must actually resolve to cinetpay here,
+    # 'auto' (the client default) must actually resolve to jeko here,
     # regardless of the ambient PAYMENT_PROVIDER_ORDER - see the identical
-    # note on CinetPayFlowTests above.
-    @override_settings(PAYMENT_PROVIDER_ORDER='cinetpay')
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.create_payment')
+    # note on JekoFlowTests above.
+    @override_settings(PAYMENT_PROVIDER_ORDER='jeko')
+    @patch('apps.payments.providers.jeko.JekoProvider.create_payment')
     def test_configured_operator_service_still_succeeds(self, create_payment, _redis_lock):
         from apps.payments.providers.base import PaymentInitResult
         create_payment.return_value = PaymentInitResult(
-            checkout_url='https://checkout.cinetpay.com/pay/tok', provider_transaction_id='tok', raw={},
+            checkout_url='https://pay.jeko.africa/pay_request/pr/tok', provider_transaction_id='tok', raw={},
         )
         orange = Operator.objects.create(name='Orange', code='orange')
         # Business-model audit Phase 3: no more get_or_create(name=...) for
@@ -1068,11 +987,11 @@ class TransactionStatusViewTests(TestCase):
         self.service = Service.objects.create(name='Internet', code='internet')
 
     def _transaction(self, status, payment_status='accepted'):
-        payment = Payment.objects.create(method='cinetpay', reference=f'PAY-{status}', amount=1000, status=payment_status)
+        payment = Payment.objects.create(method='jeko', reference=f'PAY-{status}', amount=1000, status=payment_status)
         return Transaction.objects.create(
             device=self.device, service=self.service, operator=self.operator,
             phone_number='0700000001', amount=1000, status=status,
-            payment=payment, payment_method='cinetpay', payment_reference=payment.reference,
+            payment=payment, payment_method='jeko', payment_reference=payment.reference,
         )
 
     def test_pending_transaction(self):
@@ -1258,7 +1177,7 @@ class ExecuteTransactionViewIdContractTests(TestCase):
         payload.update(overrides)
         return self.client.post(reverse('api_transaction_execute'), payload, format='json')
 
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.create_payment')
+    @patch('apps.payments.providers.jeko.JekoProvider.create_payment')
     def test_operator_id_and_service_id_are_accepted_and_prioritised(self, create_payment, _redis_lock):
         from apps.payments.providers.base import PaymentInitResult
         create_payment.return_value = PaymentInitResult(checkout_url='https://pay/tok', provider_transaction_id='tok', raw={})
@@ -1270,7 +1189,7 @@ class ExecuteTransactionViewIdContractTests(TestCase):
         self.assertEqual(tx.operator_id, self.orange.id)
         self.assertEqual(tx.service_id, self.internet.id)
 
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.create_payment')
+    @patch('apps.payments.providers.jeko.JekoProvider.create_payment')
     def test_transaction_records_which_ussd_code_was_used(self, create_payment, _redis_lock):
         from apps.payments.providers.base import PaymentInitResult
         create_payment.return_value = PaymentInitResult(checkout_url='https://pay/tok', provider_transaction_id='tok', raw={})
@@ -1303,7 +1222,7 @@ class ExecuteTransactionViewIdContractTests(TestCase):
         response = self._execute(operator_id=self.orange.id, service_id=self.internet.id)
         self.assertEqual(response.status_code, 404)
 
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.create_payment')
+    @patch('apps.payments.providers.jeko.JekoProvider.create_payment')
     def test_legacy_name_contract_is_still_accepted_transitionally(self, create_payment, _redis_lock):
         from apps.payments.providers.base import PaymentInitResult
         create_payment.return_value = PaymentInitResult(checkout_url='https://pay/tok', provider_transaction_id='tok', raw={})
@@ -1358,14 +1277,14 @@ class PendingTransactionsViewUssdDegradationTests(TestCase):
         # independent UssdCode - deactivating one must not affect the other.
         self.internet = Service.objects.create(name='Internet', code='subscription')
         self.sms = Service.objects.create(name='SMS', code='sms')
-        self.payment_ok = Payment.objects.create(method='cinetpay', reference='PAY-OK', amount=1000, status='accepted')
-        self.payment_broken = Payment.objects.create(method='cinetpay', reference='PAY-BROKEN', amount=1000, status='accepted')
+        self.payment_ok = Payment.objects.create(method='jeko', reference='PAY-OK', amount=1000, status='accepted')
+        self.payment_broken = Payment.objects.create(method='jeko', reference='PAY-BROKEN', amount=1000, status='accepted')
 
     def _pending_tx(self, payment, service, reference_suffix):
         return Transaction.objects.create(
             device=self.device, service=service, operator=self.orange, gateway=self.gateway,
             phone_number='0700000001', amount=1000, status='pending',
-            payment=payment, payment_method='cinetpay', payment_reference=f'PAY-{reference_suffix}',
+            payment=payment, payment_method='jeko', payment_reference=f'PAY-{reference_suffix}',
         )
 
     def test_a_transaction_with_no_configured_ussd_code_is_skipped_not_500(self):
@@ -1546,7 +1465,7 @@ class NoCrossOperatorGatewayTests(TestCase):
             format='json',
         )
 
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.create_payment')
+    @patch('apps.payments.providers.jeko.JekoProvider.create_payment')
     def test_orange_transaction_with_an_eligible_orange_gateway_selects_orange(self, create_payment, _redis_lock):
         from apps.payments.providers.base import PaymentInitResult
         create_payment.return_value = PaymentInitResult(checkout_url='https://pay/tok', provider_transaction_id='tok', raw={})
@@ -1559,7 +1478,7 @@ class NoCrossOperatorGatewayTests(TestCase):
         tx = Transaction.objects.get(reference=response.data['reference'])
         self.assertEqual(tx.gateway_id, orange_gw.id)
 
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.create_payment')
+    @patch('apps.payments.providers.jeko.JekoProvider.create_payment')
     def test_mtn_gateway_available_is_never_selected_for_an_orange_transaction(self, create_payment, _redis_lock):
         from apps.payments.providers.base import PaymentInitResult
         create_payment.return_value = PaymentInitResult(checkout_url='https://pay/tok', provider_transaction_id='tok', raw={})
@@ -1575,7 +1494,7 @@ class NoCrossOperatorGatewayTests(TestCase):
         self.assertIsNone(tx.gateway_id, 'queued, not assigned to any mismatched Gateway')
         self.assertIsNotNone(tx.next_retry_at)
 
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.create_payment')
+    @patch('apps.payments.providers.jeko.JekoProvider.create_payment')
     def test_no_gateway_at_all_is_queued_not_failed(self, create_payment, _redis_lock):
         from apps.payments.providers.base import PaymentInitResult
         create_payment.return_value = PaymentInitResult(checkout_url='https://pay/tok', provider_transaction_id='tok', raw={})
@@ -1588,7 +1507,7 @@ class NoCrossOperatorGatewayTests(TestCase):
         self.assertEqual(tx.status, 'pending')
         self.assertIsNotNone(tx.next_retry_at)
 
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.create_payment')
+    @patch('apps.payments.providers.jeko.JekoProvider.create_payment')
     def test_transaction_recovers_once_a_matching_gateway_becomes_available(self, create_payment, _redis_lock):
         from apps.payments.providers.base import PaymentInitResult
         create_payment.return_value = PaymentInitResult(checkout_url='https://pay/tok', provider_transaction_id='tok', raw={})

@@ -1,31 +1,93 @@
+version: '3.9'
+
 services:
   backend:
     build:
       context: ./backend
-    command: gunicorn transfer_on_line.wsgi:application --bind 0.0.0.0:8000 --workers 3
+      dockerfile: Dockerfile
+    container_name: transfer_on_line_backend
+    command: sh -c "python manage.py migrate && python manage.py collectstatic --noinput && gunicorn transfer_on_line.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 120"
     env_file:
       - ./backend/.env
+    environment:
+      # Override for Docker (use service names instead of localhost)
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_NAME: transfer_on_line
+      POSTGRES_USER: transfer
+      POSTGRES_PASSWORD: transfer
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - static_volume:/app/staticfiles
+      - media_volume:/app/media
+    networks:
+      - transfer_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health/", "--connect-timeout", "5"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   postgres:
     image: postgres:16-alpine
+    container_name: transfer_on_line_postgres
     environment:
       POSTGRES_DB: transfer_on_line
       POSTGRES_USER: transfer
       POSTGRES_PASSWORD: transfer
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=en_US.UTF-8"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"
+    networks:
+      - transfer_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U transfer -d transfer_on_line"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   redis:
     image: redis:7-alpine
-    command: redis-server --appendonly yes
+    container_name: transfer_on_line_redis
+    command: redis-server --appendonly yes --requirepass ""
     volumes:
       - redis_data:/data
+    ports:
+      - "127.0.0.1:6379:6379"
+    networks:
+      - transfer_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 volumes:
   postgres_data:
+    driver: local
   redis_data:
+    driver: local
+  static_volume:
+    driver: local
+  media_volume:
+    driver: local
+
+networks:
+  transfer_network:
+    driver: bridge

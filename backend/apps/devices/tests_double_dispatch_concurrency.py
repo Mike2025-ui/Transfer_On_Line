@@ -129,12 +129,12 @@ class DoubleDispatchConcurrencyTests(_ConcurrentPendingPollMixin, TransactionTes
     def _make_transaction_with_assigned_attempt(self, operator, gateway, sim, amount=1000):
         device = Device.objects.create(uid=f'dev-{uuid.uuid4()}', primary_phone='0700000001')
         payment = Payment.objects.create(
-            method='cinetpay', reference=f'PAY-{uuid.uuid4()}', amount=amount, status='accepted',
+            method='jeko', reference=f'PAY-{uuid.uuid4()}', amount=amount, status='accepted',
         )
         tx = Transaction.objects.create(
             device=device, service=self.internet, operator=operator, gateway=gateway,
             phone_number='0700000001', amount=amount, status='pending',
-            payment=payment, payment_method='cinetpay',
+            payment=payment, payment_method='jeko',
         )
         attempt = TransactionAttempt.objects.create(
             transaction=tx, gateway_sim=sim, attempt_number=1, status='assigned',
@@ -424,12 +424,12 @@ class LegacyEngineConcurrencyTests(_ConcurrentPendingPollMixin, TransactionTestC
     def _make_legacy_transaction(self, operator, gateway, amount=1000):
         device = Device.objects.create(uid=f'dev-{uuid.uuid4()}', primary_phone='0700000001')
         payment = Payment.objects.create(
-            method='cinetpay', reference=f'PAY-{uuid.uuid4()}', amount=amount, status='accepted',
+            method='jeko', reference=f'PAY-{uuid.uuid4()}', amount=amount, status='accepted',
         )
         return Transaction.objects.create(
             device=device, service=self.internet, operator=operator, gateway=gateway,
             phone_number='0700000001', amount=amount, status='pending',
-            payment=payment, payment_method='cinetpay',
+            payment=payment, payment_method='jeko',
         )
 
     def test_legacy_cross_operator_and_wrong_gateway_never_receive_transaction_under_concurrency(self):

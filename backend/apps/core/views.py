@@ -57,7 +57,7 @@ class HealthCheckView(APIView):
             'database': check_database,
             'redis': check_redis,
             'geniuspay': lambda: check_provider_reachable(settings.GENIUSPAY_BASE_URL),
-            'cinetpay': lambda: check_provider_reachable(settings.CINETPAY_INIT_URL),
+            'jeko': lambda: check_provider_reachable(settings.JEKO_BASE_URL),
             'gateway': gateway_summary,
         })
         overall = 'ok' if checks['database'] == 'ok' else 'degraded'

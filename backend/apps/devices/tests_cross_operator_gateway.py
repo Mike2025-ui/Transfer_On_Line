@@ -21,8 +21,8 @@ already-accepted payment.
 Every test here drives the real HTTP endpoints
 (POST /transactions/execute/, GET /transactions/pending/,
 dispatch_due_transaction_retries) with a real Gateway secret (Phase 7) -
-no real USSD, no real payment provider (CinetPayProvider.create_payment
-stays mocked, same as the rest of this project's suite). Each scenario is
+no real USSD, no real payment provider (JekoProvider.create_payment stays
+mocked, same as the rest of this project's suite). Each scenario is
 run under BOTH engines (Tests 13/14 of the brief) via a private
 _xxx() implementation method (carries its own @patch stack) plus one thin
 test_..._new_engine/_legacy wrapper per engine that just picks the flag -
@@ -42,10 +42,11 @@ from rest_framework.test import APIClient
 
 from apps.core.models import Device, Gateway, Operator, Payment, Service, Transaction, UssdCode
 from apps.devices.models import GatewaySim
+from apps.payments.services.payment_service import PaymentService
 
 _REDIS_LOCK = 'apps.payments.services.payment_service.redis_lock'
-_CREATE_PAYMENT = 'apps.payments.providers.cinetpay.CinetPayProvider.create_payment'
-_VERIFY_PAYMENT = 'apps.payments.providers.cinetpay.CinetPayProvider.verify_payment'
+_CREATE_PAYMENT = 'apps.payments.providers.jeko.JekoProvider.create_payment'
+_VERIFY_PAYMENT = 'apps.payments.providers.jeko.JekoProvider.verify_payment'
 
 
 def _mocked_payment():
@@ -350,7 +351,7 @@ class CrossOperatorGatewayTests(TestCase):
         tx = self._execute(self.orange)
 
         verify_payment.return_value = PaymentStatusResult(status='accepted', raw={'data': {'status': 'ACCEPTED'}})
-        self.client.post(reverse('api_cinetpay_notify'), {'transaction_id': tx.payment.reference}, format='json')
+        PaymentService.verify(tx.payment)
 
         mtn_pending = self._authenticated_pending(mtn_gw)
         self.assertEqual(mtn_pending.data, [], 'Test 11 - le Gateway MTN concurrent ne peut jamais revendiquer la tâche Orange')
@@ -382,12 +383,12 @@ class CrossOperatorGatewayTests(TestCase):
         mtn_gw = self._gateway('MTN - gw1', 'gw-mtn')
         self._sim(mtn_gw, self.mtn)
         device = Device.objects.create(uid='client-app-test', primary_phone='0700000001')
-        payment = Payment.objects.create(method='cinetpay', reference='PAY-MISMATCH', amount=1000, status='accepted')
+        payment = Payment.objects.create(method='jeko', reference='PAY-MISMATCH', amount=1000, status='accepted')
         mismatched_tx = Transaction.objects.create(
             device=device, service=self.internet, operator=self.orange,
             gateway=mtn_gw,  # deliberately mismatched, bypassing any selector
             phone_number='0700000001', amount=1000, status='pending',
-            payment=payment, payment_method='cinetpay',
+            payment=payment, payment_method='jeko',
         )
         response = self._authenticated_pending(mtn_gw)
         self.assertEqual(response.status_code, 200)

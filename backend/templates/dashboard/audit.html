@@ -84,7 +84,7 @@
                             <td>{% if wh.processed %}<span class="badge badge-status-success">Oui</span>{% else %}<span class="badge badge-status-pending">Non</span>{% endif %}</td>
                         </tr>
                         {% empty %}
-                        <tr><td colspan="5" class="text-center text-muted py-4">Aucune entrée — rappel : CinetPay ne journalise pas de WebhookEvent aujourd'hui (voir audit paiement), seul GeniusPay le fait.</td></tr>
+                        <tr><td colspan="5" class="text-center text-muted py-4">Aucune entrée — GeniusPay et Jèko journalisent leurs webhooks ici.</td></tr>
                         {% endfor %}
                     </tbody>
                 </table>

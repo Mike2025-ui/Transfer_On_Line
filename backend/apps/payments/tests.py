@@ -11,15 +11,15 @@ from rest_framework.test import APIClient
 
 from apps.core.models import Gateway, Payment, Transaction, Device, Service, Operator
 from apps.payments.models import WebhookEvent
-from apps.payments.providers.cinetpay import CinetPayProvider
 from apps.payments.providers.geniuspay import GeniusPayProvider
 from apps.payments.providers.jeko import JekoError, JekoProvider
-from apps.payments.providers.circuit_breaker import CircuitBreaker, CircuitOpenError
+from apps.payments.providers.circuit_breaker import CircuitBreaker, CircuitOpenError, get_breaker
 from apps.payments.providers.retry import (
     RetryableHTTPError,
     call_create_with_retries,
     call_verify_with_retries,
 )
+from apps.payments.services.payment_service import PaymentService
 
 
 @override_settings(GENIUSPAY_WEBHOOK_SECRET='', GENIUSPAY_ALLOW_MOCK=True)
@@ -181,6 +181,21 @@ class CircuitBreakerTests(TestCase):
         self.assertEqual(breaker.call(lambda: 'still ok'), 'still ok')
 
 
+class PaymentServiceProviderOrderTests(TestCase):
+    @override_settings(PAYMENT_PROVIDER_ORDER='jeko,geniuspay')
+    def test_auto_order_prioritizes_healthy_provider_and_pushes_open_circuit_last(self):
+        jeko_breaker = get_breaker('jeko')
+        geniuspay_breaker = get_breaker('geniuspay')
+        jeko_breaker._state = 'open'
+        geniuspay_breaker._state = 'closed'
+
+        try:
+            self.assertEqual(PaymentService._provider_order('auto'), ['geniuspay', 'jeko'])
+        finally:
+            jeko_breaker._state = 'closed'
+            geniuspay_breaker._state = 'closed'
+
+
 class RetryPolicyTests(TestCase):
     def test_create_payment_does_not_retry_on_timeout(self):
         """A POST that creates a payment must never be retried on a Timeout -
@@ -242,10 +257,6 @@ class PaymentProviderRefundInterfaceTests(TestCase):
     provider implements it yet (see the base class docstring) - this locks
     in that both fail loudly and identically rather than silently, so a
     future RefundService can rely on catching NotImplementedError uniformly."""
-
-    def test_cinetpay_refund_is_not_implemented(self):
-        with self.assertRaises(NotImplementedError):
-            CinetPayProvider().refund('some-reference')
 
     def test_geniuspay_refund_is_not_implemented(self):
         with self.assertRaises(NotImplementedError):

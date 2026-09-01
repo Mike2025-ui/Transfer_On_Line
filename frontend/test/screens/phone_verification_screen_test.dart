@@ -32,7 +32,7 @@ void main() {
 
   Future<void> enterPhoneAndContinue(WidgetTester tester) async {
     await tester.enterText(find.byType(TextField), '0700000001');
-    await tester.tap(find.text('CONTINUER'));
+    await tester.tap(find.text('RECEVOIR PAR SMS'));
     await tester.pump();
   }
 
@@ -91,7 +91,7 @@ void main() {
 
     await pumpScreen(tester, auth);
     await tester.enterText(find.byType(TextField), '0700000001');
-    await tester.tap(find.text('CONTINUER'));
+    await tester.tap(find.text('RECEVOIR PAR SMS'));
     await tester.pump();
 
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
@@ -111,16 +111,37 @@ void main() {
 
     await pumpScreen(tester, auth);
     await tester.enterText(find.byType(TextField), '0700000001');
-    await tester.tap(find.text('CONTINUER'));
+    await tester.tap(find.text('RECEVOIR PAR SMS'));
     await tester.pump();
 
-    // The label is replaced entirely by a spinner while _loading is true -
-    // there is no "CONTINUER" text left to tap a second time at all.
-    expect(find.text('CONTINUER'), findsNothing, reason: 'the button must not remain tappable while the request is in flight');
+    // The tapped button's label is replaced entirely by a spinner while
+    // _loading is true - there is no "RECEVOIR PAR SMS" text left to tap a
+    // second time at all (the WhatsApp button is disabled, not hidden).
+    expect(find.text('RECEVOIR PAR SMS'), findsNothing, reason: 'the button must not remain tappable while the request is in flight');
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
 
     await tester.pumpAndSettle();
     expect(calls, 1, reason: 'exactly one request must have been made');
+  });
+
+  testWidgets('the WhatsApp button sends channel=whatsapp and shows a WhatsApp confirmation', (tester) async {
+    Map<String, dynamic>? requestBody;
+    final auth = AuthService(
+      store: _InMemoryStore(),
+      client: MockClient((request) async {
+        requestBody = jsonDecode(request.body) as Map<String, dynamic>;
+        return http.Response(jsonEncode({'status': 'sent', 'channel': 'whatsapp'}), 200);
+      }),
+    );
+
+    await pumpScreen(tester, auth);
+    await tester.enterText(find.byType(TextField), '0700000001');
+    await tester.tap(find.text('RECEVOIR PAR WHATSAPP'));
+    await tester.pumpAndSettle();
+
+    expect(requestBody, isNotNull);
+    expect(requestBody!['channel'], 'whatsapp');
+    expect(find.textContaining('WhatsApp'), findsWidgets);
   });
 
   testWidgets('a successful verification sends only phone_number/code and navigates to HomeScreen', (tester) async {

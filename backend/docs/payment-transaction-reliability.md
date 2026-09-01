@@ -45,8 +45,9 @@ du `with db_transaction.atomic()` de la vue webhook, annulant tout — y compris
 l'appelant, lui, survit et committe normalement.
 
 **Tests** : `apps/payments/tests.py::GeniusPayWebhookIdempotencyTests
-.test_invalid_transition_is_caught_not_a_500_and_keeps_the_dedup_row`,
-`apps/devices/tests.py::CinetPayFlowTests.test_notify_with_an_already_resolved_transaction_does_not_500`.
+.test_invalid_transition_is_caught_not_a_500_and_keeps_the_dedup_row`.
+(CinetPay et son webhook de notify ont été retirés depuis - la couverture
+équivalente pour ce cas vit désormais uniquement côté GeniusPay ci-dessus.)
 
 ## 3. Résultat USSD reporté deux fois — double comptage, course non protégée
 

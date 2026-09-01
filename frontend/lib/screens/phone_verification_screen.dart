@@ -8,10 +8,11 @@ import 'home_screen.dart';
 
 /// Shown only on a first install or on a device the backend no longer
 /// recognizes (see AuthService.restoreSession) - never on every app open.
-/// Two steps: phone number, then the OTP sent to it by SMS via SMS Pro
-/// Africa (see apps.accounts.services on the backend). Phone number is the
-/// ONLY identifier the user ever sees or enters - no username, no password,
-/// no email, no account-creation screen.
+/// Two steps: phone number (with a choice of SMS or WhatsApp for delivery),
+/// then the OTP code - both channels go through IKODDI (see
+/// apps.accounts.services on the backend). Phone number is the ONLY
+/// identifier the user ever sees or enters - no username, no password, no
+/// email, no account-creation screen.
 class PhoneVerificationScreen extends StatefulWidget {
   const PhoneVerificationScreen({super.key, this.authService});
 
@@ -29,6 +30,12 @@ class _PhoneVerificationScreenState extends State<PhoneVerificationScreen> {
   bool _codeSent = false;
   bool _loading = false;
   String _phoneNumber = '';
+  // Which IKODDI delivery channel was actually used to send the pending
+  // code - drives the confirmation text and is reused as-is on "Renvoyer".
+  String _channel = 'sms';
+  // Which channel's button is the in-flight request for, if any - only used
+  // to show the spinner on the right one of the two buttons while _loading.
+  String? _pendingChannel;
 
   // Resend cooldown - a UI convenience only (not a security control; the
   // backend's own 3-attempts/5-minutes limit, see OTP_MAX_ATTEMPTS/
@@ -45,17 +52,23 @@ class _PhoneVerificationScreenState extends State<PhoneVerificationScreen> {
     super.dispose();
   }
 
-  Future<void> _requestCode() async {
+  Future<void> _requestCode(String channel) async {
     if (_phoneCtrl.text.length != 10) {
       _showError('Le numéro doit contenir 10 chiffres');
       return;
     }
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _pendingChannel = channel;
+    });
     try {
       _phoneNumber = _phoneCtrl.text;
-      await _auth.requestOtp(_phoneNumber);
+      await _auth.requestOtp(_phoneNumber, channel: channel);
       if (!mounted) return;
-      setState(() => _codeSent = true);
+      setState(() {
+        _channel = channel;
+        _codeSent = true;
+      });
       _startResendCooldown();
     } catch (error) {
       _showError(error.toString().replaceFirst('Exception: ', ''));
@@ -66,7 +79,7 @@ class _PhoneVerificationScreenState extends State<PhoneVerificationScreen> {
 
   Future<void> _verifyCode() async {
     if (_codeCtrl.text.length < 4) {
-      _showError('Entrez le code reçu par SMS');
+      _showError('Entrez le code reçu par ${_channelLabel(_channel)}');
       return;
     }
     setState(() => _loading = true);
@@ -88,7 +101,7 @@ class _PhoneVerificationScreenState extends State<PhoneVerificationScreen> {
     if (_secondsUntilResend > 0) return;
     setState(() => _loading = true);
     try {
-      await _auth.requestOtp(_phoneNumber);
+      await _auth.requestOtp(_phoneNumber, channel: _channel);
       if (!mounted) return;
       _codeCtrl.clear();
       _startResendCooldown();
@@ -143,7 +156,9 @@ class _PhoneVerificationScreenState extends State<PhoneVerificationScreen> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Icon(
-                  _codeSent ? Icons.sms_outlined : Icons.phone_iphone_rounded,
+                  _codeSent
+                      ? (_channel == 'whatsapp' ? Icons.chat_outlined : Icons.sms_outlined)
+                      : Icons.phone_iphone_rounded,
                   color: AppColors.success,
                   size: 56,
                 ),
@@ -159,8 +174,8 @@ class _PhoneVerificationScreenState extends State<PhoneVerificationScreen> {
                 const SizedBox(height: 10),
                 Text(
                   _codeSent
-                      ? 'Un code a été envoyé par SMS au $_phoneNumber.'
-                      : 'Il sert à identifier votre compte. Un code de vérification vous sera envoyé par SMS.',
+                      ? 'Un code a été envoyé par ${_channelLabel(_channel)} au $_phoneNumber.'
+                      : 'Il sert à identifier votre compte. Choisissez comment recevoir votre code de vérification.',
                   style: GoogleFonts.nunito(
                     fontSize: 15,
                     color: Colors.white60,
@@ -180,7 +195,19 @@ class _PhoneVerificationScreenState extends State<PhoneVerificationScreen> {
                     ),
                   ),
                   const SizedBox(height: 24),
-                  _submitButton('CONTINUER', _requestCode),
+                  _submitButton(
+                    'RECEVOIR PAR SMS',
+                    () => _requestCode('sms'),
+                    icon: Icons.sms_outlined,
+                    showSpinner: _loading && _pendingChannel == 'sms',
+                  ),
+                  const SizedBox(height: 12),
+                  _submitButton(
+                    'RECEVOIR PAR WHATSAPP',
+                    () => _requestCode('whatsapp'),
+                    icon: Icons.chat_outlined,
+                    showSpinner: _loading && _pendingChannel == 'whatsapp',
+                  ),
                 ] else ...[
                   _fieldShell(
                     child: TextField(
@@ -250,7 +277,13 @@ class _PhoneVerificationScreenState extends State<PhoneVerificationScreen> {
         border: InputBorder.none,
       );
 
-  Widget _submitButton(String label, VoidCallback onTap) {
+  Widget _submitButton(
+    String label,
+    VoidCallback onTap, {
+    IconData? icon,
+    bool? showSpinner,
+  }) {
+    final spinning = showSpinner ?? _loading;
     return SizedBox(
       height: 58,
       child: ElevatedButton(
@@ -261,17 +294,28 @@ class _PhoneVerificationScreenState extends State<PhoneVerificationScreen> {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           elevation: 6,
         ),
-        child: _loading
+        child: spinning
             ? const SizedBox(
                 width: 22,
                 height: 22,
                 child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.4),
               )
-            : Text(
-                label,
-                style: GoogleFonts.nunito(fontSize: 17, fontWeight: FontWeight.w900),
+            : Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  if (icon != null) ...[
+                    Icon(icon, size: 20),
+                    const SizedBox(width: 10),
+                  ],
+                  Text(
+                    label,
+                    style: GoogleFonts.nunito(fontSize: 17, fontWeight: FontWeight.w900),
+                  ),
+                ],
               ),
       ),
     );
   }
+
+  String _channelLabel(String channel) => channel == 'whatsapp' ? 'WhatsApp' : 'SMS';
 }

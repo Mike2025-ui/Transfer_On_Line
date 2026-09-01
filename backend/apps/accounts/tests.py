@@ -300,7 +300,7 @@ class OtpEndpointTests(TestCase):
         ):
             response = self.client.post(reverse('api_auth_otp_request'), {'phone_number': '+2250700000030'})
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data, {'status': 'sent'})
+        self.assertEqual(response.data, {'status': 'sent', 'channel': 'sms'})
         self.assertNotIn('super-secret-token', str(response.data))
         self.assertNotIn('test_key_do_not_leak', str(response.data))
 
@@ -361,11 +361,41 @@ class OtpEndpointTests(TestCase):
         self.assertEqual(second.status_code, 429)
 
     def test_no_email_channel_exists_anymore(self):
-        """The phone/email selector and the whole email path were removed -
-        the request serializer no longer accepts/needs a channel at all,
-        and an email-shaped payload is simply not a valid request."""
+        """The old phone/email selector and the whole email path stay
+        removed for good - an email-shaped payload (no phone_number) is
+        simply not a valid request. `channel` on this serializer today is
+        unrelated and new: it only picks the IKODDI OTP delivery method
+        (sms/whatsapp, see RequestOtpChannelTests below) - never email."""
         response = self.client.post(reverse('api_auth_otp_request'), {'email': 'someone@example.com'})
         self.assertEqual(response.status_code, 400)
+
+    def test_unsupported_channel_is_rejected_without_calling_ikoddi(self):
+        with mock.patch('apps.accounts.services.ikoddi_service.requests.post') as fake_post:
+            response = self.client.post(
+                reverse('api_auth_otp_request'), {'phone_number': '+2250700000036', 'channel': 'email'},
+            )
+        self.assertEqual(response.status_code, 400)
+        fake_post.assert_not_called()
+
+    def test_whatsapp_channel_calls_the_documented_whatsapp_endpoint(self):
+        with mock.patch(
+            'apps.accounts.services.ikoddi_service.requests.post',
+            side_effect=_ikoddi_responder(),
+        ) as fake_post:
+            response = self.client.post(
+                reverse('api_auth_otp_request'), {'phone_number': '+2250700000037', 'channel': 'whatsapp'},
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data, {'status': 'sent', 'channel': 'whatsapp'})
+        self.assertIn('/whatsapp/', fake_post.call_args.args[0])
+
+    def test_channel_defaults_to_sms_when_omitted(self):
+        with mock.patch(
+            'apps.accounts.services.ikoddi_service.requests.post',
+            side_effect=_ikoddi_responder(),
+        ) as fake_post:
+            self.client.post(reverse('api_auth_otp_request'), {'phone_number': '+2250700000038'})
+        self.assertIn('/sms/', fake_post.call_args.args[0])
 
 
 class ConcurrentOtpRequestTests(TransactionTestCase):

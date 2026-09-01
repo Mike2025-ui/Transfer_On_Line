@@ -43,7 +43,7 @@ class PaymentProvider(ABC):
         ...
 
     def refund(self, reference, amount=None):
-        """Neither CinetPay nor GeniusPay currently expose a merchant-triggered
+        """Neither Jèko nor GeniusPay currently expose a merchant-triggered
         refund-creation endpoint (GeniusPay only emits a payment.refunded
         webhook event). Override this once a provider actually supports it."""
         raise NotImplementedError(f'{self.method} does not support refunds yet')

@@ -26,6 +26,15 @@ class ServiceForm(forms.ModelForm):
 
 
 class UssdCodeForm(forms.ModelForm):
+    # Override the service field to include all services (even inactive ones)
+    # so inactive services can still be configured in USSD codes if needed
+    service = forms.ModelChoiceField(
+        queryset=Service.objects.all().order_by('name'),
+        required=False,
+        widget=forms.Select(attrs={'class': 'form-select'}),
+        empty_label="--- Tous services (générique) ---"
+    )
+
     class Meta:
         model = UssdCode
         fields = ['service', 'amount', 'label', 'template', 'is_active', 'is_default']

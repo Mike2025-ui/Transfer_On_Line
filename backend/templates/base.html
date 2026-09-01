@@ -108,9 +108,20 @@
                     </ul>
                     {% endwith %}
                     <hr class="border-light mx-3 opacity-25">
-                    <div class="p-3 pb-4">
-                        <a href="/admin/" class="btn btn-outline-light btn-sm w-100" style="border-radius: 20px;">
-                            <i class="fas fa-lock me-2"></i> Admin Django
+                    <div class="px-3 pb-2 text-white-50 small">
+                        <i class="fas fa-user-circle me-1"></i> Connecté : {{ request.user.username }}
+                    </div>
+                    <div class="p-3 pb-2">
+                        <form method="post" action="{% url 'dashboard_logout' %}">
+                            {% csrf_token %}
+                            <button type="submit" class="btn btn-outline-light btn-sm w-100" style="border-radius: 20px;">
+                                <i class="fas fa-right-from-bracket me-2"></i> Déconnexion
+                            </button>
+                        </form>
+                    </div>
+                    <div class="px-3 pb-4">
+                        <a href="/admin/" class="btn btn-outline-light btn-sm w-100" style="border-radius: 20px; opacity: 0.75;" title="Outil technique avancé - non requis pour la gestion quotidienne">
+                            <i class="fas fa-lock me-2"></i> Admin Django (technique)
                         </a>
                     </div>
                 </div>

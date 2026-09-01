@@ -22,6 +22,7 @@ from rest_framework.test import APIClient
 
 from apps.core.models import Gateway, Operator, Service, Transaction, TransactionAttempt, UssdCode
 from apps.devices.models import GatewaySim
+from apps.payments.services.payment_service import PaymentService
 
 
 class GatewayHeartbeatAuthTests(TestCase):
@@ -122,7 +123,7 @@ class PendingTransactionsAuthTests(TestCase):
         GatewaySim.objects.create(gateway=self.mtn_gw, operator=self.mtn, slot=0, is_active=True)
         self.mtn_secret = self.mtn_gw.generate_secret()
 
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.verify_payment')
+    @patch('apps.payments.providers.jeko.JekoProvider.verify_payment')
     def _create_transaction(self, operator, create_payment, verify_payment):
         from apps.payments.providers.base import PaymentInitResult, PaymentStatusResult
         create_payment.return_value = PaymentInitResult(checkout_url='https://pay/tok', provider_transaction_id='tok', raw={})
@@ -133,22 +134,22 @@ class PendingTransactionsAuthTests(TestCase):
         )
         tx = Transaction.objects.get(reference=response.data['reference'])
         # PendingTransactionsView only exposes a task once payment is
-        # confirmed - simulate the CinetPay notify ping, same pattern as the
-        # rest of this project's suites (mocked verify_payment(), real notify
-        # endpoint), never a real payment provider call.
+        # confirmed - call PaymentService.verify() directly (mocked
+        # verify_payment(), no real payment provider call), same pattern as
+        # the rest of this project's suites.
         verify_payment.return_value = PaymentStatusResult(status='accepted', raw={'data': {'status': 'ACCEPTED'}})
-        self.client.post(reverse('api_cinetpay_notify'), {'transaction_id': tx.payment.reference}, format='json')
+        PaymentService.verify(tx.payment)
         return tx
 
     # Test 7 - Gateway non authentifié -> aucune tâche.
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.create_payment')
+    @patch('apps.payments.providers.jeko.JekoProvider.create_payment')
     def test_unauthenticated_poll_is_rejected(self, create_payment, _redis_lock):
         self._create_transaction(self.orange, create_payment)
         response = self.client.get(reverse('api_transaction_pending'))
         self.assertEqual(response.status_code, 401)
 
     # Test 8 - Gateway authentifié -> tâches autorisées (les siennes).
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.create_payment')
+    @patch('apps.payments.providers.jeko.JekoProvider.create_payment')
     def test_authenticated_gateway_sees_its_own_task(self, create_payment, _redis_lock):
         tx = self._create_transaction(self.orange, create_payment)
         self.client.credentials(HTTP_X_GATEWAY_SECRET=self.orange_secret)
@@ -158,7 +159,7 @@ class PendingTransactionsAuthTests(TestCase):
         self.assertEqual(response.data[0]['reference'], str(tx.reference))
 
     # Test 5 - Gateway MTN ne récupère jamais une transaction Orange.
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.create_payment')
+    @patch('apps.payments.providers.jeko.JekoProvider.create_payment')
     def test_mtn_gateway_never_sees_an_orange_transaction(self, create_payment, _redis_lock):
         self._create_transaction(self.orange, create_payment)
         self.client.credentials(HTTP_X_GATEWAY_SECRET=self.mtn_secret)
@@ -167,7 +168,7 @@ class PendingTransactionsAuthTests(TestCase):
         self.assertEqual(response.data, [])
 
     # Test 6 - symétrique : Gateway Orange ne récupère jamais une transaction MTN.
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.create_payment')
+    @patch('apps.payments.providers.jeko.JekoProvider.create_payment')
     def test_orange_gateway_never_sees_an_mtn_transaction(self, create_payment, _redis_lock):
         self._create_transaction(self.mtn, create_payment)
         self.client.credentials(HTTP_X_GATEWAY_SECRET=self.orange_secret)
@@ -178,7 +179,7 @@ class PendingTransactionsAuthTests(TestCase):
     # Test explicite d'usurpation via gateway_uuid dans l'URL (Partie 6) :
     # authentifié comme Orange, prétendre être le Gateway MTN dans le query
     # param doit être rejeté, pas juste ignoré.
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.create_payment')
+    @patch('apps.payments.providers.jeko.JekoProvider.create_payment')
     def test_claiming_a_different_gateway_uuid_than_the_authenticated_one_is_rejected(self, create_payment, _redis_lock):
         self._create_transaction(self.orange, create_payment)
         self.client.credentials(HTTP_X_GATEWAY_SECRET=self.orange_secret)
@@ -205,7 +206,7 @@ class TransactionResultAuthTests(TestCase):
         self.sim_a = GatewaySim.objects.create(gateway=self.gw_a, operator=self.orange, slot=0, is_active=True)
         self.secret_a = self.gw_a.generate_secret()
 
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.create_payment')
+    @patch('apps.payments.providers.jeko.JekoProvider.create_payment')
     def _create_transaction_on_gw_a(self, create_payment):
         from apps.payments.providers.base import PaymentInitResult
         create_payment.return_value = PaymentInitResult(checkout_url='https://pay/tok', provider_transaction_id='tok', raw={})
@@ -298,8 +299,8 @@ class DoubleDispatchProtectionTests(TestCase):
         self.secret = self.gw.generate_secret()
 
     # Test 12 - même TransactionAttempt, ne peut être dispatché deux fois.
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.verify_payment')
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.create_payment')
+    @patch('apps.payments.providers.jeko.JekoProvider.verify_payment')
+    @patch('apps.payments.providers.jeko.JekoProvider.create_payment')
     def test_the_same_attempt_is_never_dispatched_twice(self, create_payment, verify_payment, _redis_lock):
         from apps.payments.providers.base import PaymentInitResult, PaymentStatusResult
         create_payment.return_value = PaymentInitResult(checkout_url='https://pay/tok', provider_transaction_id='tok', raw={})
@@ -315,7 +316,7 @@ class DoubleDispatchProtectionTests(TestCase):
         # confirmed - see PendingTransactionsAuthTests._create_transaction's
         # doc for why.
         verify_payment.return_value = PaymentStatusResult(status='accepted', raw={'data': {'status': 'ACCEPTED'}})
-        self.client.post(reverse('api_cinetpay_notify'), {'transaction_id': tx.payment.reference}, format='json')
+        PaymentService.verify(tx.payment)
         self.client.credentials(HTTP_X_GATEWAY_SECRET=self.secret)
 
         first_poll = self.client.get(reverse('api_transaction_pending'))

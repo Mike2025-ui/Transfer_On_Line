@@ -2,13 +2,17 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
+    path('login/', views.dashboard_login, name='dashboard_login'),
+    path('logout/', views.dashboard_logout, name='dashboard_logout'),
     path('', views.dashboard_index, name='dashboard'),
     path('transactions/', views.transactions_list, name='transactions'),
     path('transactions/<int:pk>/', views.transaction_detail, name='transaction_detail'),
     path('paiements/', views.payments_list, name='payments'),
     path('remboursements/', views.refunds_list, name='refunds'),
     path('gateways/', views.gateways_list, name='gateways'),
+    path('gateways/<int:pk>/toggle/', views.gateway_toggle, name='gateway_toggle'),
     path('sim/', views.gateway_sims_list, name='sims'),
+    path('sim/<int:pk>/toggle/', views.sim_toggle, name='sim_toggle'),
     path('scheduler/', views.scheduler_monitor, name='scheduler'),
     path('operateurs/', views.operators_list, name='operators'),
     path('operateurs/nouveau/', views.operator_create, name='operator_create'),

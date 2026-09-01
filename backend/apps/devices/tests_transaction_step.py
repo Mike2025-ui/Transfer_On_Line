@@ -59,12 +59,12 @@ class _StepTestBase(TestCase):
     def _make_transaction_with_dispatched_attempt(self, attempt_status='dispatched'):
         device = Device.objects.create(uid=f'dev-{uuid.uuid4()}', primary_phone='0700000001')
         payment = Payment.objects.create(
-            method='cinetpay', reference=f'PAY-{uuid.uuid4()}', amount=500, status='accepted',
+            method='jeko', reference=f'PAY-{uuid.uuid4()}', amount=500, status='accepted',
         )
         tx = Transaction.objects.create(
             device=device, service=self.service, operator=self.operator, gateway=self.gateway,
             phone_number='0700000000', amount=500, status='pending',
-            payment=payment, payment_method='cinetpay', ussd_code_used=self.ussd_code,
+            payment=payment, payment_method='jeko', ussd_code_used=self.ussd_code,
         )
         attempt = TransactionAttempt.objects.create(
             transaction=tx, gateway_sim=self.sim, attempt_number=1, status=attempt_status,
@@ -152,12 +152,12 @@ class ConcurrencyTests(TransactionTestCase):
         self.secret = self.gateway.generate_secret()
         device = Device.objects.create(uid=f'dev-{uuid.uuid4()}', primary_phone='0700000001')
         payment = Payment.objects.create(
-            method='cinetpay', reference=f'PAY-{uuid.uuid4()}', amount=500, status='accepted',
+            method='jeko', reference=f'PAY-{uuid.uuid4()}', amount=500, status='accepted',
         )
         self.tx = Transaction.objects.create(
             device=device, service=self.service, operator=self.operator, gateway=self.gateway,
             phone_number='0700000000', amount=500, status='pending',
-            payment=payment, payment_method='cinetpay', ussd_code_used=self.ussd_code,
+            payment=payment, payment_method='jeko', ussd_code_used=self.ussd_code,
         )
         self.attempt = TransactionAttempt.objects.create(
             transaction=self.tx, gateway_sim=self.sim, attempt_number=1, status='dispatched',

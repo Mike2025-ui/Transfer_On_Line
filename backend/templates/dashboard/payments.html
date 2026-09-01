@@ -2,6 +2,9 @@
 
 {% block content %}
 <div class="container-fluid px-4">
+    <p class="text-muted mb-4">Vérifications exécutées à l'instant du chargement de cette page ({{ checked_at|date:"d/m/Y H:i:s" }}) —
+        les mêmes fonctions que <code>/api/health/</code>, rien de plus.</p>
+
     {% if geniuspay_webhook_misconfigured %}
     <div class="alert alert-warning d-flex align-items-center mb-4">
         <i class="fas fa-triangle-exclamation me-2"></i>
@@ -14,6 +17,95 @@
     {% endif %}
 
     <div class="row g-3 mb-4">
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-body">
+                    <span class="health-dot {{ checks.database }}"></span>
+                    <strong>Base de données</strong>
+                    <div class="text-muted small mt-1">
+                        {% if checks.database == 'ok' %}Connexion OK (SELECT 1 réussi).
+                        {% else %}Injoignable — vérification échouée.{% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-body">
+                    <span class="health-dot {{ checks.redis }}"></span>
+                    <strong>Redis</strong>
+                    <div class="text-muted small mt-1">
+                        {% if checks.redis == 'ok' %}Ping OK.
+                        {% elif checks.redis == 'not_configured' %}Client Redis non disponible dans l'environnement.
+                        {% else %}Injoignable.{% endif %}
+                        {% if redis_configured %}Configuré ({{ checks.redis }}) mais optionnel aujourd'hui : RQ ne reçoit aucune tâche réelle
+                        et le lock distribué se dégrade proprement sans lui (défense en profondeur uniquement).{% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-body">
+                    <strong>Gateways</strong>
+                    <div class="mt-1">{{ checks.gateway.online_count }} / {{ checks.gateway.total_count }} en ligne</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-body">
+                    <span class="health-dot {{ checks.jeko }}"></span>
+                    <strong>Jèko (réseau)</strong>
+                    <div class="text-muted small mt-1">
+                        Informatif uniquement — confirme que l'hôte répond, ne valide aucune clé/identifiant.
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-body">
+                    <span class="health-dot {{ checks.geniuspay }}"></span>
+                    <strong>GeniusPay (réseau)</strong>
+                    <div class="text-muted small mt-1">
+                        Informatif uniquement — confirme que l'hôte répond, ne valide aucune clé/identifiant.
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-body">
+                    <strong>Transactions en attente</strong>
+                    <div class="mt-1">{{ pending_transactions }}</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card border-0 shadow-sm mb-4">
+        <div class="card-header bg-transparent border-0"><h5 class="card-title mb-0">Échecs récents (TransactionAttempt)</h5></div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead><tr><th>Date</th><th>Transaction</th><th>Raison</th></tr></thead>
+                    <tbody>
+                        {% for attempt in recent_failed_attempts %}
+                        <tr>
+                            <td class="text-nowrap">{{ attempt.created_at|date:"d/m/Y H:i:s" }}</td>
+                            <td><a href="{% url 'transaction_detail' pk=attempt.transaction_id %}">{{ attempt.transaction.reference|truncatechars:16 }}</a></td>
+                            <td>{{ attempt.get_failure_reason_display|default:"Non renseignée" }}</td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="3" class="text-center text-muted py-4">Aucun échec récent</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
         {% for method, statuses in funnel.items %}
         <div class="col-md-6">
             <div class="card border-0 shadow-sm h-100">

@@ -20,13 +20,14 @@ class RequestOtpView(APIView):
     def post(self, request):
         serializer = RequestOtpSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        channel = serializer.validated_data['channel']
         try:
-            request_otp(serializer.validated_data['phone_number'])
+            request_otp(serializer.validated_data['phone_number'], channel=channel)
         except OtpError as exc:
             return Response({'error': str(exc)}, status=400)
         # The code itself is never returned here, in any build - see
         # otp_service.request_otp's doc.
-        return Response({'status': 'sent'})
+        return Response({'status': 'sent', 'channel': channel})
 
 
 class VerifyOtpView(APIView):

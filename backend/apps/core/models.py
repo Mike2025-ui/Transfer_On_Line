@@ -276,9 +276,7 @@ class Gateway(models.Model):
 class Payment(models.Model):
     METHOD_CHOICES = [
         ('auto', 'Automatique (relais)'),
-        ('cinetpay', 'CinetPay'),
         ('jeko', 'Jèko'),
-        ('feexpay', 'FeexPay'),
         ('geniuspay', 'GeniusPay'),
     ]
     STATUS_CHOICES = [

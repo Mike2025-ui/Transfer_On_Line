@@ -9,6 +9,7 @@ from django.utils import timezone
 from apps.core.locks import redis_lock
 from apps.core.models import Payment
 from apps.payments.providers.base import PaymentProviderError
+from apps.payments.providers.circuit_breaker import get_breaker
 from apps.payments.providers.registry import AUTO_METHOD, get_provider
 
 logger = logging.getLogger(__name__)
@@ -56,7 +57,21 @@ class PaymentService:
     def _provider_order(method):
         if method != AUTO_METHOD:
             return [method]
-        return [name.strip() for name in settings.PAYMENT_PROVIDER_ORDER.split(',') if name.strip()]
+
+        ordered = [name.strip() for name in settings.PAYMENT_PROVIDER_ORDER.split(',') if name.strip()]
+        if not ordered:
+            return []
+
+        healthy = []
+        unhealthy = []
+        for name in ordered:
+            breaker = get_breaker(name)
+            if breaker.is_open():
+                unhealthy.append(name)
+            else:
+                healthy.append(name)
+
+        return healthy + unhealthy
 
     @staticmethod
     def verify(payment):

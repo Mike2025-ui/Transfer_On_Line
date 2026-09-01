@@ -1,12 +1,8 @@
 from .base import PaymentProvider, PaymentProviderConfigError
-from .cinetpay import CinetPayProvider
-from .feexpay import FeexPayProvider
 from .geniuspay import GeniusPayProvider
 from .jeko import JekoProvider
 
 PROVIDER_REGISTRY: dict[str, type[PaymentProvider]] = {
-    CinetPayProvider.method: CinetPayProvider,
-    FeexPayProvider.method: FeexPayProvider,
     GeniusPayProvider.method: GeniusPayProvider,
     JekoProvider.method: JekoProvider,
 }

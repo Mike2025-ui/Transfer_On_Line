@@ -37,6 +37,7 @@ from rest_framework.test import APIClient
 
 from apps.core.models import Gateway, Operator, Payment, Service, Transaction, TransactionAttempt, UssdCode
 from apps.devices.models import GatewaySim
+from apps.payments.services.payment_service import PaymentService
 
 
 @override_settings(USE_NEW_TRANSACTION_ENGINE=True)
@@ -74,7 +75,7 @@ class IdempotencyTests(TestCase):
 
     # Test 1 + Test 2 - reconciled: under this design, "two identical POSTs"
     # only means something once a key exists to say so.
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.create_payment')
+    @patch('apps.payments.providers.jeko.JekoProvider.create_payment')
     def test_same_idempotency_key_twice_creates_only_one_transaction(self, create_payment, _redis_lock):
         self._mock_create_payment(create_payment)
         key = 'client-attempt-1'
@@ -92,7 +93,7 @@ class IdempotencyTests(TestCase):
         self.assertEqual(str(first.data['reference']), str(second.data['reference']))
         self.assertEqual(Transaction.objects.filter(idempotency_key=key).count(), 1)
 
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.create_payment')
+    @patch('apps.payments.providers.jeko.JekoProvider.create_payment')
     def test_same_key_sent_as_a_header_is_also_deduplicated(self, create_payment, _redis_lock):
         self._mock_create_payment(create_payment)
         key = 'client-attempt-header-1'
@@ -109,7 +110,7 @@ class IdempotencyTests(TestCase):
         self.assertEqual(Transaction.objects.filter(idempotency_key=key).count(), 1)
 
     # Test 3
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.create_payment')
+    @patch('apps.payments.providers.jeko.JekoProvider.create_payment')
     def test_different_idempotency_keys_create_two_independent_transactions(self, create_payment, _redis_lock):
         self._mock_create_payment(create_payment)
 
@@ -129,8 +130,8 @@ class IdempotencyTests(TestCase):
     # ConcurrentIdempotentRequestTests below.
     def test_sequential_get_or_create_calls_with_the_same_key_converge_to_one_row(self, _redis_lock):
         key = 'race-key-orm'
-        payment_a = Payment.objects.create(method='cinetpay', reference='PAY-RACE-A', amount=500, status='pending')
-        payment_b = Payment.objects.create(method='cinetpay', reference='PAY-RACE-B', amount=500, status='pending')
+        payment_a = Payment.objects.create(method='jeko', reference='PAY-RACE-A', amount=500, status='pending')
+        payment_b = Payment.objects.create(method='jeko', reference='PAY-RACE-B', amount=500, status='pending')
         fields = dict(
             device_id=self._device_id(), service=self.internet, operator=self.orange,
             phone_number='0700000001', amount=500, status='pending',
@@ -156,7 +157,7 @@ class IdempotencyTests(TestCase):
         self.assertEqual(initiate.call_count, 1)
 
     # Test 6
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.create_payment')
+    @patch('apps.payments.providers.jeko.JekoProvider.create_payment')
     def test_only_one_gateway_sim_reservation_across_duplicate_requests(self, create_payment, _redis_lock):
         self._mock_create_payment(create_payment)
         key = 'client-attempt-reservation'
@@ -167,7 +168,7 @@ class IdempotencyTests(TestCase):
         self.assertEqual(TransactionAttempt.objects.filter(gateway_sim=self.sim).count(), 1)
 
     # Test 7
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.create_payment')
+    @patch('apps.payments.providers.jeko.JekoProvider.create_payment')
     def test_only_one_transaction_attempt_exists_after_duplicate_requests(self, create_payment, _redis_lock):
         self._mock_create_payment(create_payment)
         key = 'client-attempt-single-attempt'
@@ -178,7 +179,7 @@ class IdempotencyTests(TestCase):
         self.assertEqual(TransactionAttempt.objects.count(), 1)
 
     # Test 8
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.create_payment')
+    @patch('apps.payments.providers.jeko.JekoProvider.create_payment')
     def test_repeating_the_original_request_does_not_schedule_a_second_retry(self, create_payment, _redis_lock):
         self._mock_create_payment(create_payment)
         key = 'client-attempt-retry'
@@ -203,8 +204,8 @@ class IdempotencyTests(TestCase):
         self.assertEqual(tx.attempts.count(), attempts_after_failure)
 
     # Test 9
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.verify_payment')
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.create_payment')
+    @patch('apps.payments.providers.jeko.JekoProvider.verify_payment')
+    @patch('apps.payments.providers.jeko.JekoProvider.create_payment')
     def test_replaying_the_key_after_success_returns_the_existing_transaction(self, create_payment, verify_payment, _redis_lock):
         from apps.payments.providers.base import PaymentStatusResult
         self._mock_create_payment(create_payment)
@@ -213,7 +214,7 @@ class IdempotencyTests(TestCase):
         tx = Transaction.objects.get(reference=first.data['reference'])
 
         verify_payment.return_value = PaymentStatusResult(status='accepted', raw={'data': {'status': 'ACCEPTED'}})
-        self.client.post(reverse('api_cinetpay_notify'), {'transaction_id': tx.payment.reference}, format='json')
+        PaymentService.verify(tx.payment)
         self.client.post(
             reverse('api_transaction_result'),
             {'transaction_reference': str(tx.reference), 'success': True, 'result': 'OK'},
@@ -234,7 +235,7 @@ class IdempotencyTests(TestCase):
         self.assertEqual(tx.attempts.count(), attempt_count_before)
 
     # Test 10
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.create_payment')
+    @patch('apps.payments.providers.jeko.JekoProvider.create_payment')
     def test_replaying_the_key_after_a_non_retryable_failure_returns_the_existing_failed_transaction(self, create_payment, _redis_lock):
         self._mock_create_payment(create_payment)
         key = 'client-attempt-failure-replay'
@@ -264,7 +265,7 @@ class IdempotencyTests(TestCase):
     # old _select_gateway() - patching the method on GatewayManager itself
     # intercepts both its callers (ExecuteTransactionView, RetryManager).
     @patch('apps.devices.services.gateway_manager.GatewayManager.select_operator_gateway')
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.create_payment')
+    @patch('apps.payments.providers.jeko.JekoProvider.create_payment')
     def test_select_operator_gateway_is_never_called_when_the_new_engine_is_active(self, create_payment, select_operator_gateway, _redis_lock):
         self._mock_create_payment(create_payment)
 
@@ -293,12 +294,11 @@ class ConcurrentIdempotentRequestTests(TransactionTestCase):
         self.sim = GatewaySim.objects.create(gateway=gw, operator=self.orange, slot=0, is_active=True)
 
     # This test requests payment_method='auto' (the client default) and
-    # mocks CinetPayProvider specifically - 'auto' must actually resolve to
-    # cinetpay regardless of the ambient PAYMENT_PROVIDER_ORDER (which is
-    # feexpay,geniuspay in this project's real/local .env), otherwise the
-    # mock is never reached and create_payment.call_count stays 0.
-    @override_settings(USE_NEW_TRANSACTION_ENGINE=True, PAYMENT_PROVIDER_ORDER='cinetpay')
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.create_payment')
+    # mocks JekoProvider specifically - 'auto' must actually resolve to jeko
+    # regardless of the ambient PAYMENT_PROVIDER_ORDER, otherwise the mock is
+    # never reached and create_payment.call_count stays 0.
+    @override_settings(USE_NEW_TRANSACTION_ENGINE=True, PAYMENT_PROVIDER_ORDER='jeko')
+    @patch('apps.payments.providers.jeko.JekoProvider.create_payment')
     @patch('apps.payments.services.payment_service.redis_lock', return_value=nullcontext())
     def test_two_concurrent_requests_with_the_same_key_produce_a_single_transaction(self, _redis_lock, create_payment):
         from apps.payments.providers.base import PaymentInitResult

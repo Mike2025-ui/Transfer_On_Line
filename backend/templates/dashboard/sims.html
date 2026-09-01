@@ -36,17 +36,18 @@
                             <th>Gateway</th><th>Slot</th><th>Opérateur</th><th>Numéro</th><th>État</th>
                             <th>Réussites</th><th>Échecs</th><th>Échecs consécutifs</th><th>Dernière activité</th>
                             <th title="Score indicatif recalculé via GatewayScoreService.score() - aucune nouvelle logique de sélection">Score</th>
+                            <th>Action</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for row in page_obj %}
                         {% with sim=row.sim %}
-                        <tr>
+                        <tr data-sim-row="{{ sim.id }}">
                             <td class="fw-semibold">{{ sim.gateway.name }}</td>
                             <td>{{ sim.slot }}</td>
                             <td>{{ sim.operator.name }}</td>
                             <td>{{ sim.msisdn|default:"-" }}</td>
-                            <td>{% if sim.is_active %}<span class="badge badge-status-success">Active</span>{% else %}<span class="badge bg-secondary">Inactive</span>{% endif %}</td>
+                            <td><span class="badge toggle-badge {% if sim.is_active %}bg-success{% else %}bg-secondary{% endif %}">{% if sim.is_active %}Active{% else %}Inactive{% endif %}</span></td>
                             <td>{{ sim.success_count }}</td>
                             <td>{{ sim.failure_count }}</td>
                             <td>
@@ -56,10 +57,15 @@
                             </td>
                             <td>{{ sim.last_used_at|date:"d/m/Y H:i:s"|default:"Jamais" }}</td>
                             <td>{{ row.score }}</td>
+                            <td>
+                                <button type="button" class="btn btn-sm btn-outline-secondary toggle-btn" data-sim-id="{{ sim.id }}" title="Activer/désactiver">
+                                    <i class="fas fa-power-off"></i>
+                                </button>
+                            </td>
                         </tr>
                         {% endwith %}
                         {% empty %}
-                        <tr><td colspan="10" class="text-center text-muted py-4">Aucune SIM enregistrée</td></tr>
+                        <tr><td colspan="11" class="text-center text-muted py-4">Aucune SIM enregistrée</td></tr>
                         {% endfor %}
                     </tbody>
                 </table>
@@ -72,4 +78,28 @@
         (<code>GatewayManager.eligible_sims()</code>) appliqués lors d'une vraie sélection.
     </p>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.querySelectorAll('.toggle-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+        const simId = btn.dataset.simId;
+        fetch(`/dashboard/sim/${simId}/toggle/`, {
+            method: 'POST',
+            headers: { 'X-CSRFToken': '{{ csrf_token }}' },
+        })
+            .then(function (response) { return response.json(); })
+            .then(function (result) {
+                if (result.error) { alert(result.error); return; }
+                const row = document.querySelector(`[data-sim-row="${simId}"]`);
+                const badge = row.querySelector('.toggle-badge');
+                badge.textContent = result.is_active ? 'Active' : 'Inactive';
+                badge.classList.toggle('bg-success', result.is_active);
+                badge.classList.toggle('bg-secondary', !result.is_active);
+            })
+            .catch(function () { alert('Erreur réseau'); });
+    });
+});
+</script>
 {% endblock %}

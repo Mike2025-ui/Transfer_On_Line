@@ -1,3 +1,5 @@
+import importlib
+import os
 from unittest.mock import patch
 
 from django.db import IntegrityError, transaction as db_transaction
@@ -14,6 +16,18 @@ from apps.core.serializers import build_ussd_code, gateway_task_payload, resolve
 from apps.core.services.retry_manager import NON_RETRYABLE_FAILURE_REASONS, RetryManager
 from apps.core.services.transaction_state_machine import InvalidTransitionError, TransactionStateMachine
 from apps.devices.models import GatewaySim
+
+
+class AllowedHostsSettingsTests(TestCase):
+    def test_blank_django_allowed_hosts_keeps_localhost_access(self):
+        import transfer_on_line.settings as settings_module
+
+        with patch.dict(os.environ, {'DJANGO_ALLOWED_HOSTS': ''}, clear=False):
+            reloaded = importlib.reload(settings_module)
+            self.assertIn('127.0.0.1', reloaded.ALLOWED_HOSTS)
+            self.assertIn('localhost', reloaded.ALLOWED_HOSTS)
+
+        importlib.reload(settings_module)
 
 
 class GatewayB1FieldsTests(TestCase):
@@ -111,7 +125,7 @@ class HealthEndpointTests(TestCase):
         body = response.json()
         self.assertEqual(body['status'], 'ok')
         self.assertEqual(body['geniuspay'], 'down')
-        self.assertEqual(body['cinetpay'], 'down')
+        self.assertEqual(body['jeko'], 'down')
 
     @patch('apps.core.views.check_database', return_value='down')
     def test_health_reports_degraded_when_database_is_down(self, _mocked_db, _provider, _redis):
@@ -185,7 +199,7 @@ class TransactionSyncFromPaymentTests(TestCase):
     because no Gateway was assigned yet - see Transaction.sync_from_payment()."""
 
     def _accepted_payment(self):
-        return Payment.objects.create(method='cinetpay', reference='PAY-1', amount=1000, status='accepted')
+        return Payment.objects.create(method='jeko', reference='PAY-1', amount=1000, status='accepted')
 
     def test_accepted_payment_with_no_gateway_stays_pending_not_failed(self):
         tx = _make_transaction('pending')
@@ -211,7 +225,7 @@ class TransactionSyncFromPaymentTests(TestCase):
 
     def test_non_accepted_payment_still_fails_the_transaction(self):
         tx = _make_transaction('pending')
-        tx.payment = Payment.objects.create(method='cinetpay', reference='PAY-2', amount=1000, status='refused')
+        tx.payment = Payment.objects.create(method='jeko', reference='PAY-2', amount=1000, status='refused')
         tx.save(update_fields=['payment'])
 
         tx.sync_from_payment()

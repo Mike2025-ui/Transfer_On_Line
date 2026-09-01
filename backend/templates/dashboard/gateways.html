@@ -37,12 +37,12 @@
                         <tr>
                             <th>UUID</th><th>Statut</th><th>Batterie</th><th>Temp.</th><th>RAM</th><th>Stockage</th>
                             <th>Réseau</th><th>Signal</th><th>IP</th><th>Version</th><th>Dernière connexion</th>
-                            <th>Occupé</th><th>Tâches</th><th>SIM</th>
+                            <th>Occupé</th><th>Tâches</th><th>SIM</th><th>Actif</th><th>Action</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for gw in gateways %}
-                        <tr>
+                        <tr data-gateway-row="{{ gw.id }}">
                             <td class="fw-semibold">{{ gw.name }}</td>
                             <td>
                                 {% if gw.is_online %}<span class="badge badge-status-success">En ligne</span>
@@ -60,9 +60,19 @@
                             <td>{% if gw.in_flight > 0 %}<span class="badge bg-warning text-dark">{{ gw.in_flight }} en cours</span>{% else %}<span class="badge bg-light text-dark">Libre</span>{% endif %}</td>
                             <td>{{ gw.in_flight }} / {{ gw.max_concurrent_tasks }}</td>
                             <td>{{ gw.sims|length }}</td>
+                            <td>
+                                <span class="badge toggle-badge {% if gw.is_active %}bg-success{% else %}bg-secondary{% endif %}">
+                                    {% if gw.is_active %}Active{% else %}Inactive{% endif %}
+                                </span>
+                            </td>
+                            <td>
+                                <button type="button" class="btn btn-sm btn-outline-secondary toggle-btn" data-gateway-id="{{ gw.id }}" title="Activer/désactiver">
+                                    <i class="fas fa-power-off"></i>
+                                </button>
+                            </td>
                         </tr>
                         {% empty %}
-                        <tr><td colspan="14" class="text-center text-muted py-4">Aucune gateway enregistrée</td></tr>
+                        <tr><td colspan="16" class="text-center text-muted py-4">Aucune gateway enregistrée</td></tr>
                         {% endfor %}
                     </tbody>
                 </table>
@@ -70,4 +80,28 @@
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.querySelectorAll('.toggle-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+        const gatewayId = btn.dataset.gatewayId;
+        fetch(`/dashboard/gateways/${gatewayId}/toggle/`, {
+            method: 'POST',
+            headers: { 'X-CSRFToken': '{{ csrf_token }}' },
+        })
+            .then(function (response) { return response.json(); })
+            .then(function (result) {
+                if (result.error) { alert(result.error); return; }
+                const row = document.querySelector(`[data-gateway-row="${gatewayId}"]`);
+                const badge = row.querySelector('.toggle-badge');
+                badge.textContent = result.is_active ? 'Active' : 'Inactive';
+                badge.classList.toggle('bg-success', result.is_active);
+                badge.classList.toggle('bg-secondary', !result.is_active);
+            })
+            .catch(function () { alert('Erreur réseau'); });
+    });
+});
+</script>
 {% endblock %}

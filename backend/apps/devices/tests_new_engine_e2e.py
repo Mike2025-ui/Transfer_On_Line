@@ -7,7 +7,7 @@ Each scenario drives the real HTTP endpoints (POST /transactions/execute/,
 GET /transactions/pending/, POST /transactions/result/,
 `dispatch_due_transaction_retries`) exactly as a real Flutter Client and a
 real Gateway phone would - no real USSD, no real Gateway hardware, no real
-payment provider (CinetPayProvider.create_payment stays mocked, same as the
+payment provider (JekoProvider.create_payment stays mocked, same as the
 rest of this project's test suite).
 
 The "simulated Gateway" in every scenario below is deliberately dumb: it
@@ -30,6 +30,7 @@ from rest_framework.test import APIClient
 from apps.core.models import Gateway, Operator, Service, Transaction, TransactionAttempt, UssdCode
 from apps.devices.models import GatewaySim
 from apps.devices.services.reservation_manager import ReservationManager
+from apps.payments.services.payment_service import PaymentService
 
 
 @override_settings(USE_NEW_TRANSACTION_ENGINE=True)
@@ -58,8 +59,8 @@ class Scenario1FullSuccessTests(TestCase):
         # itself, exactly like a real device would - Orange, never the decoy.
         self.client.credentials(HTTP_X_GATEWAY_SECRET=self.orange_gw.generate_secret())
 
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.verify_payment')
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.create_payment')
+    @patch('apps.payments.providers.jeko.JekoProvider.verify_payment')
+    @patch('apps.payments.providers.jeko.JekoProvider.create_payment')
     def test_full_success_cycle(self, create_payment, verify_payment, _redis_lock):
         from apps.payments.providers.base import PaymentInitResult, PaymentStatusResult
         create_payment.return_value = PaymentInitResult(checkout_url='https://pay/tok', provider_transaction_id='tok', raw={})
@@ -73,12 +74,11 @@ class Scenario1FullSuccessTests(TestCase):
         tx = Transaction.objects.get(reference=response.data['reference'])
 
         # PendingTransactionsView only exposes a task once payment is
-        # confirmed - simulate the CinetPay notify ping the same way the
-        # existing payments/devices suites do (mocked verify_payment(), real
-        # notify endpoint), never a real payment provider call.
+        # confirmed - call PaymentService.verify() directly (mocked
+        # verify_payment(), no real payment provider call), same pattern as
+        # the rest of this project's suites.
         verify_payment.return_value = PaymentStatusResult(status='accepted', raw={'data': {'status': 'ACCEPTED'}})
-        notify = self.client.post(reverse('api_cinetpay_notify'), {'transaction_id': tx.payment.reference}, format='json')
-        self.assertEqual(notify.status_code, 200)
+        PaymentService.verify(tx.payment)
 
         # 1. Transaction créée.
         self.assertIsNotNone(tx.pk)
@@ -158,7 +158,7 @@ class Scenario2OrangeUnavailableTests(TestCase):
         )
         GatewaySim.objects.create(gateway=mtn_gw, operator=self.mtn, slot=0, is_active=True)
 
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.create_payment')
+    @patch('apps.payments.providers.jeko.JekoProvider.create_payment')
     def test_orange_offline_never_falls_back_to_mtn_then_recovers(self, create_payment, _redis_lock):
         from apps.payments.providers.base import PaymentInitResult
         create_payment.return_value = PaymentInitResult(checkout_url='https://pay/tok', provider_transaction_id='tok', raw={})
@@ -209,7 +209,7 @@ class Scenario3RetryableFailureTests(TestCase):
         GatewaySim.objects.create(gateway=self.gw1, operator=self.orange, slot=0, is_active=True)
         GatewaySim.objects.create(gateway=self.gw2, operator=self.orange, slot=0, is_active=True)
 
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.create_payment')
+    @patch('apps.payments.providers.jeko.JekoProvider.create_payment')
     def test_network_error_is_retried_on_a_different_sim(self, create_payment, _redis_lock):
         from apps.payments.providers.base import PaymentInitResult
         create_payment.return_value = PaymentInitResult(checkout_url='https://pay/tok', provider_transaction_id='tok', raw={})
@@ -268,7 +268,7 @@ class Scenario4NonRetryableFailureTests(TestCase):
         GatewaySim.objects.create(gateway=gw, operator=self.orange, slot=0, is_active=True)
         self.client.credentials(HTTP_X_GATEWAY_SECRET=gw.generate_secret())
 
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.create_payment')
+    @patch('apps.payments.providers.jeko.JekoProvider.create_payment')
     def test_invalid_number_is_never_retried_and_fails_the_transaction(self, create_payment, _redis_lock):
         from apps.payments.providers.base import PaymentInitResult
         create_payment.return_value = PaymentInitResult(checkout_url='https://pay/tok', provider_transaction_id='tok', raw={})
@@ -314,7 +314,7 @@ class Scenario5TimeoutTests(TestCase):
         GatewaySim.objects.create(gateway=self.gw1, operator=self.orange, slot=0, is_active=True)
         GatewaySim.objects.create(gateway=self.gw2, operator=self.orange, slot=0, is_active=True)
 
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.create_payment')
+    @patch('apps.payments.providers.jeko.JekoProvider.create_payment')
     def test_timeout_schedules_a_retry_and_dispatch_creates_a_new_attempt(self, create_payment, _redis_lock):
         from apps.payments.providers.base import PaymentInitResult
         create_payment.return_value = PaymentInitResult(checkout_url='https://pay/tok', provider_transaction_id='tok', raw={})
@@ -385,7 +385,7 @@ class Scenario6LateResultTests(TestCase):
             format='json',
         )
 
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.create_payment')
+    @patch('apps.payments.providers.jeko.JekoProvider.create_payment')
     def test_late_success_resolves_without_double_effects(self, create_payment, _redis_lock):
         tx, attempt = self._create_and_expire(create_payment)
 
@@ -401,7 +401,7 @@ class Scenario6LateResultTests(TestCase):
         self.assertEqual(self.sim.success_count, 0, 'jamais un second comptage - le timeout avait déjà compté une fois en échec')
         self.assertEqual(self.sim.failure_count, 1)
 
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.create_payment')
+    @patch('apps.payments.providers.jeko.JekoProvider.create_payment')
     def test_late_failure_corrects_the_record_without_a_second_retry(self, create_payment, _redis_lock):
         tx, attempt = self._create_and_expire(create_payment)
         tx.refresh_from_db()
@@ -419,7 +419,7 @@ class Scenario6LateResultTests(TestCase):
             "une seule décision de retry doit exister - celle prise au moment de l'expiration",
         )
 
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.create_payment')
+    @patch('apps.payments.providers.jeko.JekoProvider.create_payment')
     def test_the_same_late_result_reported_twice_is_fully_idempotent(self, create_payment, _redis_lock):
         tx, attempt = self._create_and_expire(create_payment)
         self._report(tx, True, 'OK')
@@ -458,7 +458,7 @@ class Scenario7DuplicateRequestTests(TestCase):
         self.sim = GatewaySim.objects.create(gateway=gw, operator=self.orange, slot=0, is_active=True)
         self.client.credentials(HTTP_X_GATEWAY_SECRET=gw.generate_secret())
 
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.create_payment')
+    @patch('apps.payments.providers.jeko.JekoProvider.create_payment')
     def test_duplicate_result_report_for_the_same_transaction_is_idempotent(self, create_payment, _redis_lock):
         """The "undesired concurrent execution" case on the dispatch/Gateway
         side - already protected by select_for_update()/
@@ -484,7 +484,7 @@ class Scenario7DuplicateRequestTests(TestCase):
         tx.refresh_from_db()
         self.assertEqual(tx.attempts.count(), 1, 'aucune seconde exécution/réservation créée')
 
-    @patch('apps.payments.providers.cinetpay.CinetPayProvider.create_payment')
+    @patch('apps.payments.providers.jeko.JekoProvider.create_payment')
     def test_submitting_the_exact_same_creation_request_twice_creates_two_independent_transactions(self, create_payment, _redis_lock):
         """CONSTAT (pas une correction) : /transactions/execute/ ne porte
         aujourd'hui aucune clé d'idempotence - Transaction.reference et

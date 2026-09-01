@@ -15,7 +15,6 @@ from apps.core.models import Payment, UssdCodeNotConfigured, UssdCodeRenderError
 from apps.core.serializers import transaction_payload
 from apps.core.services.transaction_state_machine import InvalidTransitionError
 from apps.payments.models import WebhookEvent
-from apps.payments.providers.cinetpay import CinetPayError, CinetPayProvider
 from apps.payments.providers.geniuspay import status_to_local, verify_webhook_signature
 from apps.payments.providers.jeko import status_to_local as jeko_status_to_local
 from apps.payments.services.payment_service import PaymentService
@@ -67,53 +66,6 @@ def _apply_status_safely(payment, new_status, *, raw_payload, event_id):
 
 
 _KNOWN_GENIUSPAY_STATUSES = {'pending', 'processing', 'completed', 'failed', 'cancelled', 'expired'}
-
-
-class CinetPayNotifyView(APIView):
-    """CinetPay's notify ping carries no signature and no amount/currency: we
-    treat it purely as a trigger to re-verify the payment status server-side
-    via verify_payment(), which is the actual source of truth."""
-
-    permission_classes = [AllowAny]
-
-    def post(self, request):
-        transaction_id = (
-            request.data.get('cpm_trans_id')
-            or request.data.get('transaction_id')
-            or request.data.get('payment_reference')
-        )
-        if not transaction_id:
-            return Response({'error': 'transaction_id required'}, status=400)
-
-        with db_transaction.atomic():
-            payment = Payment.objects.filter(reference=transaction_id).first()
-            if payment is None:
-                logger.warning('CinetPay notify: no payment for reference %s', transaction_id)
-                return Response({'error': 'Payment not found'}, status=404)
-
-            tx = payment.transactions.select_related('service', 'operator', 'gateway').first()
-            if tx:
-                set_correlation_id(str(tx.reference))
-
-            try:
-                result = CinetPayProvider().verify_payment(payment.reference)
-            except CinetPayError as exc:
-                logger.warning('CinetPay notify verification failed for %s: %s', transaction_id, exc)
-                return Response({'error': str(exc)}, status=502)
-
-            _apply_status_safely(
-                payment, result.status,
-                raw_payload={'notification': request.data, 'check': result.raw},
-                event_id=transaction_id,
-            )
-            if tx:
-                tx.refresh_from_db()
-
-        return Response({
-            'payment_reference': payment.reference,
-            'payment_status': payment.status,
-            'transaction': _safe_transaction_payload(tx) if tx else None,
-        })
 
 
 def _validate_geniuspay_event(payment, payload):

@@ -34,6 +34,21 @@ class CircuitBreaker:
         self._state = 'closed'
         self._opened_at = None
 
+    def is_open(self):
+        """True when the breaker is intentionally refusing traffic, whether
+        because it has just opened or because it is still waiting for its reset
+        timeout to elapse. A half-open circuit is not considered open for the
+        purpose of provider ordering: the provider is still eligible for the
+        single probe attempt that will re-close it if healthy."""
+        with self._lock:
+            if self._state == 'open':
+                if self._opened_at is not None and time.monotonic() - self._opened_at >= self.reset_timeout:
+                    self._state = 'half_open'
+                    logger.info('Circuit breaker %s: OPEN -> HALF_OPEN (single probe attempt)', self.name)
+                    return False
+                return True
+            return False
+
     def _may_proceed(self):
         with self._lock:
             if self._state == 'open':

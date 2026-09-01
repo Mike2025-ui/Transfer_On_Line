@@ -46,6 +46,7 @@
                             <th>Libellé</th>
                             <th>Service</th>
                             <th>Template</th>
+                            <th>Étapes</th>
                             <th>Statut</th>
                             <th class="text-end">Actions</th>
                         </tr>
@@ -59,6 +60,13 @@
                             </td>
                             <td>{{ code.service.name|default:"Tous services" }}</td>
                             <td><code>{{ code.template }}</code></td>
+                            <td>
+                                {% if code.step_count %}
+                                <span class="badge bg-light text-dark border">{{ code.step_count }} étape{{ code.step_count|pluralize }}</span>
+                                {% else %}
+                                <span class="text-muted small">Direct (sans étape)</span>
+                                {% endif %}
+                            </td>
                             <td>
                                 <span class="badge toggle-badge {% if code.is_active %}bg-success{% else %}bg-secondary{% endif %}"
                                       data-active="{{ code.is_active|yesno:'true,false' }}">
@@ -78,7 +86,7 @@
                             </td>
                         </tr>
                         {% empty %}
-                        <tr><td colspan="5" class="text-center text-muted py-4">Aucun code USSD pour cet opérateur</td></tr>
+                        <tr><td colspan="6" class="text-center text-muted py-4">Aucun code USSD pour cet opérateur</td></tr>
                         {% endfor %}
                     </tbody>
                 </table>

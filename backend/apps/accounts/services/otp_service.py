@@ -10,6 +10,7 @@ from apps.accounts.services.ikoddi_service import IkoddiError, IkoddiService, en
 logger = logging.getLogger(__name__)
 
 OTP_MAX_ATTEMPTS = 3
+OTP_CHANNELS = ('sms', 'whatsapp')
 
 
 class OtpError(Exception):
@@ -38,7 +39,7 @@ def normalize_phone_number(raw):
     raise OtpError('phone_number must include a country code (e.g. +225...)')
 
 
-def request_otp(raw_phone_number, ikoddi_service=None):
+def request_otp(raw_phone_number, channel='sms', ikoddi_service=None):
     """IKODDI's OTP As A Service generates, sends and holds the code itself
     (see ikoddi_service.py's doc) - Django never generates or stores a code
     or a hash of one. What is stored here is only the opaque
@@ -46,7 +47,14 @@ def request_otp(raw_phone_number, ikoddi_service=None):
     keyed only by phone_number - never a single shared/global "current code"
     variable. Two numbers (or two requests for the same number) never
     interfere with each other; verify_otp() below always resolves to the
-    most recent unconsumed row."""
+    most recent unconsumed row.
+
+    `channel` selects which IKODDI OTP delivery endpoint is called (`sms` or
+    `whatsapp`, per the same documented `/otp/{app}/{channel}/{identity}`
+    contract - see ikoddi_service.IkoddiService.send_otp) - IKODDI remains
+    the only OTP/SMS/WhatsApp provider either way, nothing new is added."""
+    if channel not in OTP_CHANNELS:
+        raise OtpError(f'Unsupported channel: {channel}')
     phone_number = normalize_phone_number(raw_phone_number)
     try:
         ensure_ikoddi_configured()
@@ -55,13 +63,13 @@ def request_otp(raw_phone_number, ikoddi_service=None):
 
     service = ikoddi_service or IkoddiService()
     try:
-        otp_token = service.send_otp(phone_number)
+        otp_token = service.send_otp(phone_number, channel=channel)
     except IkoddiError as exc:
-        logger.warning('IKODDI send failed for %s: %s', phone_number, exc)
+        logger.warning('IKODDI send failed for %s via %s: %s', phone_number, channel, exc)
         raise OtpError('Unable to send verification code') from exc
 
     PhoneOtp.objects.create(phone_number=phone_number, verification_key=otp_token)
-    logger.info('OTP requested for %s', phone_number)
+    logger.info('OTP requested for %s via %s', phone_number, channel)
 
 
 def verify_otp(raw_phone_number, submitted_code, ikoddi_service=None):

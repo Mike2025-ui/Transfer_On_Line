@@ -21,11 +21,11 @@ _TE_SETTINGS = {'TIMEOUT_SECONDS': 90, 'MAX_RETRY': 3}
 
 def _make_transaction(operator, service, ussd_code, gateway):
     device = Device.objects.create(uid=f'dev-{uuid.uuid4()}', primary_phone='0700000001')
-    payment = Payment.objects.create(method='cinetpay', reference=f'PAY-{uuid.uuid4()}', amount=500, status='accepted')
+    payment = Payment.objects.create(method='jeko', reference=f'PAY-{uuid.uuid4()}', amount=500, status='accepted')
     return Transaction.objects.create(
         device=device, service=service, operator=operator, gateway=gateway,
         phone_number='0700000000', amount=500, status='pending',
-        payment=payment, payment_method='cinetpay', ussd_code_used=ussd_code,
+        payment=payment, payment_method='jeko', ussd_code_used=ussd_code,
     )
 
 
