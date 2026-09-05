@@ -29,8 +29,6 @@ class Step2ServiceScreen extends StatefulWidget {
 }
 
 class _Step2ServiceScreenState extends State<Step2ServiceScreen> {
-  late final BackendApiService _api = widget.backendApiService ?? BackendApiService();
-
   String? _service;
   int? _selectedServiceId;
   String _operation = 'Souscription pour moi';
@@ -46,26 +44,23 @@ class _Step2ServiceScreenState extends State<Step2ServiceScreen> {
   }
 
   Future<void> _loadServices() async {
+    // Maquette hors ligne : ces services remplacent temporairement la
+    // reponse du serveur pour eviter le blocage CORS pendant le travail UI.
+    const mockedServices = [
+      ServiceItem(id: 1, name: 'Internet', code: 'internet'),
+      ServiceItem(id: 2, name: 'Appels', code: 'appels'),
+      ServiceItem(id: 3, name: 'SMS', code: 'sms'),
+    ];
+
+    // L'etat passe directement en succes : aucun spinner ni message reseau
+    // ne doit empecher l'utilisateur de poursuivre le parcours.
     setState(() {
-      _loadingServices = true;
+      _services = mockedServices;
+      _loadingServices = false;
       _servicesError = null;
+      _service = mockedServices.first.name;
+      _selectedServiceId = mockedServices.first.id;
     });
-    try {
-      final services = await _api.getServices();
-      if (!mounted) return;
-      setState(() {
-        _services = services;
-        _loadingServices = false;
-        _service = services.isNotEmpty ? services.first.name : null;
-        _selectedServiceId = services.isNotEmpty ? services.first.id : null;
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _servicesError = 'Impossible de charger les services.';
-        _loadingServices = false;
-      });
-    }
   }
 
   IconData _serviceIcon(String name) {
