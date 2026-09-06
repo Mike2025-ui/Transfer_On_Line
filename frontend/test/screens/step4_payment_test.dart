@@ -129,6 +129,7 @@ void main() {
     expect(find.text('Paiement CinetPay'), findsNothing);
     expect(find.text('Paiement GeniusPay'), findsNothing);
     expect(find.text('Djeko'), findsNothing);
+    expect(find.text('Paiement 100% sécurisé'), findsNothing);
     expect(find.textContaining('Frais de service'), findsNothing);
     expect(find.text('Total à payer'), findsNothing);
     expect(find.text('Information tarifaire'), findsNothing);

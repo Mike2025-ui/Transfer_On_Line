@@ -138,23 +138,6 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
                         ],
                       ),
                     ),
-                    const SizedBox(height: 22),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(Icons.lock_outline_rounded,
-                            size: 18, color: AppColors.textSecondary),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Paiement 100% sécurisé',
-                          style: GoogleFonts.nunito(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.textSecondary,
-                          ),
-                        ),
-                      ],
-                    ),
                     const SizedBox(height: 18),
                     TolButton(
                       label: isTransfer

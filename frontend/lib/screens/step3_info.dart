@@ -40,6 +40,14 @@ class _Step3InfoScreenState extends State<Step3InfoScreen> {
       widget.backendApiService ?? BackendApiService();
   final _phoneCtrl = TextEditingController();
   final _amountCtrl = TextEditingController(text: '1000');
+  String? _phoneError;
+
+  // Prefixes mobiles ivoiriens: Orange 07/08/09, MTN 05/06 et Moov 01.
+  static const _operatorPrefixes = {
+    'Orange': ['07', '08', '09'],
+    'MTN': ['05', '06'],
+    'Moov': ['01'],
+  };
   // Default, shown immediately - identical to the values this screen has
   // always shown. Only replaced in place if the backend has specific
   // amounts configured for this (operator, service); left untouched on an
@@ -133,10 +141,24 @@ class _Step3InfoScreenState extends State<Step3InfoScreen> {
                       controller: _phoneCtrl,
                       keyboardType: TextInputType.phone,
                       inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      onChanged: (_) => setState(() {
+                        _phoneError = _phoneValidationError(_phoneCtrl.text);
+                      }),
                       style: _fieldStyle(),
                       decoration: _inputDecoration('Entrez le numéro'),
                     ),
                   ),
+                  if (_phoneError != null) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      _phoneError!,
+                      style: GoogleFonts.nunito(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.red,
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 10),
                   _hint('Exemple : 07XXXXXXXX'),
                   const SizedBox(height: 26),
@@ -251,9 +273,7 @@ class _Step3InfoScreenState extends State<Step3InfoScreen> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  _isThird
-                      ? 'Saisissez le numéro du bénéficiaire.'
-                      : 'Saisissez votre numéro Orange, MTN ou Moov.',
+                  _operatorInstruction,
                   style: GoogleFonts.nunito(
                     fontSize: 16,
                     height: 1.2,
@@ -267,6 +287,19 @@ class _Step3InfoScreenState extends State<Step3InfoScreen> {
         ],
       ),
     );
+  }
+
+  String get _operatorInstruction =>
+      'Saisissez votre numéro ${widget.operator}.';
+
+  String? _phoneValidationError(String phone) {
+    if (phone.length < 2) return null;
+    final prefixes = _operatorPrefixes[widget.operator] ?? const <String>[];
+    if (!prefixes.any(phone.startsWith)) {
+      return 'Ce numéro ne correspond pas à l’opérateur ${widget.operator}.';
+    }
+    if (phone.length == 10) return null;
+    return null;
   }
 
   Widget _inputShell({
@@ -397,9 +430,15 @@ class _Step3InfoScreenState extends State<Step3InfoScreen> {
 
   void _next() {
     if (_phoneCtrl.text.length != 10) {
+      setState(() => _phoneError = 'Le numéro doit contenir 10 chiffres.');
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Le numéro doit contenir 10 chiffres')),
       );
+      return;
+    }
+    final phoneError = _phoneValidationError(_phoneCtrl.text);
+    if (phoneError != null) {
+      setState(() => _phoneError = phoneError);
       return;
     }
     if (_selectedAmount <= 0) {
