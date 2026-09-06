@@ -2,6 +2,116 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../theme/app_theme.dart';
 
+class TolLogo extends StatelessWidget {
+  final double size;
+  final bool whiteBackground;
+
+  const TolLogo({super.key, this.size = 108, this.whiteBackground = false});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: size,
+      height: size,
+      child: CustomPaint(
+        painter: _TolLogoPainter(whiteBackground: whiteBackground),
+      ),
+    );
+  }
+}
+
+class _TolLogoPainter extends CustomPainter {
+  final bool whiteBackground;
+
+  const _TolLogoPainter({required this.whiteBackground});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final scale = size.shortestSide / 108;
+    canvas.scale(scale, scale);
+    if (whiteBackground) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          const Rect.fromLTWH(0, 0, 108, 108),
+          const Radius.circular(24),
+        ),
+        Paint()..color = Colors.white,
+      );
+    }
+
+    final orange = Paint()
+      ..color = const Color(0xFFFF8A00)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 14
+      ..strokeCap = StrokeCap.round;
+    final green = Paint()
+      ..color = const Color(0xFF0BAA45)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 11
+      ..strokeCap = StrokeCap.round;
+
+    canvas.drawArc(
+        const Rect.fromLTWH(22, 18, 68, 68), -2.78, 2.28, false, orange);
+    canvas.drawArc(
+        const Rect.fromLTWH(18, 22, 68, 68), 0.36, 2.28, false, orange);
+    canvas.drawArc(
+        const Rect.fromLTWH(35, 34, 42, 42), -2.76, 2.15, false, green);
+    canvas.drawArc(
+        const Rect.fromLTWH(31, 32, 42, 42), 0.4, 2.15, false, green);
+
+    final orangeArrow = Paint()..color = const Color(0xFFFF8A00);
+    final greenArrow = Paint()..color = const Color(0xFF0BAA45);
+    canvas.drawPath(
+      Path()
+        ..moveTo(14, 30)
+        ..lineTo(32, 13)
+        ..lineTo(34, 26)
+        ..lineTo(48, 29)
+        ..lineTo(31, 45)
+        ..lineTo(29, 36)
+        ..close(),
+      orangeArrow,
+    );
+    canvas.drawPath(
+      Path()
+        ..moveTo(94, 78)
+        ..lineTo(76, 95)
+        ..lineTo(74, 82)
+        ..lineTo(60, 79)
+        ..lineTo(77, 63)
+        ..lineTo(79, 72)
+        ..close(),
+      orangeArrow,
+    );
+    canvas.drawPath(
+      Path()
+        ..moveTo(28, 44)
+        ..lineTo(41, 29)
+        ..lineTo(43, 39)
+        ..lineTo(55, 42)
+        ..lineTo(41, 55)
+        ..lineTo(39, 48)
+        ..close(),
+      greenArrow,
+    );
+    canvas.drawPath(
+      Path()
+        ..moveTo(80, 68)
+        ..lineTo(67, 83)
+        ..lineTo(65, 73)
+        ..lineTo(53, 70)
+        ..lineTo(67, 57)
+        ..lineTo(69, 64)
+        ..close(),
+      greenArrow,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _TolLogoPainter oldDelegate) =>
+      oldDelegate.whiteBackground != whiteBackground;
+}
+
 class StepProgressBar extends StatelessWidget {
   final int currentStep;
   const StepProgressBar({super.key, required this.currentStep});
@@ -38,7 +148,8 @@ class StepProgressBar extends StatelessWidget {
                           color: Colors.white,
                           shape: BoxShape.circle,
                           border: Border.all(
-                            color: active ? const Color(0xFF25C84A) : Colors.white,
+                            color:
+                                active ? const Color(0xFF25C84A) : Colors.white,
                             width: active ? 3 : 0,
                           ),
                           boxShadow: [
@@ -71,7 +182,8 @@ class StepProgressBar extends StatelessWidget {
                         maxLines: 1,
                         style: GoogleFonts.nunito(
                           fontSize: 13,
-                          fontWeight: active ? FontWeight.w900 : FontWeight.w700,
+                          fontWeight:
+                              active ? FontWeight.w900 : FontWeight.w700,
                           color: Colors.white,
                         ),
                       ),
@@ -148,9 +260,7 @@ class GreenHeader extends StatelessWidget {
                 ),
                 child: Center(
                   child: Icon(
-                    step == 4
-                        ? Icons.fact_check_outlined
-                        : Icons.edit_document,
+                    step == 4 ? Icons.fact_check_outlined : Icons.edit_document,
                     color: AppColors.success,
                     size: 34,
                   ),
@@ -212,7 +322,8 @@ class TolButton extends StatelessWidget {
         style: ElevatedButton.styleFrom(
           backgroundColor: color ?? AppColors.primary,
           foregroundColor: Colors.white,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           elevation: 7,
           shadowColor: AppColors.primary.withValues(alpha: 0.24),
         ),
@@ -355,14 +466,16 @@ class QuickAmountButton extends StatelessWidget {
             ),
           ],
         ),
-        padding: const EdgeInsets.symmetric(vertical: 11),
+        // Le contenu reste compact pour ne jamais depasser la cellule de
+        // grille sur les petits ecrans.
+        padding: const EdgeInsets.symmetric(vertical: 4),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Text(
               amount == 0 ? 'Autre' : '$amount',
               style: GoogleFonts.nunito(
-                fontSize: amount == 0 ? 17 : 18,
+                fontSize: amount == 0 ? 16 : 17,
                 fontWeight: FontWeight.w900,
                 color: selected ? Colors.white : AppColors.textPrimary,
               ),
@@ -370,7 +483,7 @@ class QuickAmountButton extends StatelessWidget {
             Text(
               amount == 0 ? 'montant' : 'FCFA',
               style: GoogleFonts.nunito(
-                fontSize: amount == 0 ? 14 : 13,
+                fontSize: amount == 0 ? 13 : 12,
                 fontWeight: FontWeight.w600,
                 color: selected ? Colors.white : AppColors.textSecondary,
               ),

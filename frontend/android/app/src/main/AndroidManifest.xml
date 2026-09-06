@@ -9,10 +9,12 @@
         android:name="android.hardware.touchscreen"
         android:required="false" />
 
+    <!-- Le launcher utilise le logo officiel de Transfer On Line. -->
     <application
         android:label="Transfer On Line"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher"
+        android:icon="@drawable/tol_logo"
+        android:roundIcon="@drawable/tol_logo"
         android:requestLegacyExternalStorage="true"
         android:usesCleartextTraffic="true"
         android:allowBackup="true"

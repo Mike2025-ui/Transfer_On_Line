@@ -36,7 +36,8 @@ class Step3InfoScreen extends StatefulWidget {
 }
 
 class _Step3InfoScreenState extends State<Step3InfoScreen> {
-  late final BackendApiService _api = widget.backendApiService ?? BackendApiService();
+  late final BackendApiService _api =
+      widget.backendApiService ?? BackendApiService();
   final _phoneCtrl = TextEditingController();
   final _amountCtrl = TextEditingController(text: '1000');
   // Default, shown immediately - identical to the values this screen has
@@ -55,7 +56,8 @@ class _Step3InfoScreenState extends State<Step3InfoScreen> {
 
   Future<void> _loadAmounts() async {
     try {
-      final amounts = await _api.getAvailableAmounts(widget.operatorId, widget.serviceId);
+      final amounts =
+          await _api.getAvailableAmounts(widget.operatorId, widget.serviceId);
       if (!mounted || amounts.isEmpty) return;
       setState(() {
         _quickAmounts = [
@@ -181,9 +183,11 @@ class _Step3InfoScreenState extends State<Step3InfoScreen> {
                     crossAxisCount: 3,
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
-                    mainAxisSpacing: 12,
-                    crossAxisSpacing: 12,
-                    childAspectRatio: 2.05,
+                    mainAxisSpacing: 10,
+                    crossAxisSpacing: 10,
+                    // Une hauteur fixe evite que le contenu des boutons
+                    // depasse sur les petits ecrans comme le Samsung S8.
+                    mainAxisExtent: 62,
                     children: _quickAmounts.map((amount) {
                       final selected = amount == 0
                           ? !_quickAmounts.contains(_selectedAmount)

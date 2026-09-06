@@ -6,9 +6,7 @@ import '../services/backend_api_service.dart';
 import '../services/transaction_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/widgets.dart';
-import 'history_screen.dart';
 import 'notifications_screen.dart';
-import 'profile_screen.dart';
 import 'step2_service.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -22,7 +20,8 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  late final BackendApiService _api = widget.backendApiService ?? BackendApiService();
+  late final BackendApiService _api =
+      widget.backendApiService ?? BackendApiService();
   late final AuthService _auth = widget.authService ?? AuthService();
   // Identity architecture (Phase 8): starts empty, never sampleNotifications
   // - a brand-new identity genuinely has zero notifications until the
@@ -114,7 +113,8 @@ class _HomeScreenState extends State<HomeScreen> {
       // empty/fake list just because of a transient error.
     }
     try {
-      final count = await _api.fetchUnreadNotificationCount(accessToken: accessToken);
+      final count =
+          await _api.fetchUnreadNotificationCount(accessToken: accessToken);
       if (mounted) setState(() => _unreadCount = count);
     } catch (_) {
       // Keep the previous count rather than showing a misleading 0.
@@ -141,7 +141,9 @@ class _HomeScreenState extends State<HomeScreen> {
     final now = DateTime.now();
     final h = local.hour.toString().padLeft(2, '0');
     final m = local.minute.toString().padLeft(2, '0');
-    final isToday = local.year == now.year && local.month == now.month && local.day == now.day;
+    final isToday = local.year == now.year &&
+        local.month == now.month &&
+        local.day == now.day;
     final isYesterday = now.difference(local).inDays == 1 && !isToday;
     if (isToday) return "Aujourd'hui · $h:$m";
     if (isYesterday) return 'Hier · $h:$m';
@@ -165,7 +167,8 @@ class _HomeScreenState extends State<HomeScreen> {
     final accessToken = await _safeAccessToken();
     if (accessToken == null) return;
     try {
-      await _api.markNotificationRead(accessToken: accessToken, notificationId: id);
+      await _api.markNotificationRead(
+          accessToken: accessToken, notificationId: id);
     } catch (_) {
       // Best-effort: the local `read` flag (already applied by
       // NotificationsScreen) is enough for this session; a future load will
@@ -178,7 +181,8 @@ class _HomeScreenState extends State<HomeScreen> {
   /// transactions sont restées pending. Une erreur réseau/serveur sur l'une
   /// d'elles n'empêche jamais de vérifier les suivantes.
   Future<void> _reconcilePending(List<Transaction> loaded) async {
-    final pendingRefs = loaded.where((t) => t.status == 'pending').map((t) => t.id).toSet();
+    final pendingRefs =
+        loaded.where((t) => t.status == 'pending').map((t) => t.id).toSet();
     if (pendingRefs.isEmpty) return;
     String? accessToken;
     try {
@@ -192,12 +196,15 @@ class _HomeScreenState extends State<HomeScreen> {
     var changed = false;
     for (final reference in pendingRefs) {
       try {
-        final result = await _api.getTransactionStatus(reference, accessToken: accessToken);
+        final result = await _api.getTransactionStatus(reference,
+            accessToken: accessToken);
         if (result.isPending) continue; // toujours en cours - rien à changer
         final index = current.indexWhere((t) => t.id == reference);
         if (index == -1) continue;
         final t = current[index];
-        final newStatus = result.isSuccess ? 'ok' : (result.isCancelled ? 'cancelled' : 'fail');
+        final newStatus = result.isSuccess
+            ? 'ok'
+            : (result.isCancelled ? 'cancelled' : 'fail');
         current[index] = Transaction(
           id: t.id,
           operator: t.operator,
@@ -384,40 +391,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   children: [
                     Row(
                       children: [
-                        Text(
-                          '9:41',
-                          style: GoogleFonts.nunito(
-                            color: Colors.white,
-                            fontSize: 22,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
                         const Spacer(),
-                        _headerIconButton(
-                          icon: Icons.receipt_long_rounded,
-                          tooltip: 'Historique',
-                          onTap: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => HistoryScreen(transactions: _transactions),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        _headerIconButton(
-                          icon: Icons.person_outline_rounded,
-                          tooltip: 'Profil',
-                          onTap: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => ProfileScreen(
-                                authService: _auth,
-                                transactions: _transactions,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
                         _notificationButton(unread),
                       ],
                     ),
@@ -528,29 +502,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _headerIconButton({
-    required IconData icon,
-    required String tooltip,
-    required VoidCallback onTap,
-  }) {
-    return Tooltip(
-      message: tooltip,
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          width: 44,
-          height: 44,
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.08),
-            shape: BoxShape.circle,
-            border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
-          ),
-          child: Icon(icon, color: Colors.white, size: 22),
-        ),
-      ),
-    );
-  }
-
   Widget _notificationButton(int unread) {
     return GestureDetector(
       onTap: () => Navigator.push(
@@ -602,13 +553,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _logo() {
-    return Stack(
-      alignment: Alignment.center,
-      children: [
-        Icon(Icons.sync_rounded, color: Colors.orange.shade600, size: 104),
-        const Icon(Icons.sync_rounded, color: Color(0xFF0BA23E), size: 65),
-      ],
-    );
+    // Le logo officiel utilise des arcs en rotation, pas des icones generiques.
+    return const TolLogo(size: 108);
   }
 
   Widget _roundService(IconData icon) {
