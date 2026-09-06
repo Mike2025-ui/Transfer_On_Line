@@ -146,7 +146,7 @@ void main() {
     addTearDown(() => tester.binding.setSurfaceSize(null));
     var postCalls = 0;
     final client = MockClient((request) async {
-      postCalls++;
+      if (request.url.path.endsWith('/transactions/execute/')) postCalls++;
       // A slow-ish response widens the window during which a second tap
       // could slip through if the button were not actually disabled yet.
       await Future<void>.delayed(const Duration(milliseconds: 30));
@@ -208,7 +208,9 @@ void main() {
     var call = 0;
     final client = MockClient((request) async {
       call++;
-      seenKeys.add(request.headers['Idempotency-Key'] ?? '');
+      if (request.url.path.endsWith('/transactions/execute/')) {
+        seenKeys.add(request.headers['Idempotency-Key'] ?? '');
+      }
       if (call == 1) return http.Response('Internal Server Error', 500);
       return http.Response(
         jsonEncode({

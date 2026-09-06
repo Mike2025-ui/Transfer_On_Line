@@ -293,6 +293,23 @@ class BackendApiService {
     throw Exception(detail);
   }
 
+  /// Informe le backend qu'une session de paiement a échoué ou a été fermée.
+  /// L'appel reste best effort : le statut déjà décidé par le backend reste
+  /// la source de vérité si le réseau est indisponible.
+  Future<void> cancelTransaction(String reference,
+      {String? accessToken}) async {
+    final response = await _client.post(
+      Uri.parse('$baseUrl/transactions/$reference/cancel/'),
+      headers: {
+        'Accept': 'application/json',
+        if (accessToken != null) 'Authorization': 'Bearer $accessToken',
+      },
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception('Impossible d’annuler la session de paiement');
+    }
+  }
+
   /// Identity architecture (Phase 7): `GET /transactions/my/`, filtered
   /// server-side by the JWT alone - a real access token is required, there
   /// is no anonymous equivalent of "my history".

@@ -385,8 +385,8 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
             SafeArea(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(28, 10, 28, 18),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(18, 4, 18, 8),
                 child: Column(
                   children: [
                     Row(
@@ -395,13 +395,13 @@ class _HomeScreenState extends State<HomeScreen> {
                         _notificationButton(unread),
                       ],
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 4),
                     _logo(),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 4),
                     Text(
                       'TRANSFER',
                       style: GoogleFonts.nunito(
-                        fontSize: 44,
+                        fontSize: 34,
                         height: 0.98,
                         fontWeight: FontWeight.w900,
                         color: Colors.white,
@@ -410,44 +410,44 @@ class _HomeScreenState extends State<HomeScreen> {
                     Text(
                       'ON LINE',
                       style: GoogleFonts.nunito(
-                        fontSize: 44,
+                        fontSize: 34,
                         height: 1,
                         fontWeight: FontWeight.w900,
                         color: const Color(0xFF66D300),
                       ),
                     ),
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 8),
                     Text(
                       'Souscrivez ou transférez\nvos forfaits en toute simplicité',
                       textAlign: TextAlign.center,
                       style: GoogleFonts.nunito(
-                        fontSize: 21,
+                        fontSize: 16,
                         height: 1.25,
                         fontWeight: FontWeight.w800,
                         color: Colors.white,
                       ),
                     ),
-                    const SizedBox(height: 42),
+                    const SizedBox(height: 12),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         _roundService(Icons.phone_rounded),
-                        const SizedBox(width: 32),
+                        const SizedBox(width: 16),
                         _roundService(Icons.language_rounded),
-                        const SizedBox(width: 32),
+                        const SizedBox(width: 16),
                         _roundService(Icons.sms_rounded),
                       ],
                     ),
-                    const SizedBox(height: 34),
+                    const SizedBox(height: 10),
                     Text(
                       'Choisissez votre opérateur',
                       style: GoogleFonts.nunito(
-                        fontSize: 22,
+                        fontSize: 18,
                         fontWeight: FontWeight.w900,
                         color: Colors.white,
                       ),
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 8),
                     _operatorsSection(),
                   ],
                 ),
@@ -523,7 +523,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _roundService(IconData icon) {
     return Container(
       width: 74,
-      height: 74,
+      height: 58,
       decoration: BoxDecoration(
         color: const Color(0xFF06B43E),
         shape: BoxShape.circle,
@@ -535,7 +535,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      child: Icon(icon, color: Colors.white, size: 40),
+      child: Icon(icon, color: Colors.white, size: 32),
     );
   }
 
@@ -561,9 +561,9 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       child: Container(
         // Carte large, espacée et suffisamment haute comme dans la maquette.
-        height: 124,
+        height: 68,
         margin: const EdgeInsets.symmetric(horizontal: 2),
-        padding: const EdgeInsets.symmetric(horizontal: 20),
+        padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
           color: color,
           // Moov reçoit une légère variation de bleu pour mieux ressortir.

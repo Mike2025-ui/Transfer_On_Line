@@ -123,7 +123,7 @@ class StepProgressBar extends StatelessWidget {
     return LayoutBuilder(builder: (context, constraints) {
       final itemWidth = constraints.maxWidth / 4;
       return SizedBox(
-        height: 76,
+        height: 58,
         child: Stack(
           children: [
             Positioned(
@@ -142,8 +142,8 @@ class StepProgressBar extends StatelessWidget {
                   child: Column(
                     children: [
                       Container(
-                        width: 42,
-                        height: 42,
+                        width: 34,
+                        height: 34,
                         decoration: BoxDecoration(
                           color: Colors.white,
                           shape: BoxShape.circle,
@@ -163,11 +163,11 @@ class StepProgressBar extends StatelessWidget {
                         child: Center(
                           child: done
                               ? const Icon(Icons.check_rounded,
-                                  color: AppColors.success, size: 28)
+                                  color: AppColors.success, size: 22)
                               : Text(
                                   '$step',
                                   style: GoogleFonts.nunito(
-                                    fontSize: 18,
+                                    fontSize: 15,
                                     fontWeight: FontWeight.w900,
                                     color: active
                                         ? AppColors.success
@@ -176,15 +176,18 @@ class StepProgressBar extends StatelessWidget {
                                 ),
                         ),
                       ),
-                      const SizedBox(height: 10),
-                      Text(
-                        steps[index],
-                        maxLines: 1,
-                        style: GoogleFonts.nunito(
-                          fontSize: 13,
-                          fontWeight:
-                              active ? FontWeight.w900 : FontWeight.w700,
-                          color: Colors.white,
+                      const SizedBox(height: 4),
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          steps[index],
+                          maxLines: 1,
+                          style: GoogleFonts.nunito(
+                            fontSize: 11,
+                            fontWeight:
+                                active ? FontWeight.w900 : FontWeight.w700,
+                            color: Colors.white,
+                          ),
                         ),
                       ),
                     ],
@@ -232,10 +235,10 @@ class GreenHeader extends StatelessWidget {
         ),
       ),
       padding: EdgeInsets.only(
-        top: MediaQuery.of(context).padding.top + 16,
-        bottom: 16,
-        left: 18,
-        right: 18,
+        top: MediaQuery.of(context).padding.top + 2,
+        bottom: 4,
+        left: 14,
+        right: 14,
       ),
       child: Column(
         children: [
@@ -252,8 +255,8 @@ class GreenHeader extends StatelessWidget {
                   ),
                 ),
               Container(
-                width: 62,
-                height: 62,
+                width: 40,
+                height: 40,
                 decoration: const BoxDecoration(
                   color: Colors.white,
                   shape: BoxShape.circle,
@@ -262,35 +265,35 @@ class GreenHeader extends StatelessWidget {
                   child: Icon(
                     step == 4 ? Icons.fact_check_outlined : Icons.edit_document,
                     color: AppColors.success,
-                    size: 34,
+                    size: 23,
                   ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 3),
           Text(
             title,
             textAlign: TextAlign.center,
             style: GoogleFonts.nunito(
-              fontSize: 27,
+              fontSize: 20,
               fontWeight: FontWeight.w900,
               color: Colors.white,
               height: 1.05,
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 2),
           Text(
             subtitle,
             textAlign: TextAlign.center,
             style: GoogleFonts.nunito(
-              fontSize: 17,
-              height: 1.35,
+              fontSize: 12,
+              height: 1.15,
               fontWeight: FontWeight.w700,
               color: Colors.white.withValues(alpha: 0.92),
             ),
           ),
-          const SizedBox(height: 22),
+          const SizedBox(height: 4),
           StepProgressBar(currentStep: step),
         ],
       ),
@@ -316,7 +319,7 @@ class TolButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return SizedBox(
       width: double.infinity,
-      height: 60,
+      height: 52,
       child: ElevatedButton(
         onPressed: loading ? null : onTap,
         style: ElevatedButton.styleFrom(
@@ -334,23 +337,27 @@ class TolButton extends StatelessWidget {
                 child: CircularProgressIndicator(
                     color: Colors.white, strokeWidth: 2.4),
               )
-            : Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    label.replaceAll('›', '').trim(),
-                    style: GoogleFonts.nunito(
-                      fontSize: 19,
-                      fontWeight: FontWeight.w900,
-                      color: Colors.white,
+            : FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      label.replaceAll('›', '').trim(),
+                      style: GoogleFonts.nunito(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                        color: Colors.white,
+                      ),
                     ),
-                  ),
-                  if (label.contains('›')) ...[
-                    const SizedBox(width: 16),
-                    const Icon(Icons.chevron_right_rounded,
-                        color: Colors.white, size: 30),
+                    if (label.contains('›')) ...[
+                      const SizedBox(width: 16),
+                      const Icon(Icons.chevron_right_rounded,
+                          color: Colors.white, size: 24),
+                    ],
                   ],
-                ],
+                ),
               ),
       ),
     );
@@ -473,17 +480,17 @@ class QuickAmountButton extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Text(
-              amount == 0 ? 'Autre' : '$amount',
+              '${amount}f',
               style: GoogleFonts.nunito(
-                fontSize: amount == 0 ? 16 : 17,
+                fontSize: 16,
                 fontWeight: FontWeight.w900,
                 color: selected ? Colors.white : AppColors.textPrimary,
               ),
             ),
             Text(
-              amount == 0 ? 'montant' : 'FCFA',
+              'FCFA',
               style: GoogleFonts.nunito(
-                fontSize: amount == 0 ? 13 : 12,
+                fontSize: 11,
                 fontWeight: FontWeight.w600,
                 color: selected ? Colors.white : AppColors.textSecondary,
               ),

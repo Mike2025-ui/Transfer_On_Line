@@ -31,7 +31,8 @@ class Step2ServiceScreen extends StatefulWidget {
 class _Step2ServiceScreenState extends State<Step2ServiceScreen> {
   String? _service;
   int? _selectedServiceId;
-  String _operation = 'Souscription pour moi';
+  // Le backend reçoit cette opération interne, sans afficher un choix séparé.
+  final String _operation = 'Souscription pour moi';
 
   List<ServiceItem>? _services;
   bool _loadingServices = true;
@@ -47,9 +48,10 @@ class _Step2ServiceScreenState extends State<Step2ServiceScreen> {
     // Maquette hors ligne : ces services remplacent temporairement la
     // reponse du serveur pour eviter le blocage CORS pendant le travail UI.
     const mockedServices = [
-      ServiceItem(id: 1, name: 'Internet', code: 'internet'),
-      ServiceItem(id: 2, name: 'Appels', code: 'appels'),
-      ServiceItem(id: 3, name: 'SMS', code: 'sms'),
+      ServiceItem(id: 1, name: 'Internet (Pass data)', code: 'internet'),
+      ServiceItem(id: 2, name: 'Appels (Pass voix)', code: 'appels'),
+      ServiceItem(id: 3, name: 'Crédit (communication)', code: 'credit'),
+      ServiceItem(id: 4, name: 'SMS (Pass SMS)', code: 'sms'),
     ];
 
     // L'etat passe directement en succes : aucun spinner ni message reseau
@@ -65,27 +67,14 @@ class _Step2ServiceScreenState extends State<Step2ServiceScreen> {
 
   IconData _serviceIcon(String name) {
     switch (name) {
-      case 'Appels':
+      case 'Appels (Pass voix)':
         return Icons.phone_rounded;
-      case 'Internet':
+      case 'Internet (Pass data)':
         return Icons.language_rounded;
-      case 'SMS':
+      case 'SMS (Pass SMS)':
         return Icons.sms_rounded;
       default:
         return Icons.apps_rounded;
-    }
-  }
-
-  String _serviceSubtitle(String name) {
-    switch (name) {
-      case 'Appels':
-        return 'Forfaits voix';
-      case 'Internet':
-        return 'Forfaits data';
-      case 'SMS':
-        return 'Forfaits SMS';
-      default:
-        return '';
     }
   }
 
@@ -102,33 +91,6 @@ class _Step2ServiceScreenState extends State<Step2ServiceScreen> {
     }
   }
 
-  final operations = const [
-    {
-      'name': 'Souscription pour moi',
-      'sub': 'Acheter un forfait pour\nmon propre numéro',
-      'icon': Icons.post_add_rounded,
-      'color': 0xFF078C3A,
-    },
-    {
-      'name': 'Souscription pour un tiers',
-      'sub': 'Acheter un forfait pour\nun autre numéro',
-      'icon': Icons.group_rounded,
-      'color': 0xFF1687F7,
-    },
-    {
-      'name': 'Transfert pour moi',
-      'sub': 'Transférer un forfait de mon\nnuméro vers un autre',
-      'icon': Icons.swap_horiz_rounded,
-      'color': 0xFFFF7900,
-    },
-    {
-      'name': 'Transfert pour un tiers',
-      'sub': 'Transférer un forfait d\'un autre\nnuméro vers un autre',
-      'icon': Icons.compare_arrows_rounded,
-      'color': 0xFF842DE8,
-    },
-  ];
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -137,35 +99,20 @@ class _Step2ServiceScreenState extends State<Step2ServiceScreen> {
         children: [
           const GreenHeader(
             title: 'Choisir le service',
-            subtitle:
-                'Sélectionnez le type de service\net l’opération souhaitée',
+            subtitle: 'Sélectionnez votre service',
             icon: 'service',
             step: 2,
           ),
           Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(20, 24, 20, 22),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const SectionTitle('1. TYPE DE SERVICE'),
-                  const SizedBox(height: 8),
+                  const SectionTitle('SERVICES DISPONIBLES'),
+                  const SizedBox(height: 4),
                   _servicesSection(),
-                  const SizedBox(height: 26),
-                  const SectionTitle('2. TYPE D’OPÉRATION'),
-                  const SizedBox(height: 8),
-                  TolCard(
-                    padding: EdgeInsets.zero,
-                    child: Column(
-                      children: operations.asMap().entries.map((entry) {
-                        return _operationRow(
-                          entry.value,
-                          last: entry.key == operations.length - 1,
-                        );
-                      }).toList(),
-                    ),
-                  ),
-                  const SizedBox(height: 26),
+                  const Spacer(),
                   TolButton(label: 'CONTINUER ›', onTap: _next),
                 ],
               ),
@@ -213,16 +160,17 @@ class _Step2ServiceScreenState extends State<Step2ServiceScreen> {
         ),
       );
     }
-    return Row(
-      children: services.map((service) {
-        final isLast = service == services.last;
-        return Expanded(
-          child: Padding(
-            padding: EdgeInsets.only(right: isLast ? 0 : 14),
-            child: _serviceTile(service),
-          ),
-        );
-      }).toList(),
+    return LayoutBuilder(
+      builder: (context, constraints) => Wrap(
+        spacing: 10,
+        runSpacing: 10,
+        children: services
+            .map((service) => SizedBox(
+                  width: (constraints.maxWidth - 14) / 2,
+                  child: _serviceTile(service),
+                ))
+            .toList(),
+      ),
     );
   }
 
@@ -236,7 +184,7 @@ class _Step2ServiceScreenState extends State<Step2ServiceScreen> {
       }),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
-        height: 142,
+        height: 104,
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(12),
@@ -275,112 +223,29 @@ class _Step2ServiceScreenState extends State<Step2ServiceScreen> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Container(
-                    width: 50,
-                    height: 50,
+                    width: 42,
+                    height: 42,
                     decoration: BoxDecoration(
                       color: color,
                       shape: BoxShape.circle,
                     ),
                     child: Icon(_serviceIcon(service.name),
-                        color: Colors.white, size: 30),
+                        color: Colors.white, size: 24),
                   ),
-                  const SizedBox(height: 20),
-                  Text(
-                    service.name,
-                    style: GoogleFonts.nunito(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w900,
-                      color: AppColors.textPrimary,
-                    ),
-                  ),
-                  Text(
-                    _serviceSubtitle(service.name),
-                    style: GoogleFonts.nunito(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.textSecondary,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _operationRow(Map<String, dynamic> op, {required bool last}) {
-    final selected = _operation == op['name'];
-    final color = Color(op['color'] as int);
-    return InkWell(
-      onTap: () => setState(() => _operation = op['name'] as String),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        decoration: BoxDecoration(
-          border: last
-              ? null
-              : const Border(bottom: BorderSide(color: Color(0xFFECEEF5))),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 58,
-              height: 58,
-              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-              child:
-                  Icon(op['icon'] as IconData, color: Colors.white, size: 30),
-            ),
-            const SizedBox(width: 18),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    op['name'] as String,
-                    style: GoogleFonts.nunito(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w900,
-                      color: AppColors.textPrimary,
-                      height: 1.1,
-                    ),
-                  ),
-                  const SizedBox(height: 5),
-                  Text(
-                    op['sub'] as String,
-                    style: GoogleFonts.nunito(
-                      fontSize: 15,
-                      height: 1.25,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Container(
-              width: 26,
-              height: 26,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: selected ? AppColors.success : const Color(0xFFD8DCE8),
-                  width: 2,
-                ),
-              ),
-              child: selected
-                  ? Center(
-                      child: Container(
-                        width: 16,
-                        height: 16,
-                        decoration: const BoxDecoration(
-                          color: AppColors.success,
-                          shape: BoxShape.circle,
-                        ),
+                  const SizedBox(height: 6),
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      service.name,
+                      style: GoogleFonts.nunito(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w900,
+                        color: AppColors.textPrimary,
                       ),
-                    )
-                  : null,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ),

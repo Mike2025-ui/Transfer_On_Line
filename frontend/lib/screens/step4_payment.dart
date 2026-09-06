@@ -74,7 +74,6 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isTransfer = widget.operation.contains('Transfert');
     return PopScope(
       // §15 de l'audit : bloquer la fermeture accidentelle de l'écran
       // pendant la création de la transaction - une fois la requête HTTP en
@@ -93,8 +92,8 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
               step: 4,
             ),
             Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(18, 22, 18, 22),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -113,16 +112,8 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
                               const Icon(Icons.language_rounded,
                                   color: AppColors.blue, size: 34),
                               'Service',
-                              widget.service,
+                              _displayService,
                               AppColors.blue),
-                          _summaryRow(
-                              const Icon(Icons.sync_rounded,
-                                  color: AppColors.success, size: 34),
-                              'Opération',
-                              widget.operation
-                                  .replaceAll(' pour moi', '')
-                                  .replaceAll(' pour un tiers', ''),
-                              AppColors.success),
                           _summaryRow(
                               const Icon(Icons.phone_in_talk_outlined,
                                   color: AppColors.textPrimary, size: 34),
@@ -140,9 +131,7 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
                     ),
                     const SizedBox(height: 18),
                     TolButton(
-                      label: isTransfer
-                          ? 'PAYER ET TRANSFÉRER'
-                          : 'PAYER ET SOUSCRIRE',
+                      label: 'PAYER ET SOUSCRIRE',
                       loading: _loading,
                       onTap: _confirm,
                     ),
@@ -156,9 +145,26 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
     );
   }
 
+  String get _displayService {
+    if (widget.service.contains('Appels')) return 'Pass voix';
+    if (widget.service.contains('Internet')) return 'Pass data';
+    if (widget.service.contains('SMS')) return 'Pass SMS';
+    return 'Crédit de communication';
+  }
+
+  String get _backendService => switch (widget.service) {
+        'Appels (Pass voix)' => 'Appels',
+        'Appels' => 'Appels',
+        'Internet (Pass data)' => 'Internet',
+        'Internet' => 'Internet',
+        'SMS (Pass SMS)' => 'SMS',
+        'SMS' => 'SMS',
+        _ => 'Crédit',
+      };
+
   Widget _summaryRow(Widget leading, String label, String value, Color color) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
       decoration: const BoxDecoration(
         border: Border(bottom: BorderSide(color: Color(0xFFECEEF5))),
       ),
@@ -166,23 +172,34 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
         children: [
           SizedBox(width: 38, child: Center(child: leading)),
           const SizedBox(width: 16),
-          Expanded(
-            child: Text(
-              label,
-              style: GoogleFonts.nunito(
-                fontSize: 17,
-                fontWeight: FontWeight.w700,
-                color: AppColors.textPrimary,
+          Flexible(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                label,
+                style: GoogleFonts.nunito(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textPrimary,
+                ),
               ),
             ),
           ),
-          Text(
-            value,
-            textAlign: TextAlign.right,
-            style: GoogleFonts.nunito(
-              fontSize: 17,
-              fontWeight: FontWeight.w900,
-              color: color,
+          const SizedBox(width: 8),
+          Flexible(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerRight,
+              child: Text(
+                value,
+                textAlign: TextAlign.right,
+                style: GoogleFonts.nunito(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w900,
+                  color: color,
+                ),
+              ),
             ),
           ),
         ],
@@ -192,8 +209,10 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
 
   Future<void> _confirm() async {
     setState(() => _loading = true);
+    String? createdReference;
     try {
       final result = await _confirmServer();
+      createdReference = result.reference;
       if (result.checkoutUrl.isEmpty) {
         throw Exception('URL de paiement Djeko indisponible');
       }
@@ -208,7 +227,7 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
       final transaction = Transaction(
         id: result.reference,
         operator: widget.operator,
-        service: widget.service,
+        service: _backendService,
         operation: widget.operation,
         phone: widget.phone,
         amount: widget.amount,
@@ -234,6 +253,15 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
         ),
       );
     } catch (error) {
+      if (createdReference != null) {
+        try {
+          final accessToken = await _auth.currentAccessToken();
+          await _api.cancelTransaction(createdReference,
+              accessToken: accessToken);
+        } catch (_) {
+          // L'annulation sera réconciliée par le statut backend au prochain essai.
+        }
+      }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -251,7 +279,7 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
         operatorId: widget.operatorId,
         serviceId: widget.serviceId,
         operator: widget.operator,
-        service: widget.service,
+        service: _backendService,
         operation: widget.operation,
         phone: widget.phone,
         amount: widget.amount,
@@ -407,6 +435,15 @@ class _SuccessScreenState extends State<SuccessScreen>
       if (result.isPending) {
         stillPending = true;
       } else {
+        if (result.isFailed) {
+          try {
+            final accessToken = await _auth.currentAccessToken();
+            await _api.cancelTransaction(_transaction.id,
+                accessToken: accessToken);
+          } catch (_) {
+            // Le backend garde son statut d'échec si cette notification échoue.
+          }
+        }
         final newStatus = result.isSuccess
             ? 'ok'
             : (result.isCancelled ? 'cancelled' : 'fail');
@@ -615,12 +652,6 @@ class _SuccessScreenState extends State<SuccessScreen>
                       'Service',
                       t.service,
                       AppColors.blue),
-                  _detailRow(
-                      const Icon(Icons.sync_rounded,
-                          color: AppColors.success, size: 30),
-                      'Type d\'opération',
-                      t.operation,
-                      AppColors.success),
                   _detailRow(
                       const Icon(Icons.phone_in_talk_outlined,
                           color: AppColors.textPrimary, size: 30),

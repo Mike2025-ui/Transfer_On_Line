@@ -38,14 +38,10 @@ void main() {
     // tiles are already correct before the fetch has any chance to resolve.
     await pumpStep3(tester, client);
 
-    expect(find.text('500'), findsOneWidget);
-    // '1000' appears twice: the amount TextField's default text, and the
-    // quick-amount tile - both already existed before this change.
-    expect(find.text('1000'), findsNWidgets(2));
-    expect(find.text('2000'), findsOneWidget);
-    expect(find.text('5000'), findsOneWidget);
-    expect(find.text('10000'), findsOneWidget);
-    expect(find.text('Autre'), findsOneWidget);
+    expect(find.text('200f'), findsOneWidget);
+    expect(find.text('500f'), findsOneWidget);
+    expect(find.text('1000f'), findsOneWidget);
+    expect(find.text('Autre'), findsNothing);
     expect(find.byType(CircularProgressIndicator), findsNothing);
   });
 
@@ -67,16 +63,10 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    expect(find.text('300'), findsOneWidget);
-    expect(find.text('700'), findsOneWidget);
-    expect(find.text('Autre'), findsOneWidget,
-        reason:
-            'custom amount entry stays available even with a fixed catalog');
-    // The old default tiles are gone - replaced, not merged. (Not checking
-    // '1000' here: the amount TextField's default text is always '1000'
-    // regardless of which tiles are shown, so it is not a useful signal.)
-    expect(find.text('500'), findsNothing);
-    expect(find.text('2000'), findsNothing);
+    expect(find.text('200f'), findsOneWidget);
+    expect(find.text('500f'), findsOneWidget);
+    expect(find.text('1000f'), findsOneWidget);
+    expect(find.text('300f'), findsNothing);
   });
 
   testWidgets('an empty amounts list leaves the default tiles untouched',
@@ -88,11 +78,9 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    expect(find.text('500'), findsOneWidget);
-    expect(find.text('1000'), findsNWidgets(2));
-    expect(find.text('2000'), findsOneWidget);
-    expect(find.text('5000'), findsOneWidget);
-    expect(find.text('10000'), findsOneWidget);
+    expect(find.text('200f'), findsOneWidget);
+    expect(find.text('500f'), findsOneWidget);
+    expect(find.text('1000f'), findsOneWidget);
   });
 
   testWidgets(
@@ -105,15 +93,13 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    expect(find.text('500'), findsOneWidget);
-    expect(find.text('1000'), findsNWidgets(2));
-    expect(find.text('2000'), findsOneWidget);
-    expect(find.text('5000'), findsOneWidget);
-    expect(find.text('10000'), findsOneWidget);
+    expect(find.text('200f'), findsOneWidget);
+    expect(find.text('500f'), findsOneWidget);
+    expect(find.text('1000f'), findsOneWidget);
     expect(find.textContaining('Impossible'), findsNothing);
   });
 
-  testWidgets('tapping "Autre" still opens the custom amount dialog',
+  testWidgets('aucun bouton de montant personnalisé n’est affiché',
       (tester) async {
     final client =
         MockClient((request) async => http.Response(jsonEncode([]), 200));
@@ -122,10 +108,7 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    await tester.tap(find.text('Autre'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Montant personnalisé'), findsOneWidget);
+    expect(find.text('Autre'), findsNothing);
   });
 
   testWidgets(
@@ -190,6 +173,22 @@ void main() {
     await tester.tap(find.text('CONTINUER'));
     await tester.pumpAndSettle();
 
+    expect(find.byType(Step4PaymentScreen), findsNothing);
+  });
+
+  testWidgets('refuses a non catalog amount such as 123', (tester) async {
+    final client =
+        MockClient((request) async => http.Response(jsonEncode([]), 200));
+
+    await pumpStep3(tester, client);
+    await tester.enterText(find.byType(TextField).first, '0700000001');
+    await tester.enterText(find.byType(TextField).at(1), '123');
+    await tester.pump();
+
+    expect(find.text('Montant non disponible. Choisissez un montant valide.'),
+        findsOneWidget);
+    await tester.tap(find.text('CONTINUER'));
+    await tester.pumpAndSettle();
     expect(find.byType(Step4PaymentScreen), findsNothing);
   });
 }
