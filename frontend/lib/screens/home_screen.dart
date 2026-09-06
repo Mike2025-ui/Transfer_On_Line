@@ -449,49 +449,6 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     const SizedBox(height: 16),
                     _operatorsSection(),
-                    const SizedBox(height: 34),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(Icons.verified_user_outlined,
-                            color: Color(0xFF66D300), size: 28),
-                        const SizedBox(width: 10),
-                        Text(
-                          'Sécurisé à 100%',
-                          style: GoogleFonts.nunito(
-                            fontSize: 20,
-                            fontWeight: FontWeight.w900,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Vos transactions sont protégées',
-                      style: GoogleFonts.nunito(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.white70,
-                      ),
-                    ),
-                    const SizedBox(height: 30),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(Icons.shield_outlined,
-                            color: Color(0xFF66D300), size: 24),
-                        const SizedBox(width: 9),
-                        Text(
-                          'AFRITECH-CI',
-                          style: GoogleFonts.nunito(
-                            fontSize: 20,
-                            fontWeight: FontWeight.w900,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ],
-                    ),
                   ],
                 ),
               ),
@@ -553,8 +510,14 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _logo() {
-    // Le logo officiel utilise des arcs en rotation, pas des icones generiques.
-    return const TolLogo(size: 108);
+    // Le logo interne historique reste sans fond blanc, comme dans la maquette.
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        Icon(Icons.sync_rounded, color: Colors.orange.shade600, size: 104),
+        const Icon(Icons.sync_rounded, color: Color(0xFF0BA23E), size: 65),
+      ],
+    );
   }
 
   Widget _roundService(IconData icon) {

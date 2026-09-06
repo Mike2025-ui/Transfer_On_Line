@@ -160,6 +160,20 @@ void main() {
     expect(find.byIcon(Icons.notifications_none_rounded), findsOneWidget);
   });
 
+  testWidgets('l accueil ne montre plus les mentions de securite et de marque',
+      (tester) async {
+    final client =
+        MockClient((request) async => http.Response(jsonEncode([]), 200));
+
+    await pumpHome(tester, client);
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('Sécurisé à 100%'), findsNothing);
+    expect(find.text('Vos transactions sont protégées'), findsNothing);
+    expect(find.text('AFRITECH-CI'), findsNothing);
+  });
+
   // Audit frontend D4, §10 : une transaction locale restée "pending" (app
   // fermée avant résolution) doit être revérifiée auprès du Backend au
   // démarrage suivant, jamais supposée toujours active sans vérifier.
