@@ -33,6 +33,8 @@ from apps.devices.services.transaction_dispatcher import (
 )
 from apps.payments.providers.base import PaymentProviderError
 from apps.payments.providers.registry import SUPPORTED_METHODS
+
+SUPPORTED_JEKO_PAYMENT_METHODS = {'wave', 'orange', 'mtn', 'moov', 'djamo'}
 from apps.payments.services.payment_service import PaymentService
 
 
@@ -277,9 +279,12 @@ class ExecuteTransactionView(APIView):
         amount = _money(request.data.get('amount'))
         customer = request.data.get('customer') or {}
         payment_method = str(request.data.get('payment_method') or 'auto').lower()
+        jeko_payment_method = str(request.data.get('jeko_payment_method') or '').lower()
 
         if payment_method not in SUPPORTED_METHODS:
             return Response({'error': f'Unsupported payment_method: {payment_method}'}, status=400)
+        if jeko_payment_method and jeko_payment_method not in SUPPORTED_JEKO_PAYMENT_METHODS:
+            return Response({'error': f'Unsupported jeko_payment_method: {jeko_payment_method}'}, status=400)
 
         if not phone or amount <= 0:
             return Response({'error': 'phone/recipient_phone and amount are required'}, status=400)
@@ -380,6 +385,7 @@ class ExecuteTransactionView(APIView):
             'email': customer.get('email') or request.data.get('customer_email') or 'client@example.com',
             'operator': operator.name,
             'operator_code': operator.code,
+            'payment_method': jeko_payment_method,
         }
 
         try:

@@ -297,7 +297,7 @@ class JekoProviderTests(TestCase):
         with patch('apps.payments.providers.jeko.requests.post', return_value=response) as fake_post:
             result = JekoProvider().create_payment(
                 transaction_id='TOL-1', amount='1000', description='Internet - achat',
-                customer={'operator_code': 'orange', 'phone': '+2250700000001'},
+                customer={'payment_method': 'wave', 'operator_code': 'orange', 'phone': '+2250700000001'},
             )
 
         args, kwargs = fake_post.call_args
@@ -306,33 +306,31 @@ class JekoProviderTests(TestCase):
         self.assertEqual(kwargs['headers']['X-API-KEY-ID'], 'test-key-id')
         body = kwargs['json']
         self.assertEqual(body['storeId'], 'store-1')
-        self.assertEqual(body['amountCents'], 1000)
+        self.assertEqual(body['amountCents'], 100000)
         self.assertEqual(body['currency'], 'XOF')
         self.assertEqual(body['reference'], 'TOL-1')
         self.assertEqual(body['paymentDetails']['type'], 'redirect')
-        self.assertEqual(body['paymentDetails']['data']['paymentMethod'], 'orange')
+        self.assertEqual(body['paymentDetails']['data']['paymentMethod'], 'wave')
         self.assertEqual(body['paymentDetails']['data']['successUrl'], 'https://app.example.com/payment/success')
         self.assertEqual(body['paymentDetails']['data']['errorUrl'], 'https://app.example.com/payment/cancel')
 
         self.assertEqual(result.provider_transaction_id, 'pr-1')
         self.assertEqual(result.checkout_url, 'https://pay.jeko.africa/pay_request/pr/pr-1')
 
-    def test_amount_is_not_multiplied_by_100(self):
-        """Despite the "Cents" name, Jèko's own example shows amountCents
-        passed straight through unchanged for XOF (no subunit) - 1000 XOF
-        must become amountCents=1000, never 100000."""
+    def test_amount_xof_is_converted_to_cents(self):
+        """Jèko interprets amountCents literally: 1000 XOF is 100000 cents."""
         response = _FakeJekoResponse(200, {'id': 'pr-2', 'status': 'pending', 'redirectUrl': 'https://x'})
         with patch('apps.payments.providers.jeko.requests.post', return_value=response) as fake_post:
             JekoProvider().create_payment(
-                transaction_id='TOL-2', amount='1000', description='x', customer={'operator_code': 'mtn'},
+                transaction_id='TOL-2', amount='1000', description='x', customer={'payment_method': 'mtn'},
             )
-        self.assertEqual(fake_post.call_args.kwargs['json']['amountCents'], 1000)
+        self.assertEqual(fake_post.call_args.kwargs['json']['amountCents'], 100000)
 
     def test_unsupported_operator_is_rejected_without_calling_jeko(self):
         with patch('apps.payments.providers.jeko.requests.post') as fake_post:
             with self.assertRaises(JekoError):
                 JekoProvider().create_payment(
-                    transaction_id='TOL-3', amount='1000', description='x', customer={'operator_code': 'unknown'},
+                    transaction_id='TOL-3', amount='1000', description='x', customer={'payment_method': 'unknown'},
                 )
         fake_post.assert_not_called()
 
@@ -341,7 +339,7 @@ class JekoProviderTests(TestCase):
         with patch('apps.payments.providers.jeko.requests.post') as fake_post:
             with self.assertRaises(JekoError):
                 JekoProvider().create_payment(
-                    transaction_id='TOL-4', amount='1000', description='x', customer={'operator_code': 'mtn'},
+                    transaction_id='TOL-4', amount='1000', description='x', customer={'payment_method': 'mtn'},
                 )
         fake_post.assert_not_called()
 
@@ -350,7 +348,7 @@ class JekoProviderTests(TestCase):
         with patch('apps.payments.providers.jeko.requests.post', return_value=response):
             with self.assertRaises(JekoError) as ctx:
                 JekoProvider().create_payment(
-                    transaction_id='TOL-5', amount='1000', description='x', customer={'operator_code': 'wave'},
+                    transaction_id='TOL-5', amount='1000', description='x', customer={'payment_method': 'wave'},
                 )
         self.assertNotIn('test-key', str(ctx.exception))
 

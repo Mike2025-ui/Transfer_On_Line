@@ -67,20 +67,20 @@ class JekoProvider(PaymentProvider):
 
     def create_payment(self, *, transaction_id, amount, description, customer, metadata=None):
         self._ensure_configured()
-        amount_value = int(Decimal(amount))
-        if amount_value < 100 or amount_value % 100 != 0:
+        amount_xof = Decimal(amount)
+        if amount_xof != amount_xof.to_integral_value() or amount_xof <= 0:
+            raise JekoError('Jèko amount must be a positive whole number of XOF')
+        amount_cents = int(amount_xof) * 100
+        if amount_cents < 100 or amount_cents % 100 != 0:
             raise JekoError('Jèko amountCents must be at least 100 and a multiple of 100')
 
-        payment_method = str(customer.get('operator_code') or customer.get('operator') or '').lower()
+        payment_method = str(customer.get('payment_method') or '').lower()
         if payment_method not in SUPPORTED_PAYMENT_METHODS:
-            raise JekoError(f'No Jèko payment method for operator: {payment_method or "unknown"}')
+            raise JekoError(f'Unsupported or missing Jèko payment method: {payment_method or "unknown"}')
 
         payload = {
             'storeId': self.store_id,
-            # Despite the "Cents" name, Jèko's own example shows amountCents
-            # passed straight through unchanged into transaction.amount.amount
-            # for XOF (which has no subunit) - not amount * 100.
-            'amountCents': amount_value,
+            'amountCents': amount_cents,
             'currency': 'XOF',
             'reference': str(transaction_id),
             'paymentDetails': {

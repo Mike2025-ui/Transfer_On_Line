@@ -338,6 +338,7 @@ class JekoFlowTests(TestCase):
                 'operation': 'subscription',
                 'phone': '0700000001',
                 'amount': 1000,
+                'jeko_payment_method': 'wave',
             },
             format='json',
         )
@@ -347,6 +348,7 @@ class JekoFlowTests(TestCase):
         self.assertEqual(response.data['payment_status'], 'pending')
         self.assertEqual(response.data['checkout_url'], 'https://pay.jeko.africa/pay_request/pr/token-123')
         self.assertTrue(Payment.objects.filter(method='jeko', amount=Decimal('1000')).exists())
+        self.assertEqual(create_payment.call_args.kwargs['customer']['payment_method'], 'wave')
 
 
 @override_settings(

@@ -11,6 +11,15 @@ import '../services/transaction_service.dart';
 import '../screens/notifications_screen.dart';
 import '../widgets/widgets.dart';
 
+class _PaymentOption {
+  final String value;
+  final String label;
+  final String? assetPath;
+  final String? networkUrl;
+
+  const _PaymentOption(this.value, this.label, this.assetPath, this.networkUrl);
+}
+
 class Step4PaymentScreen extends StatefulWidget {
   final int operatorId;
   final int serviceId;
@@ -59,8 +68,7 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
   // and re-enters this screen, which creates a new instance/key.
   late final String _idempotencyKey = _generateIdempotencyKey();
   bool _loading = false;
-  // Jeko est la passerelle unique : son choix d'opérateur reste dans sa
-  // page web sécurisée et n'est jamais exposé dans l'application.
+  String _jekoPaymentMethod = 'wave';
   static const _paymentMethod = 'jeko';
   static const _paymentLabel = 'Jeko';
 
@@ -69,6 +77,16 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
     if (operator == 'Moov') return 'assets/images/moov.jpeg';
     return 'assets/images/Orange_logo.png';
   }
+
+  static const _paymentOptions = [
+    _PaymentOption('wave', 'Wave', null, 'https://www.wave.com/favicon.ico'),
+    _PaymentOption(
+        'orange', 'Orange Money', 'assets/images/Orange-Money-logo.png', null),
+    _PaymentOption('mtn', 'MTN Money', 'assets/images/mtn_money.jpg', null),
+    _PaymentOption(
+        'moov', 'Moov Money', 'assets/images/Moov money CI.png', null),
+    _PaymentOption('djamo', 'Djamo', null, 'https://www.djamo.com/favicon.ico'),
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -90,8 +108,8 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
               step: 4,
             ),
             Expanded(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(14, 4, 14, 4),
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(14, 4, 14, 12),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
@@ -128,6 +146,34 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
                       ),
                     ),
                     const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'Choisissez votre moyen de paiement',
+                        style: GoogleFonts.nunito(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final cardWidth = (constraints.maxWidth - 10) / 2;
+                        return Wrap(
+                          spacing: 10,
+                          runSpacing: 10,
+                          children: _paymentOptions
+                              .map((option) => SizedBox(
+                                    width: cardWidth,
+                                    child: _paymentOptionCard(option),
+                                  ))
+                              .toList(),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 8),
                     TolButton(
                       label: 'PAYER ET SOUSCRIRE',
                       loading: _loading,
@@ -141,6 +187,65 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
         ),
       ),
     );
+  }
+
+  Widget _paymentOptionCard(_PaymentOption option) {
+    final selected = _jekoPaymentMethod == option.value;
+    return InkWell(
+      onTap: _loading
+          ? null
+          : () => setState(() => _jekoPaymentMethod = option.value),
+      borderRadius: BorderRadius.circular(8),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        height: 86,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: selected ? const Color(0xFFF1FAF5) : Colors.white,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: selected ? AppColors.success : const Color(0xFFE2E6EA),
+            width: selected ? 2 : 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            _paymentLogo(option),
+            const SizedBox(width: 9),
+            Expanded(
+              child: Text(
+                option.label,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.nunito(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+            ),
+            if (selected)
+              const Icon(Icons.check_circle,
+                  color: AppColors.success, size: 20),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _paymentLogo(_PaymentOption option) {
+    final image = option.assetPath != null
+        ? Image.asset(option.assetPath!, fit: BoxFit.contain)
+        : Image.network(
+            option.networkUrl!,
+            fit: BoxFit.contain,
+            errorBuilder: (_, __, ___) => const Tooltip(
+              message: 'Logo indisponible',
+              child: Icon(Icons.account_balance_wallet_outlined,
+                  color: AppColors.textSecondary, size: 30),
+            ),
+          );
+    return SizedBox(width: 44, height: 44, child: image);
   }
 
   String get _displayService {
@@ -277,6 +382,7 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
         phone: widget.phone,
         amount: widget.amount,
         paymentMethod: _paymentMethod,
+        jekoPaymentMethod: _jekoPaymentMethod,
         idempotencyKey: _idempotencyKey,
       );
     } catch (_) {

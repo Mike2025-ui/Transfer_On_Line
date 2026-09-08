@@ -248,6 +248,7 @@ class BackendApiService {
     int? operatorId,
     int? serviceId,
     String paymentMethod = 'jeko',
+    String jekoPaymentMethod = 'wave',
     String? accessToken,
     String? idempotencyKey,
   }) async {
@@ -267,6 +268,7 @@ class BackendApiService {
         'recipient_phone': phone,
         'amount': amount,
         'payment_method': paymentMethod,
+        'jeko_payment_method': jekoPaymentMethod,
       }),
     );
 
