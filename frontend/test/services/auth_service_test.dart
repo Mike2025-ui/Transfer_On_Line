@@ -201,32 +201,19 @@ void main() {
   });
 
   group('AuthService.requestOtp', () {
-    test('sends the phone number and defaults channel to sms - IKODDI/Django own the code, nothing to return here', () async {
+    test('sends only the phone number - IKODDI/Django own the code, nothing to return here', () async {
       final auth = AuthService(
         store: _InMemoryStore(),
         client: MockClient((request) async {
           expect(request.url.path, contains('/auth/otp/request/'));
           final body = jsonDecode(request.body) as Map<String, dynamic>;
           expect(body['phone_number'], '+2250700000040');
-          expect(body['channel'], 'sms');
-          return http.Response(jsonEncode({'status': 'sent', 'channel': 'sms'}), 200);
+          expect(body.containsKey('channel'), isFalse, reason: 'the email channel was removed - phone is the only path');
+          return http.Response(jsonEncode({'status': 'sent'}), 200);
         }),
       );
 
       await auth.requestOtp('+2250700000040');
-    });
-
-    test('an explicit whatsapp channel is sent as-is', () async {
-      final auth = AuthService(
-        store: _InMemoryStore(),
-        client: MockClient((request) async {
-          final body = jsonDecode(request.body) as Map<String, dynamic>;
-          expect(body['channel'], 'whatsapp');
-          return http.Response(jsonEncode({'status': 'sent', 'channel': 'whatsapp'}), 200);
-        }),
-      );
-
-      await auth.requestOtp('+2250700000042', channel: 'whatsapp');
     });
 
     test('a backend error raises with its message', () async {

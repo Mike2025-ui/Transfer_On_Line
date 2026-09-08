@@ -64,15 +64,11 @@ class AuthService {
   /// the response never contains the code, in any build, and there is no
   /// separate identifier to carry between request and verify: the pending
   /// code is looked up server-side by phone_number alone.
-  ///
-  /// [channel] picks which IKODDI delivery method to use - `'sms'` (the
-  /// default) or `'whatsapp'`. Both stay on IKODDI end-to-end; this only
-  /// selects the endpoint IKODDI itself sends through.
-  Future<void> requestOtp(String phoneNumber, {String channel = 'sms'}) async {
+  Future<void> requestOtp(String phoneNumber) async {
     final response = await _client.post(
       Uri.parse('${BackendApiService.baseUrl}/auth/otp/request/'),
       headers: const {'Content-Type': 'application/json'},
-      body: jsonEncode({'phone_number': phoneNumber, 'channel': channel}),
+      body: jsonEncode({'phone_number': phoneNumber}),
     );
     if (response.statusCode != 200) {
       throw Exception(_extractError(response, 'Envoi du code impossible'));

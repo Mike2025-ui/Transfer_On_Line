@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/models.dart';
 import '../theme/app_theme.dart';
 import '../widgets/widgets.dart';
@@ -12,30 +13,57 @@ class NotificationsScreen extends StatefulWidget {
   // so this screen still works standalone (e.g. tests, sampleNotifications
   // with no backend id).
   final void Function(AppNotification)? onMarkRead;
-  const NotificationsScreen({super.key, required this.notifications, this.onMarkRead});
+  const NotificationsScreen(
+      {super.key, required this.notifications, this.onMarkRead});
 
   @override
   State<NotificationsScreen> createState() => _NotificationsScreenState();
 }
 
 class _NotificationsScreenState extends State<NotificationsScreen> {
+  static const _hiddenNotificationsKey = 'locally_hidden_notification_keys';
   String _query = '';
   String _filter = 'Tout';
+  final Set<String> _hiddenNotificationKeys = {};
   final filters = const ['Tout', 'Réussies', 'Échecs', 'Informations'];
 
+  @override
+  void initState() {
+    super.initState();
+    _loadHiddenNotifications();
+  }
+
+  Future<void> _loadHiddenNotifications() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getStringList(_hiddenNotificationsKey) ?? const [];
+    if (!mounted) return;
+    setState(() => _hiddenNotificationKeys.addAll(saved));
+  }
+
+  String _notificationKey(AppNotification notification) {
+    if (notification.id != null) return 'id:${notification.id}';
+    return 'local:${notification.title}|${notification.time}|${notification.message}';
+  }
+
+  List<AppNotification> get _visibleNotifications => widget.notifications
+      .where((notification) =>
+          !_hiddenNotificationKeys.contains(_notificationKey(notification)))
+      .toList();
+
   int _count(String filter) {
-    if (filter == 'Tout') return widget.notifications.length;
+    final notifications = _visibleNotifications;
+    if (filter == 'Tout') return notifications.length;
     if (filter == 'Réussies') {
-      return widget.notifications.where((n) => n.type == 'success').length;
+      return notifications.where((n) => n.type == 'success').length;
     }
     if (filter == 'Échecs') {
-      return widget.notifications.where((n) => n.type == 'error').length;
+      return notifications.where((n) => n.type == 'error').length;
     }
-    return widget.notifications.where((n) => n.type == 'info').length;
+    return notifications.where((n) => n.type == 'info').length;
   }
 
   List<AppNotification> get _items {
-    return widget.notifications.where((n) {
+    return _visibleNotifications.where((n) {
       final text = '${n.title} ${n.message}'.toLowerCase();
       final matchesQuery =
           _query.isEmpty || text.contains(_query.toLowerCase());
@@ -62,7 +90,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final unread = widget.notifications.where((n) => !n.read).length;
+    final unread = _visibleNotifications.where((n) => !n.read).length;
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
@@ -198,7 +226,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           ],
           SliverToBoxAdapter(
             child: TextButton.icon(
-              onPressed: () => setState(() => widget.notifications.clear()),
+              onPressed: _hideNotificationsLocally,
               icon: const Icon(Icons.delete_outline_rounded,
                   color: Colors.red, size: 22),
               label: Text(
@@ -215,6 +243,15 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         ],
       ),
     );
+  }
+
+  Future<void> _hideNotificationsLocally() async {
+    final keys = widget.notifications.map(_notificationKey).toSet();
+    final prefs = await SharedPreferences.getInstance();
+    final allKeys = {..._hiddenNotificationKeys, ...keys};
+    await prefs.setStringList(_hiddenNotificationsKey, allKeys.toList());
+    if (!mounted) return;
+    setState(() => _hiddenNotificationKeys.addAll(keys));
   }
 
   Widget _filterChip(String label) {

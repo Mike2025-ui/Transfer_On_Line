@@ -37,6 +37,7 @@ analyzer:
     - ios/**
     - android/**
     - test/**
+    - web/**
 
 # Additional information about this file can be found at
 # https://dart.dev/guides/language/analysis-options

@@ -94,7 +94,8 @@ class TransactionSummary {
   final DateTime? updatedAt;
 
   factory TransactionSummary.fromJson(Map<String, dynamic> json) {
-    DateTime? parseDate(String? value) => value == null ? null : DateTime.tryParse(value);
+    DateTime? parseDate(String? value) =>
+        value == null ? null : DateTime.tryParse(value);
     return TransactionSummary(
       reference: json['reference'] as String? ?? '',
       transactionType: json['transaction_type'] as String? ?? '',
@@ -138,7 +139,9 @@ class NotificationItem {
       message: json['message'] as String? ?? '',
       type: json['type'] as String? ?? '',
       isRead: json['is_read'] as bool? ?? false,
-      createdAt: json['created_at'] == null ? null : DateTime.tryParse(json['created_at'] as String),
+      createdAt: json['created_at'] == null
+          ? null
+          : DateTime.tryParse(json['created_at'] as String),
       transactionReference: json['transaction_reference'] as String?,
     );
   }
@@ -246,7 +249,7 @@ class BackendApiService {
     required int amount,
     int? operatorId,
     int? serviceId,
-    String paymentMethod = 'cinetpay',
+    String paymentMethod = 'djeko',
     String? accessToken,
     String? idempotencyKey,
   }) async {
@@ -290,6 +293,23 @@ class BackendApiService {
     throw Exception(detail);
   }
 
+  /// Informe le backend qu'une session de paiement a échoué ou a été fermée.
+  /// L'appel reste best effort : le statut déjà décidé par le backend reste
+  /// la source de vérité si le réseau est indisponible.
+  Future<void> cancelTransaction(String reference,
+      {String? accessToken}) async {
+    final response = await _client.post(
+      Uri.parse('$baseUrl/transactions/$reference/cancel/'),
+      headers: {
+        'Accept': 'application/json',
+        if (accessToken != null) 'Authorization': 'Bearer $accessToken',
+      },
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception('Impossible d’annuler la session de paiement');
+    }
+  }
+
   /// Identity architecture (Phase 7): `GET /transactions/my/`, filtered
   /// server-side by the JWT alone - a real access token is required, there
   /// is no anonymous equivalent of "my history".
@@ -299,17 +319,23 @@ class BackendApiService {
   }) async {
     final response = await _client.get(
       Uri.parse('$baseUrl/transactions/my/?page=$page'),
-      headers: {'Accept': 'application/json', 'Authorization': 'Bearer $accessToken'},
+      headers: {
+        'Accept': 'application/json',
+        'Authorization': 'Bearer $accessToken'
+      },
     );
     if (response.statusCode == 401) {
       throw Exception('Session expirée');
     }
     if (response.statusCode != 200) {
-      throw Exception('Impossible de charger l\'historique (${response.statusCode})');
+      throw Exception(
+          'Impossible de charger l\'historique (${response.statusCode})');
     }
     final decoded = jsonDecode(response.body) as Map<String, dynamic>;
     final results = decoded['results'] as List? ?? const [];
-    return results.map((e) => TransactionSummary.fromJson(e as Map<String, dynamic>)).toList();
+    return results
+        .map((e) => TransactionSummary.fromJson(e as Map<String, dynamic>))
+        .toList();
   }
 
   /// Identity architecture (Phase 8): `GET /notifications/`, filtered
@@ -320,26 +346,37 @@ class BackendApiService {
   }) async {
     final response = await _client.get(
       Uri.parse('$baseUrl/notifications/?page=$page'),
-      headers: {'Accept': 'application/json', 'Authorization': 'Bearer $accessToken'},
+      headers: {
+        'Accept': 'application/json',
+        'Authorization': 'Bearer $accessToken'
+      },
     );
     if (response.statusCode == 401) {
       throw Exception('Session expirée');
     }
     if (response.statusCode != 200) {
-      throw Exception('Impossible de charger les notifications (${response.statusCode})');
+      throw Exception(
+          'Impossible de charger les notifications (${response.statusCode})');
     }
     final decoded = jsonDecode(response.body) as Map<String, dynamic>;
     final results = decoded['results'] as List? ?? const [];
-    return results.map((e) => NotificationItem.fromJson(e as Map<String, dynamic>)).toList();
+    return results
+        .map((e) => NotificationItem.fromJson(e as Map<String, dynamic>))
+        .toList();
   }
 
-  Future<int> fetchUnreadNotificationCount({required String accessToken}) async {
+  Future<int> fetchUnreadNotificationCount(
+      {required String accessToken}) async {
     final response = await _client.get(
       Uri.parse('$baseUrl/notifications/unread-count/'),
-      headers: {'Accept': 'application/json', 'Authorization': 'Bearer $accessToken'},
+      headers: {
+        'Accept': 'application/json',
+        'Authorization': 'Bearer $accessToken'
+      },
     );
     if (response.statusCode != 200) {
-      throw Exception('Impossible de charger le compteur (${response.statusCode})');
+      throw Exception(
+          'Impossible de charger le compteur (${response.statusCode})');
     }
     final decoded = jsonDecode(response.body) as Map<String, dynamic>;
     return (decoded['unread_count'] as num?)?.toInt() ?? 0;
@@ -351,11 +388,16 @@ class BackendApiService {
   }) async {
     final response = await _client.post(
       Uri.parse('$baseUrl/notifications/$notificationId/read/'),
-      headers: {'Accept': 'application/json', 'Authorization': 'Bearer $accessToken'},
+      headers: {
+        'Accept': 'application/json',
+        'Authorization': 'Bearer $accessToken'
+      },
     );
     if (response.statusCode != 200) {
-      throw Exception('Impossible de marquer la notification comme lue (${response.statusCode})');
+      throw Exception(
+          'Impossible de marquer la notification comme lue (${response.statusCode})');
     }
-    return NotificationItem.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+    return NotificationItem.fromJson(
+        jsonDecode(response.body) as Map<String, dynamic>);
   }
 }

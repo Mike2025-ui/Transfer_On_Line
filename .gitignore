@@ -40,3 +40,6 @@ generated_plugin_registrant.dart
 .idea/
 .DS_Store
 Thumbs.db
+backend/.env.local 
+backend/.env.production 
+*.env 

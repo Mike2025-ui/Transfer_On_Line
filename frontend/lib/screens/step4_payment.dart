@@ -52,7 +52,8 @@ class Step4PaymentScreen extends StatefulWidget {
 }
 
 class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
-  late final BackendApiService _api = widget.backendApiService ?? BackendApiService();
+  late final BackendApiService _api =
+      widget.backendApiService ?? BackendApiService();
   late final AuthService _auth = widget.authService ?? AuthService();
   // Business-model audit Phase 5: one key per checkout attempt (this screen
   // instance), generated once and reused across every internal retry of
@@ -60,13 +61,10 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
   // and re-enters this screen, which creates a new instance/key.
   late final String _idempotencyKey = _generateIdempotencyKey();
   bool _loading = false;
-  String _selectedPaymentMethod = 'cinetpay';
-
-  String get _paymentLabel =>
-      _selectedPaymentMethod == 'geniuspay' ? 'GeniusPay' : 'CinetPay';
-
-  int get _fee => (widget.amount * 0.01).round();
-  int get _total => widget.amount + _fee;
+  // Djeko est la passerelle unique : son choix d'operateur reste dans sa
+  // page web securisee et n'est jamais expose dans l'application.
+  static const _paymentMethod = 'djeko';
+  static const _paymentLabel = 'Djeko';
 
   String _operatorLogo(String operator) {
     if (operator == 'MTN') return 'assets/images/mtn.jpg';
@@ -76,7 +74,6 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isTransfer = widget.operation.contains('Transfert');
     return PopScope(
       // §15 de l'audit : bloquer la fermeture accidentelle de l'écran
       // pendant la création de la transaction - une fois la requête HTTP en
@@ -84,196 +81,90 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
       // perdre à l'utilisateur le fil de ce qui se passe.
       canPop: !_loading,
       child: Scaffold(
-      backgroundColor: Colors.white,
-      body: Column(
-        children: [
-          const GreenHeader(
-            title: 'Récapitulatif & Paiement',
-            subtitle:
-                'Vérifiez les informations avant\nde procéder au paiement',
-            icon: 'payment',
-            step: 4,
-          ),
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(18, 22, 18, 22),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  TolCard(
-                    padding: EdgeInsets.zero,
-                    child: Column(
-                      children: [
-                        _summaryRow(
-                          Image.asset(_operatorLogo(widget.operator),
-                              width: 34, height: 34, fit: BoxFit.contain),
-                          'Opérateur',
-                          widget.operator,
-                          AppColors.operatorColor(widget.operator),
-                        ),
-                        _summaryRow(
-                            const Icon(Icons.language_rounded,
-                                color: AppColors.blue, size: 34),
-                            'Service',
-                            widget.service,
-                            AppColors.blue),
-                        _summaryRow(
-                            const Icon(Icons.sync_rounded,
-                                color: AppColors.success, size: 34),
-                            'Opération',
-                            widget.operation
-                                .replaceAll(' pour moi', '')
-                                .replaceAll(' pour un tiers', ''),
-                            AppColors.success),
-                        _summaryRow(
-                            const Icon(Icons.phone_in_talk_outlined,
-                                color: AppColors.textPrimary, size: 34),
-                            'Numéro',
-                            widget.phone,
-                            AppColors.textPrimary),
-                        _summaryRow(
-                            const Icon(Icons.attach_money_rounded,
-                                color: AppColors.textPrimary, size: 34),
-                            'Montant du forfait',
-                            '${widget.amount} FCFA',
-                            AppColors.textPrimary),
-                        _summaryRow(
-                            const Icon(Icons.percent_rounded,
-                                color: AppColors.textPrimary, size: 34),
-                            'Frais de service (1%)  ⓘ',
-                            '$_fee FCFA',
-                            AppColors.textPrimary),
-                        Container(
-                          padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
-                          decoration: const BoxDecoration(
-                            border: Border(
-                              top: BorderSide(
-                                color: Color(0xFFCED4E0),
-                                style: BorderStyle.solid,
-                              ),
-                            ),
+        backgroundColor: Colors.white,
+        body: Column(
+          children: [
+            const GreenHeader(
+              title: 'Récapitulatif & Paiement',
+              subtitle:
+                  'Vérifiez les informations avant\nde procéder au paiement',
+              icon: 'payment',
+              step: 4,
+            ),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    TolCard(
+                      padding: EdgeInsets.zero,
+                      child: Column(
+                        children: [
+                          _summaryRow(
+                            Image.asset(_operatorLogo(widget.operator),
+                                width: 34, height: 34, fit: BoxFit.contain),
+                            'Opérateur',
+                            widget.operator,
+                            AppColors.operatorColor(widget.operator),
                           ),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  'Total à payer',
-                                  style: GoogleFonts.nunito(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.w900,
-                                    color: AppColors.success,
-                                  ),
-                                ),
-                              ),
-                              Text(
-                                '$_total',
-                                style: GoogleFonts.nunito(
-                                  fontSize: 26,
-                                  fontWeight: FontWeight.w900,
-                                  color: AppColors.success,
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                'FCFA',
-                                style: GoogleFonts.nunito(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w900,
-                                  color: AppColors.success,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-                  Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: AppColors.primaryLight,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: const Color(0xFFD0E8D8)),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.info_rounded,
-                            color: AppColors.success, size: 27),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Information tarifaire',
-                                style: GoogleFonts.nunito(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w900,
-                                  color: AppColors.success,
-                                ),
-                              ),
-                              Text(
-                                'Des frais de service de 1% sont appliqués à cette transaction.',
-                                style: GoogleFonts.nunito(
-                                  fontSize: 14,
-                                  color: const Color(0xFF555555),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 22),
-                  _paymentMethodPanel(
-                    id: 'cinetpay',
-                    title: 'Paiement CinetPay',
-                    subtitle: 'Mobile Money, carte et canaux activés sur votre compte marchand.',
-                  ),
-                  const SizedBox(height: 10),
-                  _paymentMethodPanel(
-                    id: 'geniuspay',
-                    title: 'Paiement GeniusPay',
-                    subtitle: 'Wave, Orange Money, MTN, Moov et carte bancaire.',
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.lock_outline_rounded,
-                          size: 18, color: AppColors.textSecondary),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Paiement 100% sécurisé',
-                        style: GoogleFonts.nunito(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.textSecondary,
-                        ),
+                          _summaryRow(
+                              const Icon(Icons.language_rounded,
+                                  color: AppColors.blue, size: 34),
+                              'Service',
+                              _displayService,
+                              AppColors.blue),
+                          _summaryRow(
+                              const Icon(Icons.phone_in_talk_outlined,
+                                  color: AppColors.textPrimary, size: 34),
+                              'Numéro',
+                              widget.phone,
+                              AppColors.textPrimary),
+                          _summaryRow(
+                              const Icon(Icons.attach_money_rounded,
+                                  color: AppColors.textPrimary, size: 34),
+                              'Montant du forfait',
+                              '${widget.amount} FCFA',
+                              AppColors.textPrimary),
+                        ],
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 18),
-                  TolButton(
-                    label: isTransfer ? 'PAYER ET TRANSFÉRER' : 'PAYER ET SOUSCRIRE',
-                    loading: _loading,
-                    onTap: _confirm,
-                  ),
-                ],
+                    ),
+                    const SizedBox(height: 18),
+                    TolButton(
+                      label: 'PAYER ET SOUSCRIRE',
+                      loading: _loading,
+                      onTap: _confirm,
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
-      ),
+          ],
+        ),
       ),
     );
   }
 
+  String get _displayService {
+    if (widget.service.contains('Appels')) return 'Pass voix';
+    if (widget.service.contains('Internet')) return 'Pass data';
+    if (widget.service.contains('SMS')) return 'Pass SMS';
+    return 'Crédit de communication';
+  }
+
+  String get _backendService => switch (widget.service) {
+        'Appels (Pass voix)' => 'Appels',
+        'Appels' => 'Appels',
+        'Internet (Pass data)' => 'Internet',
+        'Internet' => 'Internet',
+        'SMS (Pass SMS)' => 'SMS',
+        'SMS' => 'SMS',
+        _ => 'Crédit',
+      };
+
   Widget _summaryRow(Widget leading, String label, String value, Color color) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
       decoration: const BoxDecoration(
         border: Border(bottom: BorderSide(color: Color(0xFFECEEF5))),
       ),
@@ -281,23 +172,34 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
         children: [
           SizedBox(width: 38, child: Center(child: leading)),
           const SizedBox(width: 16),
-          Expanded(
-            child: Text(
-              label,
-              style: GoogleFonts.nunito(
-                fontSize: 17,
-                fontWeight: FontWeight.w700,
-                color: AppColors.textPrimary,
+          Flexible(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                label,
+                style: GoogleFonts.nunito(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textPrimary,
+                ),
               ),
             ),
           ),
-          Text(
-            value,
-            textAlign: TextAlign.right,
-            style: GoogleFonts.nunito(
-              fontSize: 17,
-              fontWeight: FontWeight.w900,
-              color: color,
+          const SizedBox(width: 8),
+          Flexible(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerRight,
+              child: Text(
+                value,
+                textAlign: TextAlign.right,
+                style: GoogleFonts.nunito(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w900,
+                  color: color,
+                ),
+              ),
             ),
           ),
         ],
@@ -305,84 +207,27 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
     );
   }
 
-  Widget _paymentMethodPanel({
-    required String id,
-    required String title,
-    required String subtitle,
-  }) {
-    final selected = _selectedPaymentMethod == id;
-    return InkWell(
-      borderRadius: BorderRadius.circular(8),
-      onTap: () => setState(() => _selectedPaymentMethod = id),
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: selected ? AppColors.success : const Color(0xFFE7EAF2),
-            width: selected ? 2 : 1,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.04),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Row(
-          children: [
-            Icon(
-              selected ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
-              color: selected ? AppColors.success : AppColors.textSecondary,
-              size: 28,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: GoogleFonts.nunito(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w900,
-                      color: AppColors.textPrimary,
-                    ),
-                  ),
-                  Text(
-                    subtitle,
-                    style: GoogleFonts.nunito(fontSize: 14, color: AppColors.textSecondary),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Future<void> _confirm() async {
     setState(() => _loading = true);
+    String? createdReference;
     try {
       final result = await _confirmServer();
+      createdReference = result.reference;
       if (result.checkoutUrl.isEmpty) {
-        throw Exception('URL de paiement $_paymentLabel indisponible');
+        throw Exception('URL de paiement Djeko indisponible');
       }
       final launched = await launchUrl(
         Uri.parse(result.checkoutUrl),
         mode: LaunchMode.externalApplication,
       );
       if (!launched) {
-        throw Exception('Impossible d’ouvrir $_paymentLabel');
+        throw Exception('Impossible d’ouvrir Djeko');
       }
       final now = DateTime.now();
       final transaction = Transaction(
         id: result.reference,
         operator: widget.operator,
-        service: widget.service,
+        service: _backendService,
         operation: widget.operation,
         phone: widget.phone,
         amount: widget.amount,
@@ -408,9 +253,19 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
         ),
       );
     } catch (error) {
+      if (createdReference != null) {
+        try {
+          final accessToken = await _auth.currentAccessToken();
+          await _api.cancelTransaction(createdReference,
+              accessToken: accessToken);
+        } catch (_) {
+          // L'annulation sera réconciliée par le statut backend au prochain essai.
+        }
+      }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error.toString().replaceFirst('Exception: ', ''))),
+        SnackBar(
+            content: Text(error.toString().replaceFirst('Exception: ', ''))),
       );
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -424,11 +279,11 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
         operatorId: widget.operatorId,
         serviceId: widget.serviceId,
         operator: widget.operator,
-        service: widget.service,
+        service: _backendService,
         operation: widget.operation,
         phone: widget.phone,
         amount: widget.amount,
-        paymentMethod: _selectedPaymentMethod,
+        paymentMethod: _paymentMethod,
         accessToken: accessToken,
         idempotencyKey: _idempotencyKey,
       );
@@ -436,7 +291,6 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
       rethrow;
     }
   }
-
 }
 
 /// Random UUID v4, generated locally with no added dependency - only used as
@@ -471,7 +325,8 @@ class SuccessScreen extends StatefulWidget {
   State<SuccessScreen> createState() => _SuccessScreenState();
 }
 
-class _SuccessScreenState extends State<SuccessScreen> with WidgetsBindingObserver {
+class _SuccessScreenState extends State<SuccessScreen>
+    with WidgetsBindingObserver {
   /// Calendrier de vérification progressif (audit frontend D4, §6) : des
   /// vérifications rapprochées au début, de plus en plus espacées ensuite -
   /// jamais un `Timer.periodic` à cadence fixe qui marteler le Backend, et
@@ -500,7 +355,8 @@ class _SuccessScreenState extends State<SuccessScreen> with WidgetsBindingObserv
   // le suivi automatique, lui, continue de tourner sans interruption.
   static const _extendedWaitThreshold = Duration(seconds: 60);
 
-  late final BackendApiService _api = widget.backendApiService ?? BackendApiService();
+  late final BackendApiService _api =
+      widget.backendApiService ?? BackendApiService();
   late final AuthService _auth = widget.authService ?? AuthService();
   late Transaction _transaction = widget.transaction;
   Timer? _pollTimer;
@@ -546,7 +402,9 @@ class _SuccessScreenState extends State<SuccessScreen> with WidgetsBindingObserv
     // immédiatement plutôt que d'attendre le prochain tick programmé - le
     // Backend a pu terminer le traitement pendant que l'app était en
     // arrière-plan.
-    if (state == AppLifecycleState.resumed && _transaction.status == 'pending' && !_checking) {
+    if (state == AppLifecycleState.resumed &&
+        _transaction.status == 'pending' &&
+        !_checking) {
       _pollTimer?.cancel();
       _checkStatus();
     }
@@ -560,7 +418,8 @@ class _SuccessScreenState extends State<SuccessScreen> with WidgetsBindingObserv
   /// True une fois l'attente prolongée au-delà de [_extendedWaitThreshold] -
   /// pilote uniquement le texte affiché et la présence du bouton de
   /// vérification manuelle, jamais une décision de statut.
-  bool get _isLongWait => _pollingStarted && _elapsedPolling >= _extendedWaitThreshold;
+  bool get _isLongWait =>
+      _pollingStarted && _elapsedPolling >= _extendedWaitThreshold;
 
   Future<void> _checkStatus() async {
     if (_checking || !mounted || _transaction.status != 'pending') return;
@@ -571,11 +430,23 @@ class _SuccessScreenState extends State<SuccessScreen> with WidgetsBindingObserv
       // transaction.id already holds the backend `reference` (see
       // _confirm() above: `id: result.reference`), which is exactly what
       // GET /transactions/<reference>/status/ expects.
-      final result = await _api.getTransactionStatus(_transaction.id, accessToken: accessToken);
+      final result = await _api.getTransactionStatus(_transaction.id,
+          accessToken: accessToken);
       if (result.isPending) {
         stillPending = true;
       } else {
-        final newStatus = result.isSuccess ? 'ok' : (result.isCancelled ? 'cancelled' : 'fail');
+        if (result.isFailed) {
+          try {
+            final accessToken = await _auth.currentAccessToken();
+            await _api.cancelTransaction(_transaction.id,
+                accessToken: accessToken);
+          } catch (_) {
+            // Le backend garde son statut d'échec si cette notification échoue.
+          }
+        }
+        final newStatus = result.isSuccess
+            ? 'ok'
+            : (result.isCancelled ? 'cancelled' : 'fail');
         final updated = Transaction(
           id: _transaction.id,
           operator: _transaction.operator,
@@ -665,7 +536,9 @@ class _SuccessScreenState extends State<SuccessScreen> with WidgetsBindingObserv
         centerTitle: true,
         leading: IconButton(
           icon: Icon(
-            isSuccess || isPending ? Icons.arrow_back_rounded : Icons.close_rounded,
+            isSuccess || isPending
+                ? Icons.arrow_back_rounded
+                : Icons.close_rounded,
             color: isSuccess || isPending ? AppColors.success : AppColors.red,
             size: 30,
           ),
@@ -688,7 +561,9 @@ class _SuccessScreenState extends State<SuccessScreen> with WidgetsBindingObserv
               width: double.infinity,
               padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 12),
               decoration: BoxDecoration(
-                color: isSuccess || isPending ? AppColors.primaryLight : AppColors.redLight,
+                color: isSuccess || isPending
+                    ? AppColors.primaryLight
+                    : AppColors.redLight,
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(
                     color: isSuccess || isPending
@@ -701,7 +576,9 @@ class _SuccessScreenState extends State<SuccessScreen> with WidgetsBindingObserv
                     width: 64,
                     height: 64,
                     decoration: BoxDecoration(
-                      color: isSuccess || isPending ? AppColors.success : AppColors.red,
+                      color: isSuccess || isPending
+                          ? AppColors.success
+                          : AppColors.red,
                       shape: BoxShape.circle,
                     ),
                     child: Icon(
@@ -728,7 +605,9 @@ class _SuccessScreenState extends State<SuccessScreen> with WidgetsBindingObserv
                     style: GoogleFonts.nunito(
                       fontSize: 22,
                       fontWeight: FontWeight.w900,
-                      color: isSuccess || isPending ? AppColors.success : AppColors.red,
+                      color: isSuccess || isPending
+                          ? AppColors.success
+                          : AppColors.red,
                     ),
                   ),
                   const SizedBox(height: 5),
@@ -773,12 +652,6 @@ class _SuccessScreenState extends State<SuccessScreen> with WidgetsBindingObserv
                       'Service',
                       t.service,
                       AppColors.blue),
-                  _detailRow(
-                      const Icon(Icons.sync_rounded,
-                          color: AppColors.success, size: 30),
-                      'Type d\'opération',
-                      t.operation,
-                      AppColors.success),
                   _detailRow(
                       const Icon(Icons.phone_in_talk_outlined,
                           color: AppColors.textPrimary, size: 30),
@@ -893,7 +766,8 @@ class _SuccessScreenState extends State<SuccessScreen> with WidgetsBindingObserv
                   children: [
                     Row(
                       children: [
-                        const Icon(Icons.schedule_rounded, color: AppColors.amber, size: 24),
+                        const Icon(Icons.schedule_rounded,
+                            color: AppColors.amber, size: 24),
                         const SizedBox(width: 10),
                         Expanded(
                           child: Text(
@@ -910,7 +784,8 @@ class _SuccessScreenState extends State<SuccessScreen> with WidgetsBindingObserv
                     const SizedBox(height: 6),
                     Text(
                       'Cela peut prendre un peu plus de temps que d\'habitude. Le suivi continue automatiquement - vous pouvez aussi vérifier maintenant.',
-                      style: GoogleFonts.nunito(fontSize: 13, color: AppColors.textSecondary),
+                      style: GoogleFonts.nunito(
+                          fontSize: 13, color: AppColors.textSecondary),
                     ),
                     const SizedBox(height: 12),
                     TolButton(

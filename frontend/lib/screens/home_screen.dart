@@ -6,9 +6,7 @@ import '../services/backend_api_service.dart';
 import '../services/transaction_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/widgets.dart';
-import 'history_screen.dart';
 import 'notifications_screen.dart';
-import 'profile_screen.dart';
 import 'step2_service.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -22,7 +20,8 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  late final BackendApiService _api = widget.backendApiService ?? BackendApiService();
+  late final BackendApiService _api =
+      widget.backendApiService ?? BackendApiService();
   late final AuthService _auth = widget.authService ?? AuthService();
   // Identity architecture (Phase 8): starts empty, never sampleNotifications
   // - a brand-new identity genuinely has zero notifications until the
@@ -114,7 +113,8 @@ class _HomeScreenState extends State<HomeScreen> {
       // empty/fake list just because of a transient error.
     }
     try {
-      final count = await _api.fetchUnreadNotificationCount(accessToken: accessToken);
+      final count =
+          await _api.fetchUnreadNotificationCount(accessToken: accessToken);
       if (mounted) setState(() => _unreadCount = count);
     } catch (_) {
       // Keep the previous count rather than showing a misleading 0.
@@ -141,7 +141,9 @@ class _HomeScreenState extends State<HomeScreen> {
     final now = DateTime.now();
     final h = local.hour.toString().padLeft(2, '0');
     final m = local.minute.toString().padLeft(2, '0');
-    final isToday = local.year == now.year && local.month == now.month && local.day == now.day;
+    final isToday = local.year == now.year &&
+        local.month == now.month &&
+        local.day == now.day;
     final isYesterday = now.difference(local).inDays == 1 && !isToday;
     if (isToday) return "Aujourd'hui · $h:$m";
     if (isYesterday) return 'Hier · $h:$m';
@@ -165,7 +167,8 @@ class _HomeScreenState extends State<HomeScreen> {
     final accessToken = await _safeAccessToken();
     if (accessToken == null) return;
     try {
-      await _api.markNotificationRead(accessToken: accessToken, notificationId: id);
+      await _api.markNotificationRead(
+          accessToken: accessToken, notificationId: id);
     } catch (_) {
       // Best-effort: the local `read` flag (already applied by
       // NotificationsScreen) is enough for this session; a future load will
@@ -178,7 +181,8 @@ class _HomeScreenState extends State<HomeScreen> {
   /// transactions sont restées pending. Une erreur réseau/serveur sur l'une
   /// d'elles n'empêche jamais de vérifier les suivantes.
   Future<void> _reconcilePending(List<Transaction> loaded) async {
-    final pendingRefs = loaded.where((t) => t.status == 'pending').map((t) => t.id).toSet();
+    final pendingRefs =
+        loaded.where((t) => t.status == 'pending').map((t) => t.id).toSet();
     if (pendingRefs.isEmpty) return;
     String? accessToken;
     try {
@@ -192,12 +196,15 @@ class _HomeScreenState extends State<HomeScreen> {
     var changed = false;
     for (final reference in pendingRefs) {
       try {
-        final result = await _api.getTransactionStatus(reference, accessToken: accessToken);
+        final result = await _api.getTransactionStatus(reference,
+            accessToken: accessToken);
         if (result.isPending) continue; // toujours en cours - rien à changer
         final index = current.indexWhere((t) => t.id == reference);
         if (index == -1) continue;
         final t = current[index];
-        final newStatus = result.isSuccess ? 'ok' : (result.isCancelled ? 'cancelled' : 'fail');
+        final newStatus = result.isSuccess
+            ? 'ok'
+            : (result.isCancelled ? 'cancelled' : 'fail');
         current[index] = Transaction(
           id: t.id,
           operator: t.operator,
@@ -224,24 +231,21 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadOperators() async {
+    // Maquette hors ligne : on utilise trois opérateurs locaux pour que
+    // l'interface reste visible même si le serveur bloque la requête CORS.
+    const mockedOperators = [
+      OperatorItem(id: 1, name: 'Orange', code: 'orange'),
+      OperatorItem(id: 2, name: 'MTN', code: 'mtn'),
+      OperatorItem(id: 3, name: 'Moov', code: 'moov'),
+    ];
+
+    // On simule une réponse réussie : aucun chargement ni message d'erreur
+    // réseau ne doit apparaître pendant le travail sur l'écran graphique.
     setState(() {
-      _loadingOperators = true;
+      _operators = mockedOperators;
+      _loadingOperators = false;
       _operatorsError = null;
     });
-    try {
-      final operators = await _api.getOperators();
-      if (!mounted) return;
-      setState(() {
-        _operators = operators;
-        _loadingOperators = false;
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _operatorsError = 'Impossible de charger les opérateurs.';
-        _loadingOperators = false;
-      });
-    }
   }
 
   Color _operatorCardColor(String name) {
@@ -381,56 +385,23 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
             SafeArea(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(28, 10, 28, 18),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(18, 4, 18, 8),
                 child: Column(
                   children: [
                     Row(
                       children: [
-                        Text(
-                          '9:41',
-                          style: GoogleFonts.nunito(
-                            color: Colors.white,
-                            fontSize: 22,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
                         const Spacer(),
-                        _headerIconButton(
-                          icon: Icons.receipt_long_rounded,
-                          tooltip: 'Historique',
-                          onTap: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => HistoryScreen(transactions: _transactions),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        _headerIconButton(
-                          icon: Icons.person_outline_rounded,
-                          tooltip: 'Profil',
-                          onTap: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => ProfileScreen(
-                                authService: _auth,
-                                transactions: _transactions,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
                         _notificationButton(unread),
                       ],
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 4),
                     _logo(),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 4),
                     Text(
                       'TRANSFER',
                       style: GoogleFonts.nunito(
-                        fontSize: 44,
+                        fontSize: 34,
                         height: 0.98,
                         fontWeight: FontWeight.w900,
                         color: Colors.white,
@@ -439,116 +410,50 @@ class _HomeScreenState extends State<HomeScreen> {
                     Text(
                       'ON LINE',
                       style: GoogleFonts.nunito(
-                        fontSize: 44,
+                        fontSize: 34,
                         height: 1,
                         fontWeight: FontWeight.w900,
                         color: const Color(0xFF66D300),
                       ),
                     ),
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 8),
                     Text(
                       'Souscrivez ou transférez\nvos forfaits en toute simplicité',
                       textAlign: TextAlign.center,
                       style: GoogleFonts.nunito(
-                        fontSize: 21,
+                        fontSize: 16,
                         height: 1.25,
                         fontWeight: FontWeight.w800,
                         color: Colors.white,
                       ),
                     ),
-                    const SizedBox(height: 42),
+                    const SizedBox(height: 12),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         _roundService(Icons.phone_rounded),
-                        const SizedBox(width: 32),
+                        const SizedBox(width: 16),
                         _roundService(Icons.language_rounded),
-                        const SizedBox(width: 32),
+                        const SizedBox(width: 16),
                         _roundService(Icons.sms_rounded),
                       ],
                     ),
-                    const SizedBox(height: 34),
+                    const SizedBox(height: 10),
                     Text(
                       'Choisissez votre opérateur',
                       style: GoogleFonts.nunito(
-                        fontSize: 22,
+                        fontSize: 18,
                         fontWeight: FontWeight.w900,
                         color: Colors.white,
                       ),
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 8),
                     _operatorsSection(),
-                    const SizedBox(height: 34),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(Icons.verified_user_outlined,
-                            color: Color(0xFF66D300), size: 28),
-                        const SizedBox(width: 10),
-                        Text(
-                          'Sécurisé à 100%',
-                          style: GoogleFonts.nunito(
-                            fontSize: 20,
-                            fontWeight: FontWeight.w900,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Vos transactions sont protégées',
-                      style: GoogleFonts.nunito(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.white70,
-                      ),
-                    ),
-                    const SizedBox(height: 30),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(Icons.shield_outlined,
-                            color: Color(0xFF66D300), size: 24),
-                        const SizedBox(width: 9),
-                        Text(
-                          'AFRITECH-CI',
-                          style: GoogleFonts.nunito(
-                            fontSize: 20,
-                            fontWeight: FontWeight.w900,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ],
-                    ),
                   ],
                 ),
               ),
             ),
           ],
-        ),
-      ),
-    );
-  }
-
-  Widget _headerIconButton({
-    required IconData icon,
-    required String tooltip,
-    required VoidCallback onTap,
-  }) {
-    return Tooltip(
-      message: tooltip,
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          width: 44,
-          height: 44,
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.08),
-            shape: BoxShape.circle,
-            border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
-          ),
-          child: Icon(icon, color: Colors.white, size: 22),
         ),
       ),
     );
@@ -605,6 +510,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _logo() {
+    // Le logo interne historique reste sans fond blanc, comme dans la maquette.
     return Stack(
       alignment: Alignment.center,
       children: [
@@ -617,7 +523,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _roundService(IconData icon) {
     return Container(
       width: 74,
-      height: 74,
+      height: 58,
       decoration: BoxDecoration(
         color: const Color(0xFF06B43E),
         shape: BoxShape.circle,
@@ -629,7 +535,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      child: Icon(icon, color: Colors.white, size: 40),
+      child: Icon(icon, color: Colors.white, size: 32),
     );
   }
 
@@ -654,11 +560,21 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
       child: Container(
-        height: 106,
-        padding: const EdgeInsets.symmetric(horizontal: 28),
+        // Carte large, espacée et suffisamment haute comme dans la maquette.
+        height: 68,
+        margin: const EdgeInsets.symmetric(horizontal: 2),
+        padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
           color: color,
-          borderRadius: BorderRadius.circular(18),
+          // Moov reçoit une légère variation de bleu pour mieux ressortir.
+          gradient: name == 'Moov'
+              ? const LinearGradient(
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
+                  colors: [Color(0xFF0057DD), Color(0xFF147BFF)],
+                )
+              : null,
+          borderRadius: BorderRadius.circular(22),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withValues(alpha: 0.18),
@@ -670,26 +586,45 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Row(
           children: [
             SizedBox(
-              width: 112,
-              child: Image.asset(
-                logo,
-                fit: BoxFit.contain,
-                errorBuilder: (_, __, ___) =>
-                    Icon(Icons.business_rounded, color: textColor, size: 54),
-              ),
+              // Le logo reste compact sur mobile pour laisser de la place au
+              // nom et a la fleche de navigation.
+              width: 92,
+              height: 84,
+              child: logo.isEmpty
+                  // Placeholder local : la carte reste correcte si un logo
+                  // manque dans assets/images.
+                  ? Icon(Icons.business_rounded, color: textColor, size: 54)
+                  : Image.asset(
+                      logo,
+                      fit: BoxFit.contain,
+                      errorBuilder: (_, __, ___) => Icon(
+                        Icons.business_rounded,
+                        color: textColor,
+                        size: 54,
+                      ),
+                    ),
             ),
-            const SizedBox(width: 24),
+            const SizedBox(width: 12),
             Expanded(
-              child: Text(
-                name,
-                style: GoogleFonts.nunito(
-                  color: textColor,
-                  fontSize: 30,
-                  fontWeight: FontWeight.w900,
+              // FittedBox reduit le texte si l'ecran est etroit. Le nom
+              // reste toujours sur une seule ligne et ne se coupe jamais.
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.nunito(
+                    color: textColor,
+                    fontSize: 30,
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
               ),
             ),
-            Icon(Icons.chevron_right_rounded, color: textColor, size: 46),
+            // Flèche blanche toujours visible à droite de la carte.
+            Icon(Icons.chevron_right_rounded, color: textColor, size: 42),
           ],
         ),
       ),

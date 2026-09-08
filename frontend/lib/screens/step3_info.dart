@@ -36,16 +36,37 @@ class Step3InfoScreen extends StatefulWidget {
 }
 
 class _Step3InfoScreenState extends State<Step3InfoScreen> {
-  late final BackendApiService _api = widget.backendApiService ?? BackendApiService();
+  late final BackendApiService _api =
+      widget.backendApiService ?? BackendApiService();
   final _phoneCtrl = TextEditingController();
   final _amountCtrl = TextEditingController(text: '1000');
+  String? _phoneError;
+
+  // Prefixes mobiles ivoiriens: Orange 07/08/09, MTN 05/06 et Moov 01.
+  static const _operatorPrefixes = {
+    'Orange': ['07', '08', '09'],
+    'MTN': ['05', '06'],
+    'Moov': ['01'],
+  };
   // Default, shown immediately - identical to the values this screen has
   // always shown. Only replaced in place if the backend has specific
   // amounts configured for this (operator, service); left untouched on an
   // empty result or a network error, so the screen never looks different
   // just because a fetch failed or hasn't resolved yet.
-  List<int> _quickAmounts = [500, 1000, 2000, 5000, 10000, 0];
+  static const _quickAmounts = [200, 500, 1000];
+  static const _allowedAmounts = {
+    200,
+    300,
+    500,
+    1000,
+    1500,
+    2000,
+    3000,
+    5000,
+    10000,
+  };
   int _selectedAmount = 1000;
+  String? _amountError;
 
   @override
   void initState() {
@@ -55,14 +76,10 @@ class _Step3InfoScreenState extends State<Step3InfoScreen> {
 
   Future<void> _loadAmounts() async {
     try {
-      final amounts = await _api.getAvailableAmounts(widget.operatorId, widget.serviceId);
+      final amounts =
+          await _api.getAvailableAmounts(widget.operatorId, widget.serviceId);
+      // Les montants rapides restent volontairement fixes pour une UI courte.
       if (!mounted || amounts.isEmpty) return;
-      setState(() {
-        _quickAmounts = [
-          ...amounts.map((a) => a.amount.round()),
-          0, // "Autre" (custom amount) stays available even with a fixed catalog.
-        ];
-      });
     } catch (_) {
       // Silent: the default _quickAmounts above is already a fully working
       // fallback, and this screen has never shown a loading/error state.
@@ -113,13 +130,13 @@ class _Step3InfoScreenState extends State<Step3InfoScreen> {
             step: 3,
           ),
           Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(18, 26, 18, 22),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 6, 14, 4),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _modeBanner(),
-                  const SizedBox(height: 26),
+                  const SizedBox(height: 10),
                   _label('Numéro'),
                   const SizedBox(height: 10),
                   _inputShell(
@@ -131,10 +148,24 @@ class _Step3InfoScreenState extends State<Step3InfoScreen> {
                       controller: _phoneCtrl,
                       keyboardType: TextInputType.phone,
                       inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      onChanged: (_) => setState(() {
+                        _phoneError = _phoneValidationError(_phoneCtrl.text);
+                      }),
                       style: _fieldStyle(),
                       decoration: _inputDecoration('Entrez le numéro'),
                     ),
                   ),
+                  if (_phoneError != null) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      _phoneError!,
+                      style: GoogleFonts.nunito(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.red,
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 10),
                   _hint('Exemple : 07XXXXXXXX'),
                   const SizedBox(height: 26),
@@ -148,19 +179,25 @@ class _Step3InfoScreenState extends State<Step3InfoScreen> {
                       controller: _amountCtrl,
                       keyboardType: TextInputType.number,
                       inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                      onChanged: (value) {
-                        setState(
-                            () => _selectedAmount = int.tryParse(value) ?? 0);
-                      },
+                      onChanged: _onAmountChanged,
                       style: _fieldStyle(),
                       decoration: _inputDecoration('Entrez le montant'),
                     ),
                   ),
+                  if (_amountError != null) ...[
+                    const SizedBox(height: 4),
+                    Text(_amountError!,
+                        style: GoogleFonts.nunito(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.red,
+                        )),
+                  ],
                   const SizedBox(height: 10),
                   _hint(_isTransfer
                       ? 'Entrez le montant à transférer'
                       : 'Entrez le montant à souscrire ou transférer'),
-                  const SizedBox(height: 22),
+                  const SizedBox(height: 10),
                   Row(
                     children: [
                       const Icon(Icons.flash_on_rounded,
@@ -176,35 +213,29 @@ class _Step3InfoScreenState extends State<Step3InfoScreen> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 12),
-                  GridView.count(
-                    crossAxisCount: 3,
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    mainAxisSpacing: 12,
-                    crossAxisSpacing: 12,
-                    childAspectRatio: 2.05,
+                  const SizedBox(height: 6),
+                  Row(
                     children: _quickAmounts.map((amount) {
-                      final selected = amount == 0
-                          ? !_quickAmounts.contains(_selectedAmount)
-                          : _selectedAmount == amount;
-                      return QuickAmountButton(
-                        amount: amount,
-                        selected: selected,
-                        onTap: () {
-                          if (amount == 0) {
-                            _showCustomAmountDialog();
-                          } else {
-                            setState(() {
-                              _selectedAmount = amount;
-                              _amountCtrl.text = '$amount';
-                            });
-                          }
-                        },
+                      return Expanded(
+                        child: Padding(
+                          padding: EdgeInsets.only(
+                              right: amount == _quickAmounts.last ? 0 : 8),
+                          child: QuickAmountButton(
+                            amount: amount,
+                            selected: _selectedAmount == amount,
+                            onTap: () {
+                              setState(() {
+                                _selectedAmount = amount;
+                                _amountCtrl.text = '$amount';
+                                _amountError = null;
+                              });
+                            },
+                          ),
+                        ),
                       );
                     }).toList(),
                   ),
-                  const SizedBox(height: 22),
+                  const SizedBox(height: 10),
                   TolButton(label: 'CONTINUER ›', onTap: _next),
                 ],
               ),
@@ -217,7 +248,7 @@ class _Step3InfoScreenState extends State<Step3InfoScreen> {
 
   Widget _modeBanner() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
         color: _modeBg,
         borderRadius: BorderRadius.circular(16),
@@ -225,33 +256,21 @@ class _Step3InfoScreenState extends State<Step3InfoScreen> {
       child: Row(
         children: [
           Container(
-            width: 70,
-            height: 70,
+            width: 44,
+            height: 44,
             decoration:
                 BoxDecoration(color: _modeColor, shape: BoxShape.circle),
-            child: Icon(_modeIcon, color: Colors.white, size: 38),
+            child: Icon(_modeIcon, color: Colors.white, size: 24),
           ),
-          const SizedBox(width: 20),
+          const SizedBox(width: 8),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  widget.operation,
+                  _operatorInstruction,
                   style: GoogleFonts.nunito(
-                    fontSize: 20,
-                    height: 1.08,
-                    fontWeight: FontWeight.w900,
-                    color: AppColors.textPrimary,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  _isThird
-                      ? 'Saisissez le numéro du bénéficiaire.'
-                      : 'Saisissez votre numéro Orange, MTN ou Moov.',
-                  style: GoogleFonts.nunito(
-                    fontSize: 16,
+                    fontSize: 14,
                     height: 1.2,
                     fontWeight: FontWeight.w600,
                     color: AppColors.textSecondary,
@@ -265,6 +284,19 @@ class _Step3InfoScreenState extends State<Step3InfoScreen> {
     );
   }
 
+  String get _operatorInstruction =>
+      'Saisissez votre numéro ${widget.operator}.';
+
+  String? _phoneValidationError(String phone) {
+    if (phone.length < 2) return null;
+    final prefixes = _operatorPrefixes[widget.operator] ?? const <String>[];
+    if (!prefixes.any(phone.startsWith)) {
+      return 'Ce numéro ne correspond pas à l’opérateur ${widget.operator}.';
+    }
+    if (phone.length == 10) return null;
+    return null;
+  }
+
   Widget _inputShell({
     required IconData leading,
     required IconData trailing,
@@ -272,7 +304,7 @@ class _Step3InfoScreenState extends State<Step3InfoScreen> {
     String? trailingText,
   }) {
     return Container(
-      height: 68,
+      height: 58,
       padding: const EdgeInsets.symmetric(horizontal: 14),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -351,57 +383,38 @@ class _Step3InfoScreenState extends State<Step3InfoScreen> {
     );
   }
 
-  void _showCustomAmountDialog() {
-    final controller = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Text(
-          'Montant personnalisé',
-          style: GoogleFonts.nunito(fontWeight: FontWeight.w900),
-        ),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          keyboardType: TextInputType.number,
-          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-          decoration: const InputDecoration(suffixText: 'FCFA'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Annuler'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              final value = int.tryParse(controller.text) ?? 0;
-              if (value > 0) {
-                setState(() {
-                  _selectedAmount = value;
-                  _amountCtrl.text = '$value';
-                });
-              }
-              Navigator.pop(context);
-            },
-            child: const Text('Valider'),
-          ),
-        ],
-      ),
-    );
+  void _onAmountChanged(String value) {
+    final amount = int.tryParse(value);
+    setState(() {
+      _selectedAmount = amount ?? 0;
+      _amountError = amount != null && _allowedAmounts.contains(amount)
+          ? null
+          : 'Montant non disponible. Choisissez un montant valide.';
+    });
   }
 
   void _next() {
     if (_phoneCtrl.text.length != 10) {
+      setState(() => _phoneError = 'Le numéro doit contenir 10 chiffres.');
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Le numéro doit contenir 10 chiffres')),
       );
+      return;
+    }
+    final phoneError = _phoneValidationError(_phoneCtrl.text);
+    if (phoneError != null) {
+      setState(() => _phoneError = phoneError);
       return;
     }
     if (_selectedAmount <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Veuillez entrer un montant')),
       );
+      return;
+    }
+    if (!_allowedAmounts.contains(_selectedAmount)) {
+      setState(() => _amountError =
+          'Montant non disponible. Choisissez un montant valide.');
       return;
     }
     Navigator.push(

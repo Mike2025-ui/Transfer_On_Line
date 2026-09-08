@@ -1,0 +1,19 @@
+<!-- Logo officiel : arcs de transfert orange et verts sur fond blanc. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M24,0 L84,0 A24,24 0,0 1,108 24 L108,84 A24,24 0,0 1,84 108 L24,108 A24,24 0,0 1,0 84 L0,24 A24,24 0,0 1,24 0 Z" />
+    <path
+        android:fillColor="#FF7900"
+        android:pathData="M14,35 L34,15 L35,27 C56,21 78,30 88,50 L74,57 C67,43 53,36 36,41 L37,53 Z" />
+    <path
+        android:fillColor="#0BA23E"
+        android:pathData="M28,57 C35,72 50,78 68,73 L67,61 L94,76 L74,96 L73,84 C51,90 29,80 20,60 Z" />
+    <path
+        android:fillColor="#0BA23E"
+        android:pathData="M28,44 L40,29 L42,40 C58,35 72,42 78,56 L65,63 C61,54 52,50 42,53 L44,64 Z" />
+</vector>
