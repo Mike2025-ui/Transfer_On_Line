@@ -110,6 +110,9 @@ class PaymentService:
             if tx:
                 tx.payment = locked  # avoid a stale re-fetch: reuse the row we just locked and wrote
                 tx.sync_from_payment()
+                if new_status == 'accepted':
+                    from apps.devices.services.transaction_dispatcher import dispatch_paid_transaction
+                    dispatch_paid_transaction(tx)
 
         # keep the caller's in-memory instance consistent with what was persisted
         payment.status = locked.status

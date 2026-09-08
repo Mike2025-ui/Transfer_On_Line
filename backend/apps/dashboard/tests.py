@@ -450,6 +450,23 @@ class TransactionDetailViewTests(TestCase):
         self.assertEqual(len(response.context['events']), 1)
         self.assertEqual(len(response.context['attempts']), 1)
 
+    def test_shows_payment_webhook_evidence(self):
+        payment = Payment.objects.create(
+            method='jeko', reference='PAY-TX-1', provider_transaction_id='JEKO-1',
+            amount=1000, status='accepted',
+        )
+        self.tx.payment = payment
+        self.tx.save(update_fields=['payment'])
+        WebhookEvent.objects.create(
+            provider='jeko', event_id='evt-1', event_type='payment.accepted',
+            payment_reference='JEKO-1', processed=True,
+        )
+
+        response = self.client.get(reverse('transaction_detail', kwargs={'pk': self.tx.pk}))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context['webhook_events']), 1)
+        self.assertContains(response, 'payment.accepted')
+
     def test_404_for_unknown_transaction(self):
         response = self.client.get(reverse('transaction_detail', kwargs={'pk': 999999}))
         self.assertEqual(response.status_code, 404)
@@ -461,12 +478,12 @@ class PaymentsListViewTests(TestCase):
         Payment.objects.create(method='jeko', reference='PAY-1', amount=1000, status='accepted')
         Payment.objects.create(method='geniuspay', reference='PAY-2', amount=2000, status='pending')
 
-    def test_funnel_summary_reflects_real_payments(self):
+    def test_page_contains_only_payment_data(self):
         response = self.client.get(reverse('payments'))
         self.assertEqual(response.status_code, 200)
-        funnel = response.context['funnel']
-        self.assertEqual(funnel['jeko']['accepted'], 1)
-        self.assertEqual(funnel['geniuspay']['pending'], 1)
+        self.assertNotIn('funnel', response.context)
+        self.assertNotContains(response, 'Base de données')
+        self.assertNotContains(response, 'Échecs récents')
 
     def test_filter_by_method(self):
         response = self.client.get(reverse('payments'), {'method': 'geniuspay'})
@@ -479,18 +496,6 @@ class PaymentsListViewTests(TestCase):
         )
         response = self.client.get(reverse('payments'))
         self.assertNotContains(response, 'should-never-appear-in-html')
-
-    @patch.object(settings, 'GENIUSPAY_WEBHOOK_SECRET', '')
-    @patch.object(settings, 'GENIUSPAY_ALLOW_MOCK', False)
-    def test_flags_geniuspay_webhook_misconfiguration_when_real(self):
-        response = self.client.get(reverse('payments'))
-        self.assertTrue(response.context['geniuspay_webhook_misconfigured'])
-
-    @patch.object(settings, 'GENIUSPAY_WEBHOOK_SECRET', 'a-real-secret')
-    def test_does_not_flag_when_webhook_secret_is_set(self):
-        response = self.client.get(reverse('payments'))
-        self.assertFalse(response.context['geniuspay_webhook_misconfigured'])
-
 
 class GatewaysListViewTests(TestCase):
     def setUp(self):

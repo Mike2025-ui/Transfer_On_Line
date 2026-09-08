@@ -2,6 +2,7 @@ from datetime import timedelta
 from pathlib import Path
 import os
 import sys
+from urllib.parse import urlparse
 
 try:
     import dj_database_url
@@ -59,7 +60,10 @@ INSTALLED_APPS = [
     'apps.dashboard',
     'apps.devices',
     'apps.payments',
-    'apps.accounts',
+    # Le flux client est désormais anonyme : aucun OTP/JWT n’est utilisé
+    # pour la création ou la confirmation de transaction. L’ancienne app
+    # d’authentification client reste désactivée pour éviter tout chemin
+    # réintroduisant l’identité OTP dans le produit.
 ]
 
 MIDDLEWARE = [
@@ -102,6 +106,14 @@ DATABASE_URL = os.environ.get(
     'DATABASE_URL',
     f'sqlite:///{BASE_DIR / "db.sqlite3"}',
 )
+database_host = urlparse(DATABASE_URL).hostname
+if (
+    os.name == 'nt'
+    and database_host == 'postgres'
+    and not os.environ.get('POSTGRES_HOST')
+):
+    DATABASE_URL = f'sqlite:///{BASE_DIR / "db.sqlite3"}'
+
 if dj_database_url is not None:
     DATABASES = {'default': dj_database_url.parse(DATABASE_URL, conn_max_age=600)}
 else:
@@ -146,20 +158,13 @@ LOGIN_URL = 'dashboard_login'
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
-        # SessionAuthentication stays first: the dashboard (apps.dashboard)
-        # keeps using Django's normal staff login, unchanged. JWTAuthentication
-        # is additive - it resolves request.user to a *real* auth.User (the
-        # same model staff accounts use), no custom user-resolution needed.
+        # L’authentification OTP/JWT est retirée du flux client. Le parcours
+        # d’achat reste anonyme et ne collecte que le numéro requis pour la
+        # transaction ; les pages de dashboard internes restent gérées par
+        # Django Admin/session si besoin, sans être utilisées dans l’app mobile.
         'rest_framework.authentication.SessionAuthentication',
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
     ],
     'DEFAULT_PERMISSION_CLASSES': [
-        # Deliberately still AllowAny by default: existing endpoints
-        # (transactions/execute, gateway heartbeat, payment webhooks) are not
-        # locked down in this change to avoid breaking the Flutter app and the
-        # Android Gateway before they can actually obtain a JWT. Individual
-        # views opt into IsAuthenticated explicitly (see apps.accounts) as
-        # they're migrated - see the production audit for the follow-up plan.
         'rest_framework.permissions.AllowAny',
     ],
     'DEFAULT_THROTTLE_CLASSES': [],
@@ -228,8 +233,8 @@ GENIUSPAY_API_SECRET = os.environ.get('GENIUSPAY_API_SECRET', '')
 GENIUSPAY_BASE_URL = os.environ.get('GENIUSPAY_BASE_URL', 'https://geniuspay.ci/api/v1/merchant')
 GENIUSPAY_WEBHOOK_SECRET = os.environ.get('GENIUSPAY_WEBHOOK_SECRET', '')
 GENIUSPAY_CURRENCY = os.environ.get('GENIUSPAY_CURRENCY', 'XOF')
-GENIUSPAY_SUCCESS_URL = os.environ.get('GENIUSPAY_SUCCESS_URL', 'http://www.transfert-online.site/payment/success')
-GENIUSPAY_ERROR_URL = os.environ.get('GENIUSPAY_ERROR_URL', 'http://www.transfert-online.site/payment/cancel')
+GENIUSPAY_SUCCESS_URL = os.environ.get('GENIUSPAY_SUCCESS_URL', 'https://transfert-online.site/payment/success')
+GENIUSPAY_ERROR_URL = os.environ.get('GENIUSPAY_ERROR_URL', 'https://transfert-online.site/payment/cancel')
 GENIUSPAY_TIMEOUT_SECONDS = int(os.environ.get('GENIUSPAY_TIMEOUT_SECONDS', '30'))
 GENIUSPAY_ALLOW_MOCK = os.environ.get('GENIUSPAY_ALLOW_MOCK', 'false').lower() == 'true'
 
@@ -252,8 +257,8 @@ JEKO_API_KEY = os.environ.get('JEKO_API_KEY', '')
 JEKO_API_KEY_ID = os.environ.get('JEKO_API_KEY_ID', '')
 JEKO_BASE_URL = os.environ.get('JEKO_BASE_URL', 'https://api.jeko.africa')
 JEKO_STORE_ID = os.environ.get('JEKO_STORE_ID', '')
-JEKO_SUCCESS_URL = os.environ.get('JEKO_SUCCESS_URL', 'http://www.transfert-online.site/payment/success')
-JEKO_ERROR_URL = os.environ.get('JEKO_ERROR_URL', 'http://www.transfert-online.site/payment/cancel')
+JEKO_SUCCESS_URL = os.environ.get('JEKO_SUCCESS_URL', 'https://transfert-online.site/payment/success')
+JEKO_ERROR_URL = os.environ.get('JEKO_ERROR_URL', 'https://transfert-online.site/payment/cancel')
 JEKO_WEBHOOK_SECRET = os.environ.get('JEKO_WEBHOOK_SECRET', '')
 JEKO_TIMEOUT_SECONDS = int(os.environ.get('JEKO_TIMEOUT_SECONDS', '20'))
 # Jèko "Service Providers" program (business_onboarding/business_api_keys/...
@@ -309,7 +314,8 @@ CIRCUIT_BREAKER_RESET_SECONDS = int(os.environ.get('CIRCUIT_BREAKER_RESET_SECOND
 # logic. Two dicts, not a class: adding a future key never requires a migration
 # or a signature change anywhere that reads them.
 TRANSACTION_ENGINE = {
-    "MAX_RETRY": int(os.environ.get("TXN_MAX_RETRY", "3")),
+    # Total attempts: initial execution + one retry.
+    "MAX_RETRY": int(os.environ.get("TXN_MAX_RETRY", "2")),
     "TIMEOUT_SECONDS": int(os.environ.get("TXN_TIMEOUT_SECONDS", "90")),
     "RETRY_BACKOFF": [
         int(x) for x in os.environ.get("TXN_RETRY_BACKOFF", "30,45,60").split(",")

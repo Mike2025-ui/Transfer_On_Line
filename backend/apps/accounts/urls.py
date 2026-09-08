@@ -1,8 +1,5 @@
 from django.urls import path
 
-from . import views
-
-urlpatterns = [
-    path('otp/request/', views.RequestOtpView.as_view(), name='api_auth_otp_request'),
-    path('otp/verify/', views.VerifyOtpView.as_view(), name='api_auth_otp_verify'),
-]
+# L’authentification OTP est retirée du produit. Le flux client est désormais
+# anonyme et ne demande ni code OTP ni JWT pour créer une transaction.
+urlpatterns = []

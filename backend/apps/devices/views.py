@@ -26,6 +26,11 @@ from apps.devices.models import SmsTask
 from apps.devices.services.gateway_manager import IN_FLIGHT_STATUSES, GatewayManager
 from apps.devices.services.reservation_manager import ReservationManager
 from apps.devices.services.scheduler import Scheduler
+from apps.devices.services.transaction_dispatcher import (
+    ScenarioConfigurationError,
+    fail_interactive_attempt,
+    validate_scenario_code,
+)
 from apps.payments.providers.base import PaymentProviderError
 from apps.payments.providers.registry import SUPPORTED_METHODS
 from apps.payments.services.payment_service import PaymentService
@@ -169,12 +174,14 @@ def _resolve_service(request):
         if service is None:
             return None, Response({'error': f'service_id={service_id} introuvable ou inactif'}, status=404)
         return service, None
-    service_name = request.data.get('service') or request.data.get('service_name') or 'Internet'
+    service_name = request.data.get('service') or request.data.get('service_name') or 'Internet (Pass data)'
     logger.warning(
         'ExecuteTransactionView: transitional service name lookup ("%s") - client should send service_id',
         service_name,
     )
     service = Service.objects.filter(name=service_name, is_active=True).first()
+    if service is None:
+        service = Service.objects.filter(code=service_name, is_active=True).first()
     if service is None:
         return None, Response({'error': f'Service "{service_name}" introuvable ou inactif'}, status=400)
     return service, None
@@ -266,7 +273,6 @@ class ExecuteTransactionView(APIView):
                 set_correlation_id(str(existing.reference))
                 return Response(transaction_payload(existing), status=200)
 
-        operation = request.data.get('operation') or request.data.get('transaction_type') or 'subscription'
         phone = request.data.get('phone') or request.data.get('recipient_phone')
         amount = _money(request.data.get('amount'))
         customer = request.data.get('customer') or {}
@@ -277,6 +283,9 @@ class ExecuteTransactionView(APIView):
 
         if not phone or amount <= 0:
             return Response({'error': 'phone/recipient_phone and amount are required'}, status=400)
+        allowed_amounts = {Decimal(str(value)) for value in (200, 300, 500, 1000, 1500, 2000, 3000, 5000, 10000)}
+        if amount not in allowed_amounts:
+            return Response({'error': 'Montant non disponible pour une souscription.'}, status=400)
 
         operator, error = _resolve_operator(request)
         if error is not None:
@@ -308,16 +317,10 @@ class ExecuteTransactionView(APIView):
                 },
                 status=400,
             )
-        # Legacy path (flag off): resolve the gateway before the Transaction
-        # exists. Business-model audit Phase 7.2: GatewayManager.
-        # select_operator_gateway() replaces the old operator-blind
-        # _select_gateway() here - same eligible_sims()/GatewayScoreService
-        # chain the new engine uses, so an Orange transaction can never land
-        # on an MTN-only Gateway regardless of which engine is active.
-        # New-engine path: leave it unresolved here, Scheduler.select() needs
-        # the Transaction row to already exist (it queries transaction.
-        # attempts to exclude already-tried SIMs).
-        gateway = None if dj_settings.USE_NEW_TRANSACTION_ENGINE else GatewayManager.select_operator_gateway(operator)
+        try:
+            validate_scenario_code(ussd_code)
+        except ScenarioConfigurationError as exc:
+            return Response({'error': str(exc)}, status=400)
         payment_reference = f'TOL-{timezone.now().strftime("%Y%m%d%H%M%S")}-{uuid4().hex[:8].upper()}'
         payment = Payment.objects.create(
             method=payment_method,
@@ -338,7 +341,7 @@ class ExecuteTransactionView(APIView):
             user=request.user if request.user.is_authenticated else None,
             service=service,
             operator=operator,
-            gateway=gateway,
+            gateway=None,
             phone_number=phone,
             amount=amount,
             status='pending',
@@ -370,51 +373,6 @@ class ExecuteTransactionView(APIView):
         # rest of this payment's lifecycle (logs, provider metadata, webhooks).
         set_correlation_id(str(tx.reference))
 
-        attempt = None
-        if dj_settings.USE_NEW_TRANSACTION_ENGINE:
-            attempt = Scheduler.select(tx, operator)
-            if attempt is not None:
-                tx.gateway = attempt.gateway_sim.gateway
-                tx.save(update_fields=['gateway', 'updated_at'])
-                TransactionEvent.log(
-                    tx, 'gateway_assigned', mechanism='scheduler',
-                    gateway_id=tx.gateway_id, gateway_sim_id=attempt.gateway_sim_id,
-                )
-            else:
-                # Business-model audit Phase 3 (Blocage 3): never assign a
-                # Gateway that doesn't actually carry this operator's SIM -
-                # the old fallback here called _select_gateway(), which
-                # ignores the operator entirely (an Orange transaction could
-                # land on an MTN-only Gateway). Leave tx.gateway unset and
-                # queue the transaction for a retry instead, reusing the
-                # exact same backoff RetryManager already uses for a failed
-                # dial - no new scheduling mechanism.
-                tx.next_retry_at = timezone.now() + timedelta(seconds=RetryManager.next_delay_seconds(tx))
-                tx.save(update_fields=['next_retry_at', 'updated_at'])
-                TransactionEvent.log(
-                    tx, 'no_gateway_available', mechanism='queued_for_retry',
-                    gateway_id=None, gateway_sim_id=None, next_retry_at=tx.next_retry_at.isoformat(),
-                )
-        elif tx.gateway_id is None:
-            # Business-model audit Phase 7.2: the legacy path's own
-            # select_operator_gateway() call above found no SIM eligible for
-            # this operator - never fall back to a mismatched Gateway, and
-            # never leave the transaction stranded forever the way the old
-            # operator-blind _select_gateway() implicitly did (it almost
-            # never returned None, so this branch never existed for legacy).
-            # Queue it exactly like the new engine's own "no gateway" case -
-            # dispatch_due_transaction_retries already resolves this safely
-            # via GatewayManager.select_operator_gateway() too (see
-            # RetryManager.dispatch_due_retries) - the already-accepted
-            # payment is never re-triggered by this, only the Gateway
-            # assignment is retried.
-            tx.next_retry_at = timezone.now() + timedelta(seconds=RetryManager.next_delay_seconds(tx))
-            tx.save(update_fields=['next_retry_at', 'updated_at'])
-            TransactionEvent.log(
-                tx, 'no_gateway_available', mechanism='queued_for_retry_legacy',
-                gateway_id=None, gateway_sim_id=None, next_retry_at=tx.next_retry_at.isoformat(),
-            )
-
         customer_payload = {
             'name': customer.get('name') or request.data.get('customer_name') or 'Client',
             'surname': customer.get('surname') or request.data.get('customer_surname') or 'Transfer On Line',
@@ -427,16 +385,11 @@ class ExecuteTransactionView(APIView):
         try:
             PaymentService.initiate(
                 payment,
-                description=f'{service.name} - {operation}',
+                description=f'{service.name} - souscription',
                 customer=customer_payload,
                 metadata={'order_id': str(tx.reference), 'correlation_id': str(tx.reference)},
             )
         except PaymentProviderError as exc:
-            if attempt is not None:
-                # The reservation was never going to be used - release it now
-                # rather than leaving it 'assigned' until release_expired()'s
-                # periodic sweep eventually frees that GatewaySim's capacity.
-                ReservationManager.release(attempt, 'failed')
             TransactionStateMachine.transition(tx, 'failed', reason='payment_init_failed', error=str(exc))
             return Response({'error': str(exc), **transaction_payload(tx)}, status=502)
 
@@ -935,6 +888,13 @@ class TransactionStepView(APIView):
             response_body = self._handle_final_field(attempt)
         else:
             response_body = self._handle_result(attempt, request.data)
+
+        if response_body.get('action') == 'FAILED':
+            response_body['status'] = fail_interactive_attempt(
+                attempt,
+                response_body.get('error_code', 'unknown'),
+                response_body,
+            )
 
         attempt.last_step_idempotency_key = idempotency_key
         attempt.last_step_response = response_body

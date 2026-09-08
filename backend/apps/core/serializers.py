@@ -56,10 +56,8 @@ def transaction_payload(tx, ussd_code=None):
     return {
         'id': tx.id,
         'reference': tx.reference,
-        'transaction_type': tx.service.code or tx.service.name,
         'operator': tx.operator.name,
         'service': tx.service.name,
-        'operation': tx.service.code or tx.service.name,
         'recipient_phone': tx.phone_number,
         'amount': float(tx.amount),
         'commission': float(tx.commission),

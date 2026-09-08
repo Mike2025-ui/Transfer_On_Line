@@ -24,7 +24,6 @@ from apps.devices.models import GatewaySim
 from apps.devices.services.gateway_manager import IN_FLIGHT_STATUSES, GatewayManager
 from apps.devices.services.gateway_score import GatewayScoreService
 from apps.payments.models import WebhookEvent
-from apps.payments.services.payment_service import PaymentService
 
 # Back Office audit (Étape 3 - pourquoi certains clics redirigeaient vers
 # Django Admin): django.contrib.admin.views.decorators.staff_member_required
@@ -95,10 +94,11 @@ def dashboard_index(request):
 
     commission_today = amount_today * Decimal('0.01')
 
-    total_transactions = Transaction.objects.count() or 1
-    success_count = Transaction.objects.filter(status='success').count()
-    failed_count = Transaction.objects.filter(status='failed').count()
-    pending_count = Transaction.objects.filter(status='pending').count()
+    today_transactions = Transaction.objects.filter(created_at__date=today)
+    total_transactions = today_transactions.count() or 1
+    success_count = today_transactions.filter(status='success').count()
+    failed_count = today_transactions.filter(status='failed').count()
+    pending_count = today_transactions.filter(status='pending').count()
 
     success_percent = (success_count / total_transactions) * 100
     failed_percent = (failed_count / total_transactions) * 100
@@ -240,8 +240,15 @@ def transaction_detail(request, pk):
     )
     events = tx.events.all()  # Meta.ordering = ['created_at'] on TransactionEvent
     attempts = tx.attempts.select_related('gateway_sim__gateway', 'gateway_sim__operator').order_by('attempt_number')
+    payment_refs = {value for value in (tx.payment_id, tx.payment.reference if tx.payment else None, tx.payment.provider_transaction_id if tx.payment else None) if value}
+    webhook_events = WebhookEvent.objects.none()
+    if payment_refs:
+        webhook_events = WebhookEvent.objects.filter(
+            Q(payment_reference__in=[str(value) for value in payment_refs])
+        ).order_by('-received_at')
     return render(request, 'dashboard/transaction_detail.html', {
         'title': f'Transaction {tx.reference}', 'tx': tx, 'events': events, 'attempts': attempts,
+        'webhook_events': webhook_events,
     })
 
 
@@ -255,7 +262,12 @@ def payments_list(request):
 
     payments = Payment.objects.all()
     if query:
-        payments = payments.filter(Q(reference__icontains=query) | Q(provider_transaction_id__icontains=query))
+        payments = payments.filter(
+            Q(reference__icontains=query)
+            | Q(provider_transaction_id__icontains=query)
+            | Q(transactions__phone_number__icontains=query)
+            | Q(transactions__reference__icontains=query)
+        ).distinct()
     if method:
         payments = payments.filter(method=method)
     if status:
@@ -273,34 +285,9 @@ def payments_list(request):
     for payment in page.object_list:
         payment.transaction = tx_by_payment.get(payment.id)
 
-    checks = _run_concurrently({
-        'database': check_database,
-        'redis': check_redis,
-        'geniuspay': lambda: check_provider_reachable(dj_settings.GENIUSPAY_BASE_URL),
-        'jeko': lambda: check_provider_reachable(dj_settings.JEKO_BASE_URL),
-        'gateway': gateway_summary,
-    })
-    recent_failed_attempts = (
-        TransactionAttempt.objects.filter(status='failed')
-        .select_related('transaction')
-        .order_by('-created_at')[:10]
-    )
-
     return render(request, 'dashboard/payments.html', {
         'title': 'Paiements', 'page_obj': page, 'query': query, 'method': method, 'status': status,
         'method_choices': Payment.METHOD_CHOICES, 'status_choices': Payment.STATUS_CHOICES,
-        'funnel': PaymentService.funnel_summary(),
-        'checks': checks,
-        'redis_configured': bool(dj_settings.REDIS_URL),
-        'pending_transactions': Transaction.objects.filter(status='pending').count(),
-        'recent_failed_attempts': recent_failed_attempts,
-        'checked_at': timezone.now(),
-        # Constat vérifié (audit préalable) - pas une supposition : webhook
-        # GeniusPay refuse toute livraison réelle tant que
-        # GENIUSPAY_WEBHOOK_SECRET est vide et GENIUSPAY_ALLOW_MOCK est faux.
-        'geniuspay_webhook_misconfigured': (
-            not dj_settings.GENIUSPAY_WEBHOOK_SECRET and not dj_settings.GENIUSPAY_ALLOW_MOCK
-        ),
     })
 
 
