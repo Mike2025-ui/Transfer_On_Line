@@ -254,7 +254,7 @@ class GatewayApi {
   // --dart-define=TOL_API_BASE_URL=http://HOST:8000/api.
   static const String baseUrl = String.fromEnvironment(
     'TOL_API_BASE_URL',
-    defaultValue: 'http://localhost:8000/api',
+    defaultValue: 'https://transfert-online.site/api',
   );
 
   /// Business-model audit Phase 7 (Gateway security): each physical Gateway

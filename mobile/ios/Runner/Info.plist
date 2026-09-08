@@ -26,6 +26,10 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Déverrouillez votre téléphone pour reprendre l’application en toute sécurité.</string>
+	<key>NSBiometryUsageDescription</key>
+	<string>Déverrouillez votre téléphone pour reprendre l’application en toute sécurité.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

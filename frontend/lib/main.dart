@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'theme/app_theme.dart';
+import 'screens/device_lock_screen.dart';
 import 'screens/splash_screen.dart';
+import 'theme/app_theme.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -13,16 +14,30 @@ void main() {
   runApp(const TransferOnLineApp());
 }
 
-class TransferOnLineApp extends StatelessWidget {
+class TransferOnLineApp extends StatefulWidget {
   const TransferOnLineApp({super.key});
+
+  @override
+  State<TransferOnLineApp> createState() => _TransferOnLineAppState();
+}
+
+class _TransferOnLineAppState extends State<TransferOnLineApp> {
+  final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: _navigatorKey,
       title: 'Transfer On Line',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.theme,
-      home: const SplashScreen(),
+      home: DeviceLockScreen(
+        onAuthenticated: () {
+          _navigatorKey.currentState?.pushReplacement(
+            MaterialPageRoute(builder: (_) => const SplashScreen()),
+          );
+        },
+      ),
     );
   }
 }

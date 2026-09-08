@@ -84,7 +84,7 @@ void main() {
     expect(body['service'], 'Internet');
     expect(body['amount'], 1000);
     expect(body['recipient_phone'], '0700000001');
-    expect(body['payment_method'], 'djeko');
+    expect(body['payment_method'], 'jeko');
   });
 
   testWidgets(
@@ -128,7 +128,7 @@ void main() {
 
     expect(find.text('Paiement CinetPay'), findsNothing);
     expect(find.text('Paiement GeniusPay'), findsNothing);
-    expect(find.text('Djeko'), findsNothing);
+    expect(find.text('Jeko'), findsNothing);
     expect(find.text('Paiement 100% sécurisé'), findsNothing);
     expect(find.textContaining('Frais de service'), findsNothing);
     expect(find.text('Total à payer'), findsNothing);

@@ -98,7 +98,8 @@ class TransactionSummary {
         value == null ? null : DateTime.tryParse(value);
     return TransactionSummary(
       reference: json['reference'] as String? ?? '',
-      transactionType: json['transaction_type'] as String? ?? '',
+      transactionType: json['transaction_type'] as String? ??
+          (json['service'] as String? ?? ''),
       operator: json['operator'] as String? ?? '',
       service: json['service'] as String? ?? '',
       recipientPhone: json['recipient_phone'] as String? ?? '',
@@ -156,7 +157,7 @@ class BackendApiService {
   // --dart-define=TOL_API_BASE_URL=http://HOST:8000/api.
   static const String baseUrl = String.fromEnvironment(
     'TOL_API_BASE_URL',
-    defaultValue: 'http://localhost:8000/api',
+    defaultValue: 'https://transfert-online.site/api',
   );
 
   /// Confirmation must come from the backend, never from the checkout URL
@@ -165,10 +166,7 @@ class BackendApiService {
       {String? accessToken}) async {
     final response = await _client.get(
       Uri.parse('$baseUrl/transactions/$reference/status/'),
-      headers: {
-        'Accept': 'application/json',
-        if (accessToken != null) 'Authorization': 'Bearer $accessToken',
-      },
+      headers: {'Accept': 'application/json'},
     );
     if (response.statusCode == 404) {
       throw TransactionNotFoundException();
@@ -244,12 +242,12 @@ class BackendApiService {
   Future<BackendTransactionResult> createTransaction({
     required String operator,
     required String service,
-    required String operation,
+    String? operation,
     required String phone,
     required int amount,
     int? operatorId,
     int? serviceId,
-    String paymentMethod = 'djeko',
+    String paymentMethod = 'jeko',
     String? accessToken,
     String? idempotencyKey,
   }) async {
@@ -258,13 +256,6 @@ class BackendApiService {
       headers: {
         'Accept': 'application/json',
         'Content-Type': 'application/json',
-        // Additive only: /transactions/execute/ stays AllowAny, this just
-        // lets the backend attribute the transaction to a signed-in user
-        // when one exists - it is not, on its own, an access requirement.
-        if (accessToken != null) 'Authorization': 'Bearer $accessToken',
-        // Business-model audit Phase 5: identifies THIS submission attempt
-        // so a retried/duplicated call never creates a second Transaction -
-        // see ExecuteTransactionView.post() in apps/devices/views.py.
         if (idempotencyKey != null) 'Idempotency-Key': idempotencyKey,
       },
       body: jsonEncode({
@@ -272,7 +263,6 @@ class BackendApiService {
         if (serviceId != null) 'service_id': serviceId,
         'operator': operator,
         'service': service,
-        'operation': operation,
         'phone': phone,
         'recipient_phone': phone,
         'amount': amount,
@@ -300,10 +290,7 @@ class BackendApiService {
       {String? accessToken}) async {
     final response = await _client.post(
       Uri.parse('$baseUrl/transactions/$reference/cancel/'),
-      headers: {
-        'Accept': 'application/json',
-        if (accessToken != null) 'Authorization': 'Bearer $accessToken',
-      },
+      headers: {'Accept': 'application/json'},
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception('Impossible d’annuler la session de paiement');
@@ -314,15 +301,12 @@ class BackendApiService {
   /// server-side by the JWT alone - a real access token is required, there
   /// is no anonymous equivalent of "my history".
   Future<List<TransactionSummary>> fetchMyTransactions({
-    required String accessToken,
+    String? accessToken,
     int page = 1,
   }) async {
     final response = await _client.get(
       Uri.parse('$baseUrl/transactions/my/?page=$page'),
-      headers: {
-        'Accept': 'application/json',
-        'Authorization': 'Bearer $accessToken'
-      },
+      headers: {'Accept': 'application/json'},
     );
     if (response.statusCode == 401) {
       throw Exception('Session expirée');
@@ -341,15 +325,12 @@ class BackendApiService {
   /// Identity architecture (Phase 8): `GET /notifications/`, filtered
   /// server-side by the JWT alone.
   Future<List<NotificationItem>> fetchNotifications({
-    required String accessToken,
+    String? accessToken,
     int page = 1,
   }) async {
     final response = await _client.get(
       Uri.parse('$baseUrl/notifications/?page=$page'),
-      headers: {
-        'Accept': 'application/json',
-        'Authorization': 'Bearer $accessToken'
-      },
+      headers: {'Accept': 'application/json'},
     );
     if (response.statusCode == 401) {
       throw Exception('Session expirée');
@@ -365,14 +346,10 @@ class BackendApiService {
         .toList();
   }
 
-  Future<int> fetchUnreadNotificationCount(
-      {required String accessToken}) async {
+  Future<int> fetchUnreadNotificationCount({String? accessToken}) async {
     final response = await _client.get(
       Uri.parse('$baseUrl/notifications/unread-count/'),
-      headers: {
-        'Accept': 'application/json',
-        'Authorization': 'Bearer $accessToken'
-      },
+      headers: {'Accept': 'application/json'},
     );
     if (response.statusCode != 200) {
       throw Exception(
@@ -383,15 +360,12 @@ class BackendApiService {
   }
 
   Future<NotificationItem> markNotificationRead({
-    required String accessToken,
+    String? accessToken,
     required int notificationId,
   }) async {
     final response = await _client.post(
       Uri.parse('$baseUrl/notifications/$notificationId/read/'),
-      headers: {
-        'Accept': 'application/json',
-        'Authorization': 'Bearer $accessToken'
-      },
+      headers: {'Accept': 'application/json'},
     );
     if (response.statusCode != 200) {
       throw Exception(

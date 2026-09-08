@@ -12,7 +12,9 @@ class Step3InfoScreen extends StatefulWidget {
   final int serviceId;
   final String operator;
   final String service;
-  final String operation;
+  // Compatibility only for older callers and saved history; never displayed
+  // or sent to the backend.
+  final String? operation;
   final Function(Transaction) onTransactionAdded;
   final Function(AppNotification) onNotificationAdded;
   final List<AppNotification> notifications;
@@ -24,7 +26,7 @@ class Step3InfoScreen extends StatefulWidget {
     required this.serviceId,
     required this.operator,
     required this.service,
-    required this.operation,
+    this.operation,
     required this.onTransactionAdded,
     required this.onNotificationAdded,
     required this.notifications,
@@ -86,30 +88,6 @@ class _Step3InfoScreenState extends State<Step3InfoScreen> {
     }
   }
 
-  bool get _isTransfer => widget.operation.contains('Transfert');
-  bool get _isThird => widget.operation.contains('tiers');
-
-  Color get _modeColor {
-    if (_isTransfer && _isThird) return AppColors.purple;
-    if (_isTransfer) return const Color(0xFFFF7900);
-    if (_isThird) return AppColors.blue;
-    return AppColors.primary;
-  }
-
-  Color get _modeBg {
-    if (_isTransfer && _isThird) return AppColors.purpleLight;
-    if (_isTransfer) return AppColors.orangeLight;
-    if (_isThird) return AppColors.blueLight;
-    return AppColors.primaryLight;
-  }
-
-  IconData get _modeIcon {
-    if (_isTransfer && _isThird) return Icons.compare_arrows_rounded;
-    if (_isTransfer) return Icons.swap_horiz_rounded;
-    if (_isThird) return Icons.group_rounded;
-    return Icons.person_outline_rounded;
-  }
-
   @override
   void dispose() {
     _phoneCtrl.dispose();
@@ -131,19 +109,22 @@ class _Step3InfoScreenState extends State<Step3InfoScreen> {
           ),
           Expanded(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(14, 6, 14, 4),
+              padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  _modeBanner(),
-                  const SizedBox(height: 10),
-                  _label('Numéro'),
-                  const SizedBox(height: 10),
+                  Text(widget.service,
+                      textAlign: TextAlign.center,
+                      style: GoogleFonts.nunito(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w900,
+                          color: AppColors.textPrimary)),
+                  const SizedBox(height: 6),
+                  Center(child: _label('Numéro')),
+                  const SizedBox(height: 5),
                   _inputShell(
                     leading: Icons.phone_in_talk_outlined,
-                    trailing: _isThird
-                        ? Icons.contacts_outlined
-                        : Icons.person_outline_rounded,
+                    trailing: Icons.person_outline_rounded,
                     child: TextField(
                       controller: _phoneCtrl,
                       keyboardType: TextInputType.phone,
@@ -166,11 +147,11 @@ class _Step3InfoScreenState extends State<Step3InfoScreen> {
                       ),
                     ),
                   ],
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 5),
                   _hint('Exemple : 07XXXXXXXX'),
-                  const SizedBox(height: 26),
-                  _label('Montant'),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 12),
+                  Center(child: _label('Montant')),
+                  const SizedBox(height: 5),
                   _inputShell(
                     leading: Icons.attach_money_rounded,
                     trailing: Icons.keyboard_arrow_down_rounded,
@@ -193,12 +174,11 @@ class _Step3InfoScreenState extends State<Step3InfoScreen> {
                           color: Colors.red,
                         )),
                   ],
-                  const SizedBox(height: 10),
-                  _hint(_isTransfer
-                      ? 'Entrez le montant à transférer'
-                      : 'Entrez le montant à souscrire ou transférer'),
+                  const SizedBox(height: 5),
+                  _hint('Montant de souscription ou transfert autorisé'),
                   const SizedBox(height: 10),
                   Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       const Icon(Icons.flash_on_rounded,
                           color: AppColors.success, size: 25),
@@ -245,47 +225,6 @@ class _Step3InfoScreenState extends State<Step3InfoScreen> {
       ),
     );
   }
-
-  Widget _modeBanner() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: _modeBg,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration:
-                BoxDecoration(color: _modeColor, shape: BoxShape.circle),
-            child: Icon(_modeIcon, color: Colors.white, size: 24),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  _operatorInstruction,
-                  style: GoogleFonts.nunito(
-                    fontSize: 14,
-                    height: 1.2,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  String get _operatorInstruction =>
-      'Saisissez votre numéro ${widget.operator}.';
 
   String? _phoneValidationError(String phone) {
     if (phone.length < 2) return null;
@@ -425,7 +364,6 @@ class _Step3InfoScreenState extends State<Step3InfoScreen> {
           serviceId: widget.serviceId,
           operator: widget.operator,
           service: widget.service,
-          operation: widget.operation,
           phone: _phoneCtrl.text,
           amount: _selectedAmount,
           onTransactionAdded: widget.onTransactionAdded,

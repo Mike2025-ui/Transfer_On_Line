@@ -6,7 +6,6 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_theme.dart';
 import '../models/models.dart';
-import '../services/auth_service.dart';
 import '../services/backend_api_service.dart';
 import '../services/transaction_service.dart';
 import '../screens/notifications_screen.dart';
@@ -17,7 +16,9 @@ class Step4PaymentScreen extends StatefulWidget {
   final int serviceId;
   final String operator;
   final String service;
-  final String operation;
+  // Compatibility only for older callers and saved history; never displayed
+  // or sent to the backend.
+  final String? operation;
   final String phone;
   final int amount;
   final Function(Transaction) onTransactionAdded;
@@ -29,7 +30,6 @@ class Step4PaymentScreen extends StatefulWidget {
   // sampleNotifications fixture.
   final List<AppNotification> notifications;
   final BackendApiService? backendApiService;
-  final AuthService? authService;
 
   const Step4PaymentScreen({
     super.key,
@@ -37,14 +37,13 @@ class Step4PaymentScreen extends StatefulWidget {
     required this.serviceId,
     required this.operator,
     required this.service,
-    required this.operation,
+    this.operation,
     required this.phone,
     required this.amount,
     required this.onTransactionAdded,
     required this.onNotificationAdded,
     required this.notifications,
     this.backendApiService,
-    this.authService,
   });
 
   @override
@@ -54,17 +53,16 @@ class Step4PaymentScreen extends StatefulWidget {
 class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
   late final BackendApiService _api =
       widget.backendApiService ?? BackendApiService();
-  late final AuthService _auth = widget.authService ?? AuthService();
   // Business-model audit Phase 5: one key per checkout attempt (this screen
   // instance), generated once and reused across every internal retry of
   // _confirm() - a genuinely new attempt only happens when the user leaves
   // and re-enters this screen, which creates a new instance/key.
   late final String _idempotencyKey = _generateIdempotencyKey();
   bool _loading = false;
-  // Djeko est la passerelle unique : son choix d'operateur reste dans sa
-  // page web securisee et n'est jamais expose dans l'application.
-  static const _paymentMethod = 'djeko';
-  static const _paymentLabel = 'Djeko';
+  // Jeko est la passerelle unique : son choix d'opérateur reste dans sa
+  // page web sécurisée et n'est jamais exposé dans l'application.
+  static const _paymentMethod = 'jeko';
+  static const _paymentLabel = 'Jeko';
 
   String _operatorLogo(String operator) {
     if (operator == 'MTN') return 'assets/images/mtn.jpg';
@@ -93,9 +91,9 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
             ),
             Expanded(
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                padding: const EdgeInsets.fromLTRB(14, 4, 14, 4),
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
                     TolCard(
                       padding: EdgeInsets.zero,
@@ -129,7 +127,7 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
                         ],
                       ),
                     ),
-                    const SizedBox(height: 18),
+                    const SizedBox(height: 8),
                     TolButton(
                       label: 'PAYER ET SOUSCRIRE',
                       loading: _loading,
@@ -153,13 +151,11 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
   }
 
   String get _backendService => switch (widget.service) {
-        'Appels (Pass voix)' => 'Appels',
-        'Appels' => 'Appels',
-        'Internet (Pass data)' => 'Internet',
-        'Internet' => 'Internet',
-        'SMS (Pass SMS)' => 'SMS',
-        'SMS' => 'SMS',
-        _ => 'Crédit',
+        'Appels (Pass voix)' => 'voix',
+        'Internet (Pass data)' => 'internet',
+        'Crédit (communication)' => 'credit',
+        'SMS (Pass SMS)' => 'sms',
+        _ => widget.service.toLowerCase(),
       };
 
   Widget _summaryRow(Widget leading, String label, String value, Color color) {
@@ -214,21 +210,21 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
       final result = await _confirmServer();
       createdReference = result.reference;
       if (result.checkoutUrl.isEmpty) {
-        throw Exception('URL de paiement Djeko indisponible');
+        throw Exception('URL de paiement Jeko indisponible');
       }
       final launched = await launchUrl(
         Uri.parse(result.checkoutUrl),
         mode: LaunchMode.externalApplication,
       );
       if (!launched) {
-        throw Exception('Impossible d’ouvrir Djeko');
+        throw Exception('Impossible d’ouvrir Jeko');
       }
       final now = DateTime.now();
       final transaction = Transaction(
         id: result.reference,
         operator: widget.operator,
         service: _backendService,
-        operation: widget.operation,
+        operation: 'Souscription',
         phone: widget.phone,
         amount: widget.amount,
         paymentMethod: _paymentLabel,
@@ -255,9 +251,7 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
     } catch (error) {
       if (createdReference != null) {
         try {
-          final accessToken = await _auth.currentAccessToken();
-          await _api.cancelTransaction(createdReference,
-              accessToken: accessToken);
+          await _api.cancelTransaction(createdReference);
         } catch (_) {
           // L'annulation sera réconciliée par le statut backend au prochain essai.
         }
@@ -274,17 +268,15 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
 
   Future<BackendTransactionResult> _confirmServer() async {
     try {
-      final accessToken = await _auth.currentAccessToken();
       return await _api.createTransaction(
         operatorId: widget.operatorId,
         serviceId: widget.serviceId,
         operator: widget.operator,
         service: _backendService,
-        operation: widget.operation,
+        operation: 'Souscription',
         phone: widget.phone,
         amount: widget.amount,
         paymentMethod: _paymentMethod,
-        accessToken: accessToken,
         idempotencyKey: _idempotencyKey,
       );
     } catch (_) {
@@ -311,14 +303,12 @@ class SuccessScreen extends StatefulWidget {
   final Transaction transaction;
   final List<AppNotification> notifications;
   final BackendApiService? backendApiService;
-  final AuthService? authService;
 
   const SuccessScreen({
     super.key,
     required this.transaction,
     required this.notifications,
     this.backendApiService,
-    this.authService,
   });
 
   @override
@@ -357,7 +347,6 @@ class _SuccessScreenState extends State<SuccessScreen>
 
   late final BackendApiService _api =
       widget.backendApiService ?? BackendApiService();
-  late final AuthService _auth = widget.authService ?? AuthService();
   late Transaction _transaction = widget.transaction;
   Timer? _pollTimer;
   int _attempts = 0;
@@ -426,20 +415,16 @@ class _SuccessScreenState extends State<SuccessScreen>
     _checking = true;
     var stillPending = false;
     try {
-      final accessToken = await _auth.currentAccessToken();
       // transaction.id already holds the backend `reference` (see
       // _confirm() above: `id: result.reference`), which is exactly what
       // GET /transactions/<reference>/status/ expects.
-      final result = await _api.getTransactionStatus(_transaction.id,
-          accessToken: accessToken);
+      final result = await _api.getTransactionStatus(_transaction.id);
       if (result.isPending) {
         stillPending = true;
       } else {
         if (result.isFailed) {
           try {
-            final accessToken = await _auth.currentAccessToken();
-            await _api.cancelTransaction(_transaction.id,
-                accessToken: accessToken);
+            await _api.cancelTransaction(_transaction.id);
           } catch (_) {
             // Le backend garde son statut d'échec si cette notification échoue.
           }

@@ -2,27 +2,23 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
-import '../services/auth_service.dart';
 import '../theme/app_theme.dart';
 import 'home_screen.dart';
 
-/// Shown only on a first install or on a device the backend no longer
-/// recognizes (see AuthService.restoreSession) - never on every app open.
-/// Two steps: phone number, then the OTP sent to it by SMS via SMS Pro
-/// Africa (see apps.accounts.services on the backend). Phone number is the
-/// ONLY identifier the user ever sees or enters - no username, no password,
-/// no email, no account-creation screen.
+/// Ce parcours est conservé uniquement pour compatibilité UI, mais il ne
+/// demande plus d’OTP ni de JWT. Le téléphone est simplement utilisé comme
+/// entrée du flux de transaction et le verrouillage de l’app se fait par le
+/// système de l’appareil (empreinte / mot de passe) sans collecte
+/// d’informations complémentaires.
 class PhoneVerificationScreen extends StatefulWidget {
-  const PhoneVerificationScreen({super.key, this.authService});
-
-  final AuthService? authService;
+  const PhoneVerificationScreen({super.key});
 
   @override
-  State<PhoneVerificationScreen> createState() => _PhoneVerificationScreenState();
+  State<PhoneVerificationScreen> createState() =>
+      _PhoneVerificationScreenState();
 }
 
 class _PhoneVerificationScreenState extends State<PhoneVerificationScreen> {
-  late final AuthService _auth = widget.authService ?? AuthService();
   final _phoneCtrl = TextEditingController();
   final _codeCtrl = TextEditingController();
 
@@ -53,12 +49,9 @@ class _PhoneVerificationScreenState extends State<PhoneVerificationScreen> {
     setState(() => _loading = true);
     try {
       _phoneNumber = _phoneCtrl.text;
-      await _auth.requestOtp(_phoneNumber);
       if (!mounted) return;
       setState(() => _codeSent = true);
       _startResendCooldown();
-    } catch (error) {
-      _showError(error.toString().replaceFirst('Exception: ', ''));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -71,14 +64,11 @@ class _PhoneVerificationScreenState extends State<PhoneVerificationScreen> {
     }
     setState(() => _loading = true);
     try {
-      await _auth.verifyOtp(_phoneNumber, _codeCtrl.text);
       if (!mounted) return;
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => const HomeScreen()),
       );
-    } catch (error) {
-      _showError(error.toString().replaceFirst('Exception: ', ''));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -88,12 +78,8 @@ class _PhoneVerificationScreenState extends State<PhoneVerificationScreen> {
     if (_secondsUntilResend > 0) return;
     setState(() => _loading = true);
     try {
-      await _auth.requestOtp(_phoneNumber);
-      if (!mounted) return;
       _codeCtrl.clear();
       _startResendCooldown();
-    } catch (error) {
-      if (mounted) _showError(error.toString().replaceFirst('Exception: ', ''));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -112,7 +98,8 @@ class _PhoneVerificationScreenState extends State<PhoneVerificationScreen> {
   }
 
   void _showError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
@@ -196,18 +183,28 @@ class _PhoneVerificationScreenState extends State<PhoneVerificationScreen> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       TextButton(
-                        onPressed: _loading ? null : () => setState(() => _codeSent = false),
+                        onPressed: _loading
+                            ? null
+                            : () => setState(() => _codeSent = false),
                         child: Text(
                           'Changer de numéro',
-                          style: GoogleFonts.nunito(color: Colors.white60, fontWeight: FontWeight.w700),
+                          style: GoogleFonts.nunito(
+                              color: Colors.white60,
+                              fontWeight: FontWeight.w700),
                         ),
                       ),
                       TextButton(
-                        onPressed: _secondsUntilResend == 0 && !_loading ? _resendCode : null,
+                        onPressed: _secondsUntilResend == 0 && !_loading
+                            ? _resendCode
+                            : null,
                         child: Text(
-                          _secondsUntilResend == 0 ? 'Renvoyer le code' : 'Renvoyer (${_secondsUntilResend}s)',
+                          _secondsUntilResend == 0
+                              ? 'Renvoyer le code'
+                              : 'Renvoyer (${_secondsUntilResend}s)',
                           style: GoogleFonts.nunito(
-                            color: _secondsUntilResend == 0 ? AppColors.success : Colors.white38,
+                            color: _secondsUntilResend == 0
+                                ? AppColors.success
+                                : Colors.white38,
                             fontWeight: FontWeight.w700,
                           ),
                         ),
@@ -246,7 +243,8 @@ class _PhoneVerificationScreenState extends State<PhoneVerificationScreen> {
 
   InputDecoration _fieldDecoration(String hint) => InputDecoration(
         hintText: hint,
-        hintStyle: GoogleFonts.nunito(color: Colors.white38, fontWeight: FontWeight.w600),
+        hintStyle: GoogleFonts.nunito(
+            color: Colors.white38, fontWeight: FontWeight.w600),
         border: InputBorder.none,
       );
 
@@ -258,18 +256,21 @@ class _PhoneVerificationScreenState extends State<PhoneVerificationScreen> {
         style: ElevatedButton.styleFrom(
           backgroundColor: AppColors.success,
           foregroundColor: Colors.white,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           elevation: 6,
         ),
         child: _loading
             ? const SizedBox(
                 width: 22,
                 height: 22,
-                child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.4),
+                child: CircularProgressIndicator(
+                    color: Colors.white, strokeWidth: 2.4),
               )
             : Text(
                 label,
-                style: GoogleFonts.nunito(fontSize: 17, fontWeight: FontWeight.w900),
+                style: GoogleFonts.nunito(
+                    fontSize: 17, fontWeight: FontWeight.w900),
               ),
       ),
     );

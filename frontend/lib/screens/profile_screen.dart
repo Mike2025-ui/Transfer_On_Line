@@ -2,9 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../models/models.dart';
-import '../services/auth_service.dart';
 import '../theme/app_theme.dart';
-import 'phone_verification_screen.dart';
 
 // ─── Profile Screen — Profil utilisateur ─────────────────────────────────────
 // Audit frontend D4 (§18) : cet écran affichait un nom/email fictifs et un
@@ -15,56 +13,35 @@ import 'phone_verification_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   final List<Transaction> transactions;
-  final AuthService? authService;
 
-  const ProfileScreen({super.key, required this.transactions, this.authService});
+  const ProfileScreen({super.key, required this.transactions});
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  late final AuthService _auth = widget.authService ?? AuthService();
   String? _phone;
   bool _loggingOut = false;
 
   @override
   void initState() {
     super.initState();
-    _loadPhone();
+    _phone = 'Numéro non requis';
   }
 
-  Future<void> _loadPhone() async {
-    try {
-      final phone = await _auth.currentPhoneNumber();
-      if (mounted) setState(() => _phone = phone);
-    } catch (_) {
-      // A secure-storage read failure must never crash this screen - the
-      // header simply falls back to its "non disponible" placeholder.
-    }
-  }
-
-  /// Déconnexion réelle (audit frontend D4, §18) : efface la session stockée
-  /// via AuthService.logout() (déjà testé, cf. auth_service_test.dart) puis
-  /// ramène vers l'écran de vérification du numéro, en vidant toute la pile
-  /// de navigation - un utilisateur déconnecté ne doit jamais pouvoir
-  /// revenir en arrière vers un écran qui suppose une session active.
   Future<void> _logout() async {
     if (_loggingOut) return;
     setState(() => _loggingOut = true);
-    await _auth.logout();
     if (!mounted) return;
-    Navigator.pushAndRemoveUntil(
-      context,
-      MaterialPageRoute(builder: (_) => const PhoneVerificationScreen()),
-      (route) => false,
-    );
+    Navigator.pop(context);
   }
 
   @override
   Widget build(BuildContext context) {
     final txns = widget.transactions;
-    final totalOk = txns.where((t) => t.status == 'ok').fold(0, (a, t) => a + t.amount);
+    final totalOk =
+        txns.where((t) => t.status == 'ok').fold(0, (a, t) => a + t.amount);
     final okCount = txns.where((t) => t.status == 'ok').length;
     final pct = txns.isEmpty ? 0 : (okCount / txns.length * 100).round();
 
@@ -83,18 +60,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 children: [
                   const SizedBox(height: 20),
                   Text('Mes statistiques',
-                      style: GoogleFonts.nunito(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w900,
-                          color: AppColors.textPrimary))
-                      .animate().fadeIn(delay: 200.ms),
+                          style: GoogleFonts.nunito(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w900,
+                              color: AppColors.textPrimary))
+                      .animate()
+                      .fadeIn(delay: 200.ms),
                   const SizedBox(height: 12),
                   Row(children: [
-                    Expanded(child: _statCard('Total dépensé', _fmtAmt(totalOk), 'FCFA', AppColors.primary)),
+                    Expanded(
+                        child: _statCard('Total dépensé', _fmtAmt(totalOk),
+                            'FCFA', AppColors.primary)),
                     const SizedBox(width: 10),
-                    Expanded(child: _statCard('Transactions', '${txns.length}', 'opérations', AppColors.blue)),
+                    Expanded(
+                        child: _statCard('Transactions', '${txns.length}',
+                            'opérations', AppColors.blue)),
                     const SizedBox(width: 10),
-                    Expanded(child: _statCard('Réussite', '$pct%', '$okCount réussies', AppColors.success)),
+                    Expanded(
+                        child: _statCard('Réussite', '$pct%',
+                            '$okCount réussies', AppColors.success)),
                   ]).animate().fadeIn(delay: 300.ms),
                 ],
               ),
@@ -142,10 +126,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           color: AppColors.textPrimary)),
                   const SizedBox(height: 12),
                   _menuCard([
-                    _menuItem(Icons.person_outline_rounded, 'Modifier le profil', AppColors.blue),
-                    _menuItem(Icons.lock_outline_rounded, 'Sécurité & mot de passe', AppColors.amber),
-                    _menuItem(Icons.notifications_outlined, 'Préférences de notifications', AppColors.primary),
-                    _menuItem(Icons.language_rounded, 'Langue', AppColors.purple),
+                    _menuItem(Icons.person_outline_rounded,
+                        'Modifier le profil', AppColors.blue),
+                    _menuItem(Icons.lock_outline_rounded,
+                        'Sécurité & mot de passe', AppColors.amber),
+                    _menuItem(Icons.notifications_outlined,
+                        'Préférences de notifications', AppColors.primary),
+                    _menuItem(
+                        Icons.language_rounded, 'Langue', AppColors.purple),
                   ]),
                 ],
               ).animate().fadeIn(delay: 500.ms),
@@ -159,8 +147,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
               child: Column(children: [
                 const SizedBox(height: 8),
                 _menuCard([
-                  _menuItem(Icons.help_outline_rounded, 'Aide & Support', AppColors.textSecondary),
-                  _menuItem(Icons.info_outline_rounded, 'À propos de l\'app', AppColors.textSecondary),
+                  _menuItem(Icons.help_outline_rounded, 'Aide & Support',
+                      AppColors.textSecondary),
+                  _menuItem(Icons.info_outline_rounded, 'À propos de l\'app',
+                      AppColors.textSecondary),
                 ]),
                 const SizedBox(height: 16),
                 SizedBox(
@@ -170,15 +160,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     onPressed: _loggingOut ? null : _logout,
                     style: OutlinedButton.styleFrom(
                       side: const BorderSide(color: AppColors.red, width: 1.5),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14)),
                     ),
                     icon: _loggingOut
                         ? const SizedBox(
                             width: 18,
                             height: 18,
-                            child: CircularProgressIndicator(color: AppColors.red, strokeWidth: 2),
+                            child: CircularProgressIndicator(
+                                color: AppColors.red, strokeWidth: 2),
                           )
-                        : const Icon(Icons.logout_rounded, color: AppColors.red, size: 20),
+                        : const Icon(Icons.logout_rounded,
+                            color: AppColors.red, size: 20),
                     label: Text('Déconnexion',
                         style: GoogleFonts.nunito(
                             fontSize: 15,
@@ -189,8 +182,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 const SizedBox(height: 8),
                 Text('Transfer On Line · AFRITECH-CI · v1.0.0',
                     style: GoogleFonts.nunito(
-                        fontSize: 11,
-                        color: AppColors.textHint)),
+                        fontSize: 11, color: AppColors.textHint)),
                 const SizedBox(height: 20),
               ]).animate().fadeIn(delay: 600.ms),
             ),
@@ -224,22 +216,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
             decoration: BoxDecoration(
               color: Colors.white.withValues(alpha: 0.15),
               shape: BoxShape.circle,
-              border: Border.all(color: Colors.white.withValues(alpha: 0.3), width: 2),
+              border: Border.all(
+                  color: Colors.white.withValues(alpha: 0.3), width: 2),
             ),
             child: const Center(
               child: Icon(Icons.person_rounded, size: 40, color: Colors.white),
             ),
           ).animate().scale(duration: 500.ms, curve: Curves.elasticOut),
-
           const SizedBox(height: 14),
-
           Row(mainAxisAlignment: MainAxisAlignment.center, children: [
             const Icon(Icons.phone_rounded, color: Colors.white60, size: 16),
             const SizedBox(width: 6),
             Text(
               _phone ?? 'Numéro non disponible',
               style: GoogleFonts.nunito(
-                  fontSize: 18, fontWeight: FontWeight.w900, color: Colors.white),
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                  color: Colors.white),
             ),
           ]).animate(delay: 100.ms).fadeIn(),
         ],
@@ -280,11 +273,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
           const SizedBox(width: 14),
           Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
                 Text(op,
                     style: GoogleFonts.nunito(
-                        fontSize: 13, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.textPrimary)),
                 Text('${opTxns.length} op. · ${_fmtAmt(opTotal)} FCFA',
                     style: GoogleFonts.nunito(
                         fontSize: 11, color: AppColors.textSecondary)),
@@ -294,8 +290,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 borderRadius: BorderRadius.circular(4),
                 child: LinearProgressIndicator(
                   value: pct,
-                  backgroundColor: AppColors.operatorColor(op).withValues(alpha: 0.12),
-                  valueColor: AlwaysStoppedAnimation<Color>(AppColors.operatorColor(op)),
+                  backgroundColor:
+                      AppColors.operatorColor(op).withValues(alpha: 0.12),
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                      AppColors.operatorColor(op)),
                   minHeight: 5,
                 ),
               ),
@@ -324,7 +322,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
               style: GoogleFonts.nunito(
                   fontSize: 18, fontWeight: FontWeight.w900, color: color)),
           Text(sub,
-              style: GoogleFonts.nunito(fontSize: 10, color: AppColors.textHint)),
+              style:
+                  GoogleFonts.nunito(fontSize: 10, color: AppColors.textHint)),
         ]),
       );
 

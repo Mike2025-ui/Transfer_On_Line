@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../models/models.dart';
-import '../services/auth_service.dart';
 import '../services/backend_api_service.dart';
 import '../services/transaction_service.dart';
 import '../theme/app_theme.dart';
@@ -10,10 +9,9 @@ import 'notifications_screen.dart';
 import 'step2_service.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key, this.backendApiService, this.authService});
+  const HomeScreen({super.key, this.backendApiService});
 
   final BackendApiService? backendApiService;
-  final AuthService? authService;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -22,7 +20,6 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   late final BackendApiService _api =
       widget.backendApiService ?? BackendApiService();
-  late final AuthService _auth = widget.authService ?? AuthService();
   // Identity architecture (Phase 8): starts empty, never sampleNotifications
   // - a brand-new identity genuinely has zero notifications until the
   // backend says otherwise; fabricating sample ones would misrepresent the
@@ -63,17 +60,13 @@ class _HomeScreenState extends State<HomeScreen> {
     // relancée en parallèle pour toutes à la fois (voir _reconcilePending).
     if (saved.isNotEmpty) await _reconcilePending(saved);
 
-    final accessToken = await _safeAccessToken();
-    if (accessToken == null) return;
     try {
-      final remote = await _api.fetchMyTransactions(accessToken: accessToken);
+      final remote = await _api.fetchMyTransactions();
       if (!mounted) return;
       setState(() => _transactions = remote.map(_toLocalTransaction).toList());
       await TransactionService.save(_transactions);
     } catch (_) {
-      // Backend unreachable/session expired - keep whatever the local
-      // cache/reconciliation above already produced rather than clearing
-      // a screen that was showing real data a moment ago.
+      // Backend unreachable - keep the local cache already produced.
     }
   }
 
@@ -102,10 +95,8 @@ class _HomeScreenState extends State<HomeScreen> {
   /// this is what makes notifications survive a phone change/reinstall
   /// exactly like transactions do (Phase 7).
   Future<void> _loadNotifications() async {
-    final accessToken = await _safeAccessToken();
-    if (accessToken == null) return;
     try {
-      final remote = await _api.fetchNotifications(accessToken: accessToken);
+      final remote = await _api.fetchNotifications();
       if (!mounted) return;
       setState(() => _notifications = remote.map(_toAppNotification).toList());
     } catch (_) {
@@ -113,8 +104,7 @@ class _HomeScreenState extends State<HomeScreen> {
       // empty/fake list just because of a transient error.
     }
     try {
-      final count =
-          await _api.fetchUnreadNotificationCount(accessToken: accessToken);
+      final count = await _api.fetchUnreadNotificationCount();
       if (mounted) setState(() => _unreadCount = count);
     } catch (_) {
       // Keep the previous count rather than showing a misleading 0.
@@ -150,29 +140,13 @@ class _HomeScreenState extends State<HomeScreen> {
     return '${local.day.toString().padLeft(2, '0')}/${local.month.toString().padLeft(2, '0')}/${local.year} · $h:$m';
   }
 
-  /// Reading the stored session must never crash a load - an unauthenticated
-  /// screen simply shows nothing personal yet, which matches reality (the
-  /// app always requires OTP before reaching HomeScreen anyway).
-  Future<String?> _safeAccessToken() async {
-    try {
-      return await _auth.currentAccessToken();
-    } catch (_) {
-      return null;
-    }
-  }
-
   Future<void> _markNotificationRead(AppNotification notification) async {
     final id = notification.id;
     if (id == null) return;
-    final accessToken = await _safeAccessToken();
-    if (accessToken == null) return;
     try {
-      await _api.markNotificationRead(
-          accessToken: accessToken, notificationId: id);
+      await _api.markNotificationRead(notificationId: id);
     } catch (_) {
-      // Best-effort: the local `read` flag (already applied by
-      // NotificationsScreen) is enough for this session; a future load will
-      // pick up the server's real state regardless.
+      // Best-effort: the local `read` flag is enough for this session.
     }
   }
 
@@ -184,20 +158,11 @@ class _HomeScreenState extends State<HomeScreen> {
     final pendingRefs =
         loaded.where((t) => t.status == 'pending').map((t) => t.id).toSet();
     if (pendingRefs.isEmpty) return;
-    String? accessToken;
-    try {
-      accessToken = await _auth.currentAccessToken();
-    } catch (_) {
-      // Reading the stored session must never crash the reconciliation - an
-      // unauthenticated status check still works (both endpoints are
-      // AllowAny), it just won't be attributed to a signed-in user.
-    }
     var current = List<Transaction>.from(loaded);
     var changed = false;
     for (final reference in pendingRefs) {
       try {
-        final result = await _api.getTransactionStatus(reference,
-            accessToken: accessToken);
+        final result = await _api.getTransactionStatus(reference);
         if (result.isPending) continue; // toujours en cours - rien à changer
         final index = current.indexWhere((t) => t.id == reference);
         if (index == -1) continue;
@@ -231,21 +196,24 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadOperators() async {
-    // Maquette hors ligne : on utilise trois opérateurs locaux pour que
-    // l'interface reste visible même si le serveur bloque la requête CORS.
-    const mockedOperators = [
-      OperatorItem(id: 1, name: 'Orange', code: 'orange'),
-      OperatorItem(id: 2, name: 'MTN', code: 'mtn'),
-      OperatorItem(id: 3, name: 'Moov', code: 'moov'),
-    ];
-
-    // On simule une réponse réussie : aucun chargement ni message d'erreur
-    // réseau ne doit apparaître pendant le travail sur l'écran graphique.
-    setState(() {
-      _operators = mockedOperators;
-      _loadingOperators = false;
-      _operatorsError = null;
-    });
+    try {
+      final operators = await _api.getOperators();
+      if (!mounted) return;
+      const displayOrder = {'Orange': 0, 'MTN': 1, 'Moov': 2};
+      operators.sort((a, b) =>
+          (displayOrder[a.name] ?? 99).compareTo(displayOrder[b.name] ?? 99));
+      setState(() {
+        _operators = operators;
+        _loadingOperators = false;
+        _operatorsError = null;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _loadingOperators = false;
+        _operatorsError = 'Impossible de charger les opérateurs.';
+      });
+    }
   }
 
   Color _operatorCardColor(String name) {
@@ -395,13 +363,13 @@ class _HomeScreenState extends State<HomeScreen> {
                         _notificationButton(unread),
                       ],
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 0),
                     _logo(),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 0),
                     Text(
                       'TRANSFER',
                       style: GoogleFonts.nunito(
-                        fontSize: 34,
+                        fontSize: 28,
                         height: 0.98,
                         fontWeight: FontWeight.w900,
                         color: Colors.white,
@@ -410,44 +378,44 @@ class _HomeScreenState extends State<HomeScreen> {
                     Text(
                       'ON LINE',
                       style: GoogleFonts.nunito(
-                        fontSize: 34,
+                        fontSize: 28,
                         height: 1,
                         fontWeight: FontWeight.w900,
                         color: const Color(0xFF66D300),
                       ),
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 4),
                     Text(
                       'Souscrivez ou transférez\nvos forfaits en toute simplicité',
                       textAlign: TextAlign.center,
                       style: GoogleFonts.nunito(
-                        fontSize: 16,
+                        fontSize: 13,
                         height: 1.25,
                         fontWeight: FontWeight.w800,
                         color: Colors.white,
                       ),
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 6),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         _roundService(Icons.phone_rounded),
-                        const SizedBox(width: 16),
+                        const SizedBox(width: 8),
                         _roundService(Icons.language_rounded),
-                        const SizedBox(width: 16),
+                        const SizedBox(width: 8),
                         _roundService(Icons.sms_rounded),
                       ],
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 6),
                     Text(
                       'Choisissez votre opérateur',
                       style: GoogleFonts.nunito(
-                        fontSize: 18,
+                        fontSize: 16,
                         fontWeight: FontWeight.w900,
                         color: Colors.white,
                       ),
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 5),
                     _operatorsSection(),
                   ],
                 ),
@@ -474,14 +442,14 @@ class _HomeScreenState extends State<HomeScreen> {
         clipBehavior: Clip.none,
         children: [
           Container(
-            width: 60,
-            height: 60,
+            width: 44,
+            height: 44,
             decoration: const BoxDecoration(
               color: Colors.white,
               shape: BoxShape.circle,
             ),
             child: const Icon(Icons.notifications_none_rounded,
-                color: AppColors.textPrimary, size: 34),
+                color: AppColors.textPrimary, size: 25),
           ),
           if (unread > 0)
             Positioned(
@@ -514,16 +482,16 @@ class _HomeScreenState extends State<HomeScreen> {
     return Stack(
       alignment: Alignment.center,
       children: [
-        Icon(Icons.sync_rounded, color: Colors.orange.shade600, size: 104),
-        const Icon(Icons.sync_rounded, color: Color(0xFF0BA23E), size: 65),
+        Icon(Icons.sync_rounded, color: Colors.orange.shade600, size: 82),
+        const Icon(Icons.sync_rounded, color: Color(0xFF0BA23E), size: 52),
       ],
     );
   }
 
   Widget _roundService(IconData icon) {
     return Container(
-      width: 74,
-      height: 58,
+      width: 48,
+      height: 48,
       decoration: BoxDecoration(
         color: const Color(0xFF06B43E),
         shape: BoxShape.circle,
@@ -535,7 +503,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      child: Icon(icon, color: Colors.white, size: 32),
+      child: Icon(icon, color: Colors.white, size: 22),
     );
   }
 
@@ -561,7 +529,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       child: Container(
         // Carte large, espacée et suffisamment haute comme dans la maquette.
-        height: 68,
+        height: 54,
         margin: const EdgeInsets.symmetric(horizontal: 2),
         padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
@@ -588,8 +556,8 @@ class _HomeScreenState extends State<HomeScreen> {
             SizedBox(
               // Le logo reste compact sur mobile pour laisser de la place au
               // nom et a la fleche de navigation.
-              width: 92,
-              height: 84,
+              width: 64,
+              height: 54,
               child: logo.isEmpty
                   // Placeholder local : la carte reste correcte si un logo
                   // manque dans assets/images.
@@ -617,14 +585,14 @@ class _HomeScreenState extends State<HomeScreen> {
                   overflow: TextOverflow.ellipsis,
                   style: GoogleFonts.nunito(
                     color: textColor,
-                    fontSize: 30,
+                    fontSize: 22,
                     fontWeight: FontWeight.w900,
                   ),
                 ),
               ),
             ),
             // Flèche blanche toujours visible à droite de la carte.
-            Icon(Icons.chevron_right_rounded, color: textColor, size: 42),
+            Icon(Icons.chevron_right_rounded, color: textColor, size: 30),
           ],
         ),
       ),

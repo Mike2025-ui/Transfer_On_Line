@@ -28,7 +28,7 @@ Les codes USSD composés par la Gateway sont configurés depuis le dashboard (op
 Passer l'URL backend au build :
 
 ```bash
-flutter build apk --release --dart-define=TOL_API_BASE_URL=https://api.example.com/api
+flutter build apk --release --dart-define=TOL_API_BASE_URL=https://transfert-online.site/api
 ```
 
 La même variable est utilisée par `frontend/` et `mobile/`.

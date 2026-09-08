@@ -101,131 +101,78 @@ git clone <your-repo-url> transfer_on_line
 cd transfer_on_line
 ```
 
-### 3. Configuration Production
+### 3. Configuration production
+
+Créez le fichier secret uniquement sur le VPS. Il est ignoré par Git et ne doit
+jamais être ajouté au dépôt GitHub :
 
 ```bash
-# Copier le template de production
-cp backend/.env backend/.env.production
-
-# Éditer la configuration
-nano backend/.env.production
+cp backend/.env.example backend/.env
+nano backend/.env
 ```
 
-**Paramètres à modifier :**
+Vérifiez au minimum ces valeurs :
 
 ```env
-# 🔐 Sécurité
-ENVIRONMENT=production
-DJANGO_SECRET_KEY=<votre-clé-secrète-forte>
+DJANGO_SECRET_KEY=<cle-secrete-generee-aleatoirement>
 DJANGO_DEBUG=false
-
-# 🌍 Domaine
-DJANGO_ALLOWED_HOSTS=votre-domaine.com,www.votre-domaine.com
+DJANGO_ALLOWED_HOSTS=transfert-online.site,www.transfert-online.site,180.149.198.189
 DJANGO_SECURE_SSL_REDIRECT=true
-
-# 🗄️ Base de données (si différente du default docker)
-DATABASE_URL=postgresql://transfer:PASSWORD@postgres:5432/transfer_on_line
-
-# 📧 Email (optionnel mais recommandé)
-EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
-EMAIL_HOST=smtp.gmail.com
-EMAIL_PORT=587
-EMAIL_HOST_USER=your-email@gmail.com
-EMAIL_HOST_PASSWORD=your-app-password
-
-# 💳 Paiements (Jèko & GeniusPay)
-JEKO_API_KEY=your_jeko_api_key
-JEKO_API_KEY_ID=your_jeko_key_id
-JEKO_STORE_ID=your_jeko_store_id
-GENIUSPAY_API_KEY=your_geniuspay_key
-GENIUSPAY_API_SECRET=your_geniuspay_secret
-
-# 📱 OTP (IKODDI)
-IKODDI_API_KEY=your_ikoddi_key
-IKODDI_GROUP_ID=your_ikoddi_group
-IKODDI_OTP_APP_ID=your_ikoddi_app_id
-
-# 🔗 URLs de callback
-GENIUSPAY_SUCCESS_URL=https://votre-domaine.com/payment/success
-GENIUSPAY_ERROR_URL=https://votre-domaine.com/payment/cancel
+DATABASE_URL=postgres://transfer:<mot-de-passe-postgres>@postgres:5432/transfer_on_line
+REDIS_URL=redis://redis:6379/0
+CORS_ALLOWED_ORIGINS=https://transfert-online.site,https://www.transfert-online.site
+CSRF_TRUSTED_ORIGINS=https://transfert-online.site,https://www.transfert-online.site
+GENIUSPAY_SUCCESS_URL=https://transfert-online.site/payment/success
+GENIUSPAY_ERROR_URL=https://transfert-online.site/payment/cancel
+JEKO_SUCCESS_URL=https://transfert-online.site/payment/success
+JEKO_ERROR_URL=https://transfert-online.site/payment/cancel
 ```
+
+Renseignez aussi les vraies clés Jèko, GeniusPay et les secrets webhook dans
+ce fichier uniquement sur le VPS.
 
 ### 4. Lancement sur VPS
 
 ```bash
-# Utiliser le .env.production
-cp backend/.env.production backend/.env
-
-# Construire les images
-docker-compose build
-
-# Démarrer les services
-docker-compose up -d
-
-# Vérifier les logs
-docker-compose logs -f backend
-
-# Vérifier l'état
-docker-compose ps
+docker compose --env-file backend/.env build
+docker compose --env-file backend/.env up -d
+docker compose --env-file backend/.env exec backend python manage.py check --deploy
+docker compose --env-file backend/.env ps
+docker compose --env-file backend/.env logs -f backend
 ```
 
-### 5. HTTPS avec Nginx (Recommandé)
+Le DNS doit contenir :
 
-Installez Nginx pour proxy HTTPS :
+```text
+transfert-online.site       A       180.149.198.189
+www.transfert-online.site   A       180.149.198.189
+```
+
+### 5. HTTPS avec Nginx
+
+Installez Nginx et Certbot :
 
 ```bash
 sudo apt-get install -y nginx certbot python3-certbot-nginx
-
-# Créer config Nginx
-sudo nano /etc/nginx/sites-available/transfer_on_line
+sudo mkdir -p /var/www/certbot
 ```
 
-Contenu du fichier de config :
-
-```nginx
-upstream backend {
-    server localhost:8000;
-}
-
-server {
-    listen 80;
-    server_name votre-domaine.com www.votre-domaine.com;
-    client_max_body_size 100M;
-
-    location / {
-        proxy_pass http://backend;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
-    location /static/ {
-        alias /home/your_user/transfer_on_line/backend/staticfiles/;
-    }
-
-    location /media/ {
-        alias /home/your_user/transfer_on_line/backend/media/;
-    }
-}
-```
-
-Puis :
+Pour la première installation, copiez la configuration HTTP bootstrap :
 
 ```bash
-# Activer la config
-sudo ln -s /etc/nginx/sites-available/transfer_on_line /etc/nginx/sites-enabled/
-
-# Tester la config
+sudo cp deploy/nginx/transfert-online.site.bootstrap.conf /etc/nginx/sites-available/transfert-online.site
+sudo ln -s /etc/nginx/sites-available/transfert-online.site /etc/nginx/sites-enabled/transfert-online.site
 sudo nginx -t
+sudo systemctl reload nginx
+sudo certbot --nginx -d transfert-online.site -d www.transfert-online.site
+```
 
-# Redémarrer Nginx
-sudo systemctl restart nginx
+Après émission du certificat, activez la configuration HTTPS finale :
 
-# Installer SSL (Let's Encrypt)
-sudo certbot --nginx -d votre-domaine.com -d www.votre-domaine.com
-
-# Vérifier renouvellement SSL auto
+```bash
+sudo cp deploy/nginx/transfert-online.site.conf /etc/nginx/sites-available/transfert-online.site
+sudo nginx -t
+sudo systemctl reload nginx
 sudo systemctl enable certbot.timer
 ```
 
