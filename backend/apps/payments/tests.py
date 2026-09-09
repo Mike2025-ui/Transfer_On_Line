@@ -299,12 +299,26 @@ class JekoProviderTests(TestCase):
         self.assertEqual(body['currency'], 'XOF')
         self.assertEqual(body['reference'], 'TOL-1')
         self.assertEqual(body['paymentDetails']['type'], 'redirect')
-        self.assertEqual(body['paymentDetails']['data']['paymentMethod'], 'orange')
+        # By default, multi-operator is enabled: paymentMethod is not forced
+        self.assertNotIn('paymentMethod', body['paymentDetails']['data'])
         self.assertEqual(body['paymentDetails']['data']['successUrl'], 'https://app.example.com/payment/success')
         self.assertEqual(body['paymentDetails']['data']['errorUrl'], 'https://app.example.com/payment/cancel')
 
         self.assertEqual(result.provider_transaction_id, 'pr-1')
         self.assertEqual(result.checkout_url, 'https://pay.jeko.africa/pay_request/pr/pr-1')
+
+    def test_create_payment_with_explicit_channel_sets_payment_method(self):
+        response = _FakeJekoResponse(200, {
+            'id': 'pr-1b', 'storeId': 'store-1', 'reference': 'TOL-1B',
+            'status': 'pending', 'redirectUrl': 'https://pay.jeko.africa/pay_request/pr/pr-1b',
+        })
+        with patch('apps.payments.providers.jeko.requests.post', return_value=response) as fake_post:
+            result = JekoProvider().create_payment(
+                transaction_id='TOL-1B', amount='1000', description='Internet - achat',
+                customer={'payment_channel': 'wave', 'phone': '+2250700000001'},
+            )
+        body = fake_post.call_args.kwargs['json']
+        self.assertEqual(body['paymentDetails']['data']['paymentMethod'], 'wave')
 
     def test_amount_is_not_multiplied_by_100(self):
         """Despite the "Cents" name, Jèko's own example shows amountCents
@@ -317,11 +331,11 @@ class JekoProviderTests(TestCase):
             )
         self.assertEqual(fake_post.call_args.kwargs['json']['amountCents'], 1000)
 
-    def test_unsupported_operator_is_rejected_without_calling_jeko(self):
+    def test_unsupported_channel_is_rejected_without_calling_jeko(self):
         with patch('apps.payments.providers.jeko.requests.post') as fake_post:
             with self.assertRaises(JekoError):
                 JekoProvider().create_payment(
-                    transaction_id='TOL-3', amount='1000', description='x', customer={'operator_code': 'unknown'},
+                    transaction_id='TOL-3', amount='1000', description='x', customer={'payment_channel': 'unknown'},
                 )
         fake_post.assert_not_called()
 

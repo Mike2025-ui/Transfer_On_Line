@@ -271,6 +271,8 @@ class ExecuteTransactionView(APIView):
         amount = _money(request.data.get('amount'))
         customer = request.data.get('customer') or {}
         payment_method = str(request.data.get('payment_method') or 'auto').lower()
+        if payment_method == 'djeko':
+            payment_method = 'jeko'
 
         if payment_method not in SUPPORTED_METHODS:
             return Response({'error': f'Unsupported payment_method: {payment_method}'}, status=400)

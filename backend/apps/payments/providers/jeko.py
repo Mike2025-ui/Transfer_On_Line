@@ -71,10 +71,6 @@ class JekoProvider(PaymentProvider):
         if amount_value < 100 or amount_value % 100 != 0:
             raise JekoError('Jèko amountCents must be at least 100 and a multiple of 100')
 
-        payment_method = str(customer.get('operator_code') or customer.get('operator') or '').lower()
-        if payment_method not in SUPPORTED_PAYMENT_METHODS:
-            raise JekoError(f'No Jèko payment method for operator: {payment_method or "unknown"}')
-
         payload = {
             'storeId': self.store_id,
             # Despite the "Cents" name, Jèko's own example shows amountCents
@@ -86,12 +82,21 @@ class JekoProvider(PaymentProvider):
             'paymentDetails': {
                 'type': 'redirect',
                 'data': {
-                    'paymentMethod': payment_method,
                     'successUrl': settings.JEKO_SUCCESS_URL,
                     'errorUrl': settings.JEKO_ERROR_URL,
                 },
             },
         }
+
+        # Multi-opérateurs : par défaut, ne pas pré-sélectionner de méthode de paiement
+        # afin que le guichet Web Checkout de Djeko affiche le menu complet
+        # des options (Wave, Djamo, Orange Money, Moov Money, MTN Money).
+        # On n'injecte paymentMethod que si le client demande explicitement un canal dédié.
+        explicit_channel = str(customer.get('payment_channel') or customer.get('channel') or '').lower()
+        if explicit_channel:
+            if explicit_channel not in SUPPORTED_PAYMENT_METHODS:
+                raise JekoError(f'No Jèko payment method for operator: {explicit_channel}')
+            payload['paymentDetails']['data']['paymentMethod'] = explicit_channel
 
         def _do_request():
             return requests.post(

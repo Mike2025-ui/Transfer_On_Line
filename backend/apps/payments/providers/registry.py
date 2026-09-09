@@ -9,6 +9,7 @@ PROVIDER_REGISTRY: dict[str, type[PaymentProvider]] = {
     FeexPayProvider.method: FeexPayProvider,
     GeniusPayProvider.method: GeniusPayProvider,
     JekoProvider.method: JekoProvider,
+    'djeko': JekoProvider,
 }
 
 AUTO_METHOD = 'auto'
