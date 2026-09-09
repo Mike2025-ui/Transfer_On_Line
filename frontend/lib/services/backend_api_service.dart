@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
@@ -152,12 +152,22 @@ class BackendApiService {
 
   final http.Client _client;
 
-  // Provide the backend address at build time with
-  // --dart-define=TOL_API_BASE_URL=http://HOST:8000/api.
-  static const String baseUrl = String.fromEnvironment(
+  // Récupération de l'adresse de base injectée à la compilation via l'argument :
+  // --dart-define=TOL_API_BASE_URL=https://transfert-online.site/api
+  // ou sans /api (par exemple : --dart-define=TOL_API_BASE_URL=https://transfert-online.site).
+  static const String _rawBaseUrl = String.fromEnvironment(
     'TOL_API_BASE_URL',
     defaultValue: 'http://localhost:8000/api',
   );
+
+  /// URL racine normalisée vers l'API backend Django.
+  /// Cette propriété nettoie les espaces et les barres obliques finales (slashes),
+  /// puis ajoute automatiquement le préfixe "/api" obligatoire s'il a été omis
+  /// lors de la compilation de l'application, évitant ainsi toute erreur HTTP 404.
+  static String get baseUrl {
+    final clean = _rawBaseUrl.trim().replaceAll(RegExp(r'/+$'), '');
+    return clean.endsWith('/api') ? clean : '$clean/api';
+  }
 
   /// Confirmation must come from the backend, never from the checkout URL
   /// having merely opened - see `GET /transactions/{reference}/status/`.
@@ -236,11 +246,11 @@ class BackendApiService {
         .toList();
   }
 
-  /// operatorId/serviceId are the business-model audit's target contract
-  /// (see backend `_resolve_operator`/`_resolve_service` in
-  /// apps/devices/views.py, which already prioritises the id over the name
-  /// when both are sent). Optional and additive: no existing caller passes
-  /// them yet, so every current call keeps sending names exactly as before.
+  /// Initialise une nouvelle transaction et crée la session de paiement sur le backend.
+  /// Envoie une requête POST vers "$baseUrl/transactions/execute/".
+  /// [operatorId] et [serviceId] : identifiants numériques prioritaires de l'opérateur et du service.
+  /// [paymentMethod] : méthode de paiement par défaut fixée à 'djeko'.
+  /// [idempotencyKey] : clé unique protégeant contre les doubles débits en cas de réémission réseau.
   Future<BackendTransactionResult> createTransaction({
     required String operator,
     required String service,
@@ -258,13 +268,9 @@ class BackendApiService {
       headers: {
         'Accept': 'application/json',
         'Content-Type': 'application/json',
-        // Additive only: /transactions/execute/ stays AllowAny, this just
-        // lets the backend attribute the transaction to a signed-in user
-        // when one exists - it is not, on its own, an access requirement.
+        // Jeton d'authentification Bearer (optionnel : associe la transaction à l'utilisateur connecté)
         if (accessToken != null) 'Authorization': 'Bearer $accessToken',
-        // Business-model audit Phase 5: identifies THIS submission attempt
-        // so a retried/duplicated call never creates a second Transaction -
-        // see ExecuteTransactionView.post() in apps/devices/views.py.
+        // Clé d'idempotence identifiant de manière unique cette tentative de transaction
         if (idempotencyKey != null) 'Idempotency-Key': idempotencyKey,
       },
       body: jsonEncode({

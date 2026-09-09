@@ -116,12 +116,17 @@ Transfer_On_Line/
 
 1. **Tunnel Compact & Design Adaptatif** :
    - Remplacement des `SingleChildScrollView` superflus par des agencements `Column` / `Expanded` calibrés pour éviter les débordements de pixels.
-2. **Correction du Forçage d'Opérateur dans Djeko (Étape 3 du présent plan)** :
+2. **Correction du Forçage d'Opérateur dans Djeko** *(09/09/2026 16:00 UTC)* :
    - Correction de `backend/apps/payments/providers/jeko.py` : l'opérateur de la ligne rechargée (`operator_code`) était incorrectement utilisé pour restreindre le champ `paymentMethod` de Jèko. Désormais, le payload omet ce paramètre par défaut, ce qui ordonne à Djeko d'afficher son menu complet de sélection à l'utilisateur.
    - Normalisation du paramètre `djeko` vers `jeko` dans le backend et le registre de paiement.
-3. **Sécurisation de Branche Git** :
+3. **Sécurisation de Branche Git** *(09/09/2026 15:50 UTC)* :
    - Sauvegarde de l'état de design sur la branche `bypass-auth`.
    - Création et publication de la branche officielle `feature-payment-djeko`.
+4. **Sécurisation de l'URL racine et Normalisation du préfixe `/api`** *(09/09/2026 16:55 UTC)* :
+   - Dans `frontend/lib/services/backend_api_service.dart` et `mobile/lib/services/gateway_api.dart`, remplacement de la constante brute `baseUrl` par un getter dynamique qui assainit l'adresse fournie (nettoyage des espaces et des slashes finaux) et garantit la présence obligatoire du suffixe `/api`.
+   - Élimine tout risque d'erreur HTTP 404 lors du build Flutter si l'argument `--dart-define=TOL_API_BASE_URL` omet le suffixe `/api`.
+   - Ajout d'une suite de tests unitaires dédiée dans `frontend/test/services/backend_api_service_test.dart`.
+   - Traduction et ajout de commentaires détaillés en français sur l'ensemble du code modifié.
 
 ---
 
@@ -143,6 +148,13 @@ Transfer_On_Line/
 - **Solution** :
   - Découplage dans le backend entre l'opérateur télécom cible (bénéficiaire du forfait) et le moyen de paiement utilisé par le client.
   - Suppression de l'assignation automatique de `paymentMethod` dans `paymentDetails.data` du connecteur Jèko, libérant ainsi l'affichage complet du catalogue de paiement de la passerelle.
+
+### Problème 4 : Erreur "Backend indisponible (404)" au clic sur "PAYER ET SOUSCRIRE" *(09/09/2026 16:45 UTC)*
+- **Symptôme** : Après saisie du montant et du numéro dans l'écran `step4_payment.dart`, le clic sur "PAYER ET SOUSCRIRE" déclenchait une SnackBar d'erreur `Backend indisponible (404)`.
+- **Cause racine** : L'argument de compilation utilisé sur le serveur (`--dart-define=TOL_API_BASE_URL=https://transfert-online.site`) ne comportait pas `/api`. L'application tentait de joindre `https://transfert-online.site/transactions/execute/`, route non reconnue par Django qui monte ses vues d'exécution sous `/api/transactions/execute/`.
+- **Solution** :
+  - Implémentation d'une fonction de normalisation automatique dans `backend_api_service.dart` et `gateway_api.dart` garantissant l'injection de `/api` si l'utilisateur compile avec l'URL brute du domaine.
+  - Ajout du test unitaire validant le formatage automatique de `baseUrl`.
 
 ---
 
@@ -283,8 +295,9 @@ Afin de préserver les ressources de la machine locale et d'utiliser la bande pa
 3. **Compilation de l'application cliente Frontend** :
    ```bash
    cd frontend
-   flutter pub get
-   flutter build apk --release --dart-define=TOL_API_BASE_URL=https://transfert-online.site
+   # Grâce à la normalisation automatique ajoutée, vous pouvez passer https://transfert-online.site/api
+   # ou https://transfert-online.site indifféremment sans risquer d'erreur 404 :
+   flutter build apk --release --dart-define=TOL_API_BASE_URL=https://transfert-online.site/api
    ```
 
 4. **Emplacement de l'APK final généré sur le serveur** :

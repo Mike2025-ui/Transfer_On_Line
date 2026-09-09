@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 import 'dart:math';
 
 import 'package:http/http.dart' as http;
@@ -250,12 +250,20 @@ class GatewayApi {
   final http.Client _client;
   final String _gatewaySecret;
 
-  // Provide the backend address at build time with
-  // --dart-define=TOL_API_BASE_URL=http://HOST:8000/api.
-  static const String baseUrl = String.fromEnvironment(
+  // Adresse de base de l'API fournie lors de la compilation avec :
+  // --dart-define=TOL_API_BASE_URL=https://transfert-online.site/api
+  // ou sans /api : la propriété baseUrl ci-dessous ajoute /api automatiquement si manquant.
+  static const String _rawBaseUrl = String.fromEnvironment(
     'TOL_API_BASE_URL',
-    defaultValue: 'http://localhost:8000/api',
+    defaultValue: 'https://transfert-online.site/api',
   );
+
+  /// URL racine normalisée vers l'API backend Django.
+  /// Supprime les barres obliques finales et garantit l'inclusion du préfixe "/api".
+  static String get baseUrl {
+    final clean = _rawBaseUrl.trim().replaceAll(RegExp(r'/+$'), '');
+    return clean.endsWith('/api') ? clean : '$clean/api';
+  }
 
   /// Business-model audit Phase 7 (Gateway security): each physical Gateway
   /// phone is enrolled once via the Django admin (see

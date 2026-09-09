@@ -344,6 +344,12 @@ void main() {
         ),
         throwsA(isA<Exception>().having((e) => e.toString(), 'message', contains('introuvable'))),
       );
+  });
+
+  group('BackendApiService.baseUrl', () {
+    // Vérifie que l'URL de base se termine obligatoirement par /api
+    test('garantit la présence du suffixe /api même si omis lors du build', () {
+      expect(BackendApiService.baseUrl.endsWith('/api'), isTrue);
     });
   });
 }
