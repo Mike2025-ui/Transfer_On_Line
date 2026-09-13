@@ -70,6 +70,30 @@ class _Step3InfoScreenState extends State<Step3InfoScreen> {
   int _selectedAmount = 1000;
   String? _amountError;
 
+  String get _serviceLogo {
+    final normalized = widget.service.toLowerCase();
+    if (normalized.contains('internet') || normalized.contains('data')) {
+      return 'assets/images/internet.png';
+    }
+    if (normalized.contains('sms')) return 'assets/images/sms.png';
+    if (normalized.contains('appel') || normalized.contains('voix')) {
+      return 'assets/images/telephone.png';
+    }
+    return 'assets/images/icône_de souscription.png';
+  }
+
+  String get _serviceLabel {
+    final normalized = widget.service.toLowerCase();
+    if (normalized.contains('internet') || normalized.contains('data')) {
+      return 'Pass Internet';
+    }
+    if (normalized.contains('sms')) return 'Pass SMS';
+    if (normalized.contains('appel') || normalized.contains('voix')) {
+      return 'Pass voix';
+    }
+    return 'Crédit de communication';
+  }
+
   @override
   void initState() {
     super.initState();
@@ -108,120 +132,176 @@ class _Step3InfoScreenState extends State<Step3InfoScreen> {
             step: 3,
           ),
           Expanded(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Text(widget.service,
-                      textAlign: TextAlign.center,
-                      style: GoogleFonts.nunito(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w900,
-                          color: AppColors.textPrimary)),
-                  const SizedBox(height: 6),
-                  Center(child: _label('Numéro')),
-                  const SizedBox(height: 5),
-                  _inputShell(
-                    leading: Icons.phone_in_talk_outlined,
-                    trailing: Icons.person_outline_rounded,
-                    child: TextField(
-                      controller: _phoneCtrl,
-                      keyboardType: TextInputType.phone,
-                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                      onChanged: (_) => setState(() {
-                        _phoneError = _phoneValidationError(_phoneCtrl.text);
-                      }),
-                      style: _fieldStyle(),
-                      decoration: _inputDecoration('Entrez le numéro'),
-                    ),
-                  ),
-                  if (_phoneError != null) ...[
-                    const SizedBox(height: 6),
-                    Text(
-                      _phoneError!,
-                      style: GoogleFonts.nunito(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.red,
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 5),
-                  _hint('Exemple : 07XXXXXXXX'),
-                  const SizedBox(height: 12),
-                  Center(child: _label('Montant')),
-                  const SizedBox(height: 5),
-                  _inputShell(
-                    leading: Icons.attach_money_rounded,
-                    trailing: Icons.keyboard_arrow_down_rounded,
-                    trailingText: 'FCFA',
-                    child: TextField(
-                      controller: _amountCtrl,
-                      keyboardType: TextInputType.number,
-                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                      onChanged: _onAmountChanged,
-                      style: _fieldStyle(),
-                      decoration: _inputDecoration('Entrez le montant'),
-                    ),
-                  ),
-                  if (_amountError != null) ...[
-                    const SizedBox(height: 4),
-                    Text(_amountError!,
-                        style: GoogleFonts.nunito(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.red,
-                        )),
-                  ],
-                  const SizedBox(height: 5),
-                  _hint('Montant de souscription ou transfert autorisé'),
-                  const SizedBox(height: 10),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
+            child: SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 580),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      const Icon(Icons.flash_on_rounded,
-                          color: AppColors.success, size: 25),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Montants rapides',
-                        style: GoogleFonts.nunito(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w900,
-                          color: AppColors.textPrimary,
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: AppColors.primaryLight,
+                          borderRadius: BorderRadius.circular(16),
                         ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 64,
+                              height: 64,
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              child: Image.asset(_serviceLogo,
+                                  fit: BoxFit.contain),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(_serviceLabel,
+                                      style: GoogleFonts.nunito(
+                                          fontSize: 20,
+                                          fontWeight: FontWeight.w900,
+                                          color: AppColors.textPrimary)),
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    'Numéro ${widget.operator} à recharger',
+                                    style: GoogleFonts.nunito(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.textSecondary,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      Align(
+                          alignment: Alignment.centerLeft,
+                          child: _label('Numéro de l’opérateur')),
+                      const SizedBox(height: 8),
+                      _inputShell(
+                        leading: Icons.phone_in_talk_outlined,
+                        trailing: Icons.person_outline_rounded,
+                        child: TextField(
+                          controller: _phoneCtrl,
+                          keyboardType: TextInputType.phone,
+                          inputFormatters: [
+                            FilteringTextInputFormatter.digitsOnly
+                          ],
+                          onChanged: (_) => setState(() {
+                            _phoneError =
+                                _phoneValidationError(_phoneCtrl.text);
+                          }),
+                          style: _fieldStyle(),
+                          decoration: _inputDecoration('Entrez le numéro'),
+                        ),
+                      ),
+                      if (_phoneError != null) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          _phoneError!,
+                          style: GoogleFonts.nunito(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.red,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 6),
+                      _hint('Exemple : $_phoneExample'),
+                      const SizedBox(height: 20),
+                      Align(
+                          alignment: Alignment.centerLeft,
+                          child: _label('Montant')),
+                      const SizedBox(height: 8),
+                      _inputShell(
+                        leading: Icons.attach_money_rounded,
+                        trailing: Icons.keyboard_arrow_down_rounded,
+                        trailingText: 'FCFA',
+                        child: TextField(
+                          controller: _amountCtrl,
+                          keyboardType: TextInputType.number,
+                          inputFormatters: [
+                            FilteringTextInputFormatter.digitsOnly
+                          ],
+                          onChanged: _onAmountChanged,
+                          style: _fieldStyle(),
+                          decoration: _inputDecoration('Entrez le montant'),
+                        ),
+                      ),
+                      if (_amountError != null) ...[
+                        const SizedBox(height: 6),
+                        Text(_amountError!,
+                            style: GoogleFonts.nunito(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.red,
+                            )),
+                      ],
+                      const SizedBox(height: 6),
+                      _hint('Souscription ou transfert autorisé'),
+                      const SizedBox(height: 20),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          'Montants rapides',
+                          style: GoogleFonts.nunito(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w900,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: _quickAmounts.map((amount) {
+                          return Expanded(
+                            child: Padding(
+                              padding: EdgeInsets.only(
+                                  right: amount == _quickAmounts.last ? 0 : 8),
+                              child: QuickAmountButton(
+                                amount: amount,
+                                selected: _selectedAmount == amount,
+                                onTap: () {
+                                  setState(() {
+                                    _selectedAmount = amount;
+                                    _amountCtrl.text = '$amount';
+                                    _amountError = null;
+                                  });
+                                },
+                              ),
+                            ),
+                          );
+                        }).toList(),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 6),
-                  Row(
-                    children: _quickAmounts.map((amount) {
-                      return Expanded(
-                        child: Padding(
-                          padding: EdgeInsets.only(
-                              right: amount == _quickAmounts.last ? 0 : 8),
-                          child: QuickAmountButton(
-                            amount: amount,
-                            selected: _selectedAmount == amount,
-                            onTap: () {
-                              setState(() {
-                                _selectedAmount = amount;
-                                _amountCtrl.text = '$amount';
-                                _amountError = null;
-                              });
-                            },
-                          ),
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                  const SizedBox(height: 10),
-                  TolButton(label: 'CONTINUER ›', onTap: _next),
-                ],
+                ),
               ),
             ),
           ),
         ],
+      ),
+      bottomNavigationBar: SafeArea(
+        minimum: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 580),
+            child: TolButton(label: 'CONTINUER ›', onTap: _next),
+          ),
+        ),
       ),
     );
   }
@@ -236,6 +316,17 @@ class _Step3InfoScreenState extends State<Step3InfoScreen> {
     return null;
   }
 
+  String get _phoneExample {
+    switch (widget.operator) {
+      case 'Moov':
+        return '01XXXXXXXX';
+      case 'MTN':
+        return '05XXXXXXXX';
+      default:
+        return '07XXXXXXXX';
+    }
+  }
+
   Widget _inputShell({
     required IconData leading,
     required IconData trailing,
@@ -243,38 +334,38 @@ class _Step3InfoScreenState extends State<Step3InfoScreen> {
     String? trailingText,
   }) {
     return Container(
-      height: 58,
-      padding: const EdgeInsets.symmetric(horizontal: 14),
+      height: 64,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFE6E9F2)),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE6E9F2), width: 1.2),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.035),
-            blurRadius: 12,
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 14,
             offset: const Offset(0, 4),
           ),
         ],
       ),
       child: Row(
         children: [
-          Icon(leading, color: AppColors.textPrimary, size: 30),
-          const SizedBox(width: 18),
+          Icon(leading, color: AppColors.textPrimary, size: 32),
+          const SizedBox(width: 16),
           Expanded(child: child),
-          Container(width: 1, height: 34, color: const Color(0xFFE2E5EF)),
+          Container(width: 1, height: 38, color: const Color(0xFFE2E5EF)),
           const SizedBox(width: 14),
           if (trailingText != null)
             Text(
               trailingText,
               style: GoogleFonts.nunito(
-                fontSize: 17,
+                fontSize: 18,
                 fontWeight: FontWeight.w900,
                 color: AppColors.success,
               ),
             ),
           const SizedBox(width: 8),
-          Icon(trailing, color: AppColors.success, size: 28),
+          Icon(trailing, color: AppColors.success, size: 30),
         ],
       ),
     );
@@ -282,7 +373,7 @@ class _Step3InfoScreenState extends State<Step3InfoScreen> {
 
   TextStyle _fieldStyle() {
     return GoogleFonts.nunito(
-      fontSize: 17,
+      fontSize: 18,
       fontWeight: FontWeight.w700,
       color: AppColors.textPrimary,
     );
@@ -292,7 +383,7 @@ class _Step3InfoScreenState extends State<Step3InfoScreen> {
     return InputDecoration(
       hintText: hint,
       hintStyle: GoogleFonts.nunito(
-        fontSize: 17,
+        fontSize: 18,
         fontWeight: FontWeight.w600,
         color: AppColors.textHint,
       ),

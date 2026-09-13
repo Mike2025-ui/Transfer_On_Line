@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
@@ -166,7 +166,10 @@ class BackendApiService {
       {String? accessToken}) async {
     final response = await _client.get(
       Uri.parse('$baseUrl/transactions/$reference/status/'),
-      headers: {'Accept': 'application/json'},
+      headers: {
+        'Accept': 'application/json',
+        if (accessToken != null) 'Authorization': 'Bearer $accessToken',
+      },
     );
     if (response.statusCode == 404) {
       throw TransactionNotFoundException();
@@ -248,7 +251,7 @@ class BackendApiService {
     int? operatorId,
     int? serviceId,
     String paymentMethod = 'jeko',
-    String jekoPaymentMethod = 'wave',
+    String? jekoPaymentMethod,
     String? accessToken,
     String? idempotencyKey,
   }) async {
@@ -257,6 +260,7 @@ class BackendApiService {
       headers: {
         'Accept': 'application/json',
         'Content-Type': 'application/json',
+        if (accessToken != null) 'Authorization': 'Bearer $accessToken',
         if (idempotencyKey != null) 'Idempotency-Key': idempotencyKey,
       },
       body: jsonEncode({
@@ -268,7 +272,7 @@ class BackendApiService {
         'recipient_phone': phone,
         'amount': amount,
         'payment_method': paymentMethod,
-        'jeko_payment_method': jekoPaymentMethod,
+        if (jekoPaymentMethod != null) 'jeko_payment_method': jekoPaymentMethod,
       }),
     );
 

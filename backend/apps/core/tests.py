@@ -1,8 +1,9 @@
 import importlib
 import os
+import unittest
 from unittest.mock import patch
 
-from django.db import IntegrityError, transaction as db_transaction
+from django.db import connection, IntegrityError, transaction as db_transaction
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -223,15 +224,26 @@ class TransactionSyncFromPaymentTests(TestCase):
         tx.refresh_from_db()
         self.assertEqual(tx.status, 'pending')
 
-    def test_non_accepted_payment_still_fails_the_transaction(self):
+    def test_failed_payment_fails_the_transaction(self):
         tx = _make_transaction('pending')
-        tx.payment = Payment.objects.create(method='jeko', reference='PAY-2', amount=1000, status='refused')
+        tx.payment = Payment.objects.create(method='jeko', reference='PAY-FAILED', amount=1000, status='failed')
         tx.save(update_fields=['payment'])
 
         tx.sync_from_payment()
 
         tx.refresh_from_db()
         self.assertEqual(tx.status, 'failed')
+
+    def test_pending_payment_keeps_transaction_pending_does_not_fail(self):
+        """A payment that is still pending checkout completion must not prematurely fail the transaction."""
+        tx = _make_transaction('pending')
+        tx.payment = Payment.objects.create(method='jeko', reference='PAY-PENDING', amount=1000, status='pending')
+        tx.save(update_fields=['payment'])
+
+        tx.sync_from_payment()
+
+        tx.refresh_from_db()
+        self.assertEqual(tx.status, 'pending', 'A pending payment must keep the transaction pending')
 
 
 class TransactionEventTests(TestCase):
@@ -387,6 +399,7 @@ class UssdCodeModelTests(TestCase):
         with self.assertRaises(ValueError):
             code.render({'montnat': 1000})
 
+    @unittest.skipIf(connection.vendor == 'sqlite', 'SQLite does not support unique constraints with nulls distinct')
     def test_unique_active_constraint_blocks_two_active_rows_for_the_same_operator_service(self):
         UssdCode.objects.create(operator=self.orange, service=self.internet, label='A', template='*456*{montant}#')
         with self.assertRaises(IntegrityError), db_transaction.atomic():
@@ -536,6 +549,7 @@ class UssdCodeAmountResolutionTests(TestCase):
         )
         self.assertIsNone(resolve_ussd_code(self.orange, self.internet))
 
+    @unittest.skipIf(connection.vendor == 'sqlite', 'SQLite does not support unique constraints with nulls distinct')
     def test_duplicate_active_specific_amount_is_rejected(self):
         UssdCode.objects.create(
             operator=self.orange, service=self.internet, amount=500, label='A', template='*456*4*1#',
@@ -545,6 +559,7 @@ class UssdCodeAmountResolutionTests(TestCase):
                 operator=self.orange, service=self.internet, amount=500, label='B', template='*456*4*2#',
             )
 
+    @unittest.skipIf(connection.vendor == 'sqlite', 'SQLite does not support unique constraints with nulls distinct')
     def test_duplicate_active_generic_rows_are_rejected(self):
         """The bug found during the architecture audit: NULL amount (and
         NULL service) must not let two active 'generic' rows coexist for the

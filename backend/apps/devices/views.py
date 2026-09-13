@@ -8,7 +8,7 @@ from django.db import transaction as db_transaction
 from django.db.models import F, Prefetch
 from django.utils import timezone
 from rest_framework.pagination import PageNumberPagination
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -34,7 +34,6 @@ from apps.devices.services.transaction_dispatcher import (
 from apps.payments.providers.base import PaymentProviderError
 from apps.payments.providers.registry import SUPPORTED_METHODS
 
-SUPPORTED_JEKO_PAYMENT_METHODS = {'wave', 'orange', 'mtn', 'moov', 'djamo'}
 from apps.payments.services.payment_service import PaymentService
 
 
@@ -193,11 +192,7 @@ def _authenticate_gateway(request):
     """Business-model audit Phase 7 (Gateway security): the ONLY source of
     Gateway identity for every Gateway-facing endpoint from here on -
     `gateway_uuid`/`gateway_id` sent by the caller are never trusted for
-    identity again, only this header is. A custom header, not
-    `Authorization: Bearer` - `rest_framework_simplejwt`'s JWTAuthentication
-    is already registered globally (see DEFAULT_AUTHENTICATION_CLASSES) and
-    would intercept/reject a bare secret sent that way before this function
-    ever ran. Returns (gateway, None) on success, (None, Response) on
+    identity again, only this header is. Returns (gateway, None) on success, (None, Response) on
     failure - the raw secret is never logged, never echoed back, and never
     stored anywhere but as its own SHA-256 hash (see Gateway.generate_secret)."""
     secret = request.headers.get('X-Gateway-Secret')
@@ -244,15 +239,7 @@ class GatewayHeartbeatView(APIView):
 
 
 class ExecuteTransactionView(APIView):
-    """AllowAny is kept deliberately (identity architecture audit, Phase 6):
-    the existing transaction engine's test suite (idempotency, cross-operator
-    gateway selection, the new-engine e2e path) creates transactions
-    anonymously via this exact endpoint, and requiring auth here would be an
-    unrelated, invasive change to that engine. The real fix is that
-    Transaction.user is now always populated from request.user when a valid
-    JWT is present (see post() below) - ownership, history and notifications
-    all key off that field, never off AllowAny/anonymous access to this
-    specific endpoint."""
+    """Creates a client transaction anonymously."""
 
     permission_classes = [AllowAny]
 
@@ -279,12 +266,19 @@ class ExecuteTransactionView(APIView):
         amount = _money(request.data.get('amount'))
         customer = request.data.get('customer') or {}
         payment_method = str(request.data.get('payment_method') or 'auto').lower()
-        jeko_payment_method = str(request.data.get('jeko_payment_method') or '').lower()
 
         if payment_method not in SUPPORTED_METHODS:
             return Response({'error': f'Unsupported payment_method: {payment_method}'}, status=400)
-        if jeko_payment_method and jeko_payment_method not in SUPPORTED_JEKO_PAYMENT_METHODS:
-            return Response({'error': f'Unsupported jeko_payment_method: {jeko_payment_method}'}, status=400)
+
+        jeko_payment_method = request.data.get('jeko_payment_method')
+        if jeko_payment_method:
+            jeko_payment_method = str(jeko_payment_method).lower().strip()
+            from apps.payments.providers.jeko import SUPPORTED_PAYMENT_METHODS as JEKO_SUPPORTED_METHODS
+            if jeko_payment_method not in JEKO_SUPPORTED_METHODS:
+                return Response(
+                    {'error': f'Unsupported jeko_payment_method: {jeko_payment_method}. Supported: {sorted(JEKO_SUPPORTED_METHODS)}'},
+                    status=400,
+                )
 
         if not phone or amount <= 0:
             return Response({'error': 'phone/recipient_phone and amount are required'}, status=400)
@@ -335,14 +329,8 @@ class ExecuteTransactionView(APIView):
         )
         tx_fields = dict(
             device=device,
-            # Business-model audit (identity architecture): the owning
-            # identity always comes from the verified JWT (request.user),
-            # never from a user_id/phone_number the client could send
-            # freely - None for a request with no valid Bearer token
-            # (device/AllowAny remains the fallback for backward
-            # compatibility with the existing transaction engine, see
-            # ExecuteTransactionView's class doc), exactly like before this
-            # field existed.
+            # The client flow is anonymous. Keep the nullable user field
+            # empty unless a future authenticated backend path sets it.
             user=request.user if request.user.is_authenticated else None,
             service=service,
             operator=operator,
@@ -385,15 +373,25 @@ class ExecuteTransactionView(APIView):
             'email': customer.get('email') or request.data.get('customer_email') or 'client@example.com',
             'operator': operator.name,
             'operator_code': operator.code,
-            'payment_method': jeko_payment_method,
         }
+        pm = jeko_payment_method or customer.get('payment_method')
+        if pm:
+            customer_payload['payment_method'] = pm
+
+        metadata = {
+            'order_id': str(tx.reference),
+            'correlation_id': str(tx.reference),
+        }
+        if jeko_payment_method:
+            metadata['jeko_payment_method'] = jeko_payment_method
+            metadata['payment_method'] = jeko_payment_method
 
         try:
             PaymentService.initiate(
                 payment,
                 description=f'{service.name} - souscription',
                 customer=customer_payload,
-                metadata={'order_id': str(tx.reference), 'correlation_id': str(tx.reference)},
+                metadata=metadata,
             )
         except PaymentProviderError as exc:
             TransactionStateMachine.transition(tx, 'failed', reason='payment_init_failed', error=str(exc))
@@ -439,6 +437,20 @@ class TransactionStatusView(APIView):
             # actually exists.
             return Response({'error': 'Transaction not found'}, status=404)
 
+        if tx.payment and tx.payment.method == 'jeko' and tx.payment.status == 'pending':
+            now = timezone.now()
+            age = (now - tx.payment.created_at).total_seconds()
+            last_checked = (now - tx.payment.updated_at).total_seconds()
+            # Jèko docs specify: failed/cancelled payments emit NO webhooks.
+            # To detect failures and avoid indefinite polling, verify actively
+            # once the payment has been pending for at least 8 seconds, throttled to 5s intervals.
+            if age >= 8 and last_checked >= 5:
+                try:
+                    PaymentService.verify(tx.payment)
+                    tx.refresh_from_db()
+                except Exception as exc:
+                    logger.warning('TransactionStatusView: Jèko verify check failed for %s: %s', tx.reference, exc)
+
         try:
             payload = transaction_payload(tx)
         except (UssdCodeNotConfigured, UssdCodeRenderError) as exc:
@@ -467,64 +479,67 @@ class _PersonalDataPagination(PageNumberPagination):
 
 
 class MyTransactionsView(APIView):
-    """Identity architecture (Phase 7): the customer's own purchase
-    history, queried exclusively from `request.user` - never from a
-    phone_number/user_id/device_uid the client could send freely. Requires
-    a real JWT: unlike ExecuteTransactionView/TransactionStatusView, there
-    is no anonymous/device-based equivalent of "my history" to stay
-    backward-compatible with, so this is IsAuthenticated from the start."""
+    """Open-source/local-first client contract.
 
-    permission_classes = [IsAuthenticated]
+    Purchase history lives on the device, not behind a server account. This
+    endpoint intentionally returns an empty page for old app builds that still
+    call it, instead of forcing an account flow the product no longer has.
+    """
+
+    permission_classes = [AllowAny]
 
     def get(self, request):
-        qs = Transaction.objects.filter(user=request.user).select_related(
-            'service', 'operator', 'payment',
-        ).order_by('-created_at')
-        paginator = _PersonalDataPagination()
-        page = paginator.paginate_queryset(qs, request, view=self)
-        results = [transaction_payload(tx) for tx in page]
-        return paginator.get_paginated_response(results)
+        return Response({'count': 0, 'next': None, 'previous': None, 'results': []})
 
 
 class NotificationListView(APIView):
-    """Identity architecture (Phase 8): every query filtered by
-    `request.user` - a user can never list another user's notifications,
-    regardless of what id/phone_number/anything else is sent."""
+    """Notifications are local-first with no account identity."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
 
     def get(self, request):
-        qs = Notification.objects.filter(user=request.user).select_related('transaction')
-        paginator = _PersonalDataPagination()
-        page = paginator.paginate_queryset(qs, request, view=self)
-        results = [notification_payload(n) for n in page]
-        return paginator.get_paginated_response(results)
+        return Response({'count': 0, 'next': None, 'previous': None, 'results': []})
 
 
 class UnreadNotificationCountView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
 
     def get(self, request):
-        count = Notification.objects.filter(user=request.user, is_read=False).count()
-        return Response({'unread_count': count})
+        return Response({'unread_count': 0})
 
 
 class MarkNotificationReadView(APIView):
-    """Scoped to `request.user` in the same lookup, not checked
-    afterwards: a notification belonging to another user simply does not
-    exist from this caller's point of view (404, not 403 - never confirms
-    it exists for someone else)."""
+    """Kept for backward compatibility; local notifications are read locally."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
 
     def post(self, request, notification_id):
-        notification = Notification.objects.filter(id=notification_id, user=request.user).first()
-        if notification is None:
-            return Response({'error': 'Notification not found'}, status=404)
-        if not notification.is_read:
-            notification.is_read = True
-            notification.save(update_fields=['is_read'])
-        return Response(notification_payload(notification))
+        return Response({'error': 'Server notifications are disabled'}, status=410)
+
+
+class CancelTransactionView(APIView):
+    permission_classes = [AllowAny]
+
+    @db_transaction.atomic
+    def post(self, request, reference):
+        tx = Transaction.objects.select_for_update().select_related('payment').filter(reference=reference).first()
+        if tx is None:
+            return Response({'error': 'Transaction not found'}, status=404)
+
+        if TransactionStateMachine.is_terminal(tx.status):
+            return Response(transaction_payload(tx))
+
+        if tx.payment and tx.payment.status == 'accepted':
+            return Response({'error': 'Payment already accepted; transaction cannot be cancelled'}, status=409)
+
+        if tx.payment and tx.payment.status == 'pending':
+            tx.payment.status = 'cancelled'
+            tx.payment.save(update_fields=['status', 'updated_at'])
+
+        tx.next_retry_at = None
+        tx.save(update_fields=['next_retry_at', 'updated_at'])
+        TransactionStateMachine.transition(tx, 'cancelled', reason='client_cancelled_checkout')
+        return Response(transaction_payload(tx))
 
 
 class OperatorListView(APIView):
@@ -539,7 +554,10 @@ class OperatorListView(APIView):
 
     def get(self, request):
         operators = Operator.objects.filter(is_active=True).order_by('name')
-        return Response([{'id': o.id, 'name': o.name, 'code': o.code} for o in operators])
+        return Response([
+            {'id': o.id, 'name': o.name, 'code': o.code, 'logo': (o.code or o.name).lower()}
+            for o in operators
+        ])
 
 
 class ServiceListView(APIView):
@@ -896,7 +914,7 @@ class TransactionStepView(APIView):
             response_body = self._handle_result(attempt, request.data)
 
         if response_body.get('action') == 'FAILED':
-            response_body['status'] = fail_interactive_attempt(
+            fail_interactive_attempt(
                 attempt,
                 response_body.get('error_code', 'unknown'),
                 response_body,
@@ -974,7 +992,6 @@ class TransactionStepView(APIView):
 
 class SmsPendingView(APIView):
     """Same polling contract as PendingTransactionsView, but for SMS jobs
-    (currently just OTP codes - see apps.accounts.services.request_otp)
     instead of USSD tasks. Kept as a separate endpoint/model rather than
     merged into the transaction queue: an SMS job has no payment, no USSD
     code, and a different payload shape - mixing the two would complicate

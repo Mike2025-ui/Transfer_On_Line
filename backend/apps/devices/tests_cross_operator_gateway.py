@@ -85,7 +85,10 @@ class CrossOperatorGatewayTests(TestCase):
             format='json',
         )
         self.assertEqual(response.status_code, 201)
-        return Transaction.objects.get(reference=response.data['reference'])
+        tx = Transaction.objects.get(reference=response.data['reference'])
+        PaymentService.apply_status(tx.payment, 'accepted')
+        tx.refresh_from_db()
+        return tx
 
     def _authenticated_pending(self, gateway):
         secret = gateway.generate_secret()

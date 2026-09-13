@@ -113,7 +113,6 @@ nano backend/.env
 - `DJANGO_ALLOWED_HOSTS` → votre domaine
 - `JEKO_API_KEY`, `JEKO_API_KEY_ID`, `JEKO_STORE_ID` → vos credentials réels
 - `GENIUSPAY_API_KEY`, `GENIUSPAY_API_SECRET` → vos credentials réels
-- `IKODDI_API_KEY`, `IKODDI_GROUP_ID`, `IKODDI_OTP_APP_ID` → vos credentials réels
 - `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD` → votre SMTP
 - `GENIUSPAY_SUCCESS_URL`, `GENIUSPAY_ERROR_URL` → votre domaine
 
@@ -269,13 +268,6 @@ docker-compose exec backend python -c "
 from apps.payments.providers.jeko import JekoProvider
 provider = JekoProvider()
 print('✅ Jèko configuration OK' if provider.is_configured() else '❌ Jèko not configured')
-"
-
-# Tester OTP IKODDI
-docker-compose exec backend python -c "
-from apps.accounts.services.ikoddi_service import IkoddiService
-service = IkoddiService()
-print('✅ IKODDI configuration OK' if service.is_configured() else '❌ IKODDI not configured')
 "
 
 # Vérifier la base de données

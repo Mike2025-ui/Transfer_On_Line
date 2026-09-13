@@ -68,18 +68,6 @@ class _Step2ServiceScreenState extends State<Step2ServiceScreen> {
     }
   }
 
-  IconData _serviceIcon(String name) {
-    final normalized = name.toLowerCase();
-    if (normalized.contains('voix') || normalized.contains('appel')) {
-      return Icons.phone_rounded;
-    }
-    if (normalized.contains('data') || normalized.contains('internet')) {
-      return Icons.language_rounded;
-    }
-    if (normalized.contains('sms')) return Icons.sms_rounded;
-    return Icons.account_balance_wallet_rounded;
-  }
-
   Color _serviceColor(String name) {
     final normalized = name.toLowerCase();
     if (normalized.contains('voix') || normalized.contains('appel')) {
@@ -90,6 +78,23 @@ class _Step2ServiceScreenState extends State<Step2ServiceScreen> {
     }
     if (normalized.contains('sms')) return const Color(0xFF7C2CF0);
     return const Color(0xFFCE8A00);
+  }
+
+  String _serviceAsset(String name) {
+    final normalized = name.toLowerCase();
+    if (normalized.contains('voix') || normalized.contains('appel')) {
+      return 'assets/images/telephone.png';
+    }
+    if (normalized.contains('data') || normalized.contains('internet')) {
+      return 'assets/images/internet.png';
+    }
+    if (normalized.contains('sms')) return 'assets/images/sms.png';
+    return 'assets/images/icône_de souscription.png';
+  }
+
+  bool _isVoiceService(String name) {
+    final normalized = name.toLowerCase();
+    return normalized.contains('voix') || normalized.contains('appel');
   }
 
   @override
@@ -105,21 +110,34 @@ class _Step2ServiceScreenState extends State<Step2ServiceScreen> {
             step: 2,
           ),
           Expanded(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  const Center(child: SectionTitle('SERVICES DISPONIBLES')),
-                  const SizedBox(height: 4),
-                  _servicesSection(),
-                  const Spacer(),
-                  TolButton(label: 'CONTINUER ›', onTap: _next),
-                ],
+            child: SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 580),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      const Center(child: SectionTitle('SERVICES DISPONIBLES')),
+                      const SizedBox(height: 8),
+                      _servicesSection(),
+                    ],
+                  ),
+                ),
               ),
             ),
           ),
         ],
+      ),
+      bottomNavigationBar: SafeArea(
+        minimum: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 580),
+            child: TolButton(label: 'CONTINUER ›', onTap: _next),
+          ),
+        ),
       ),
     );
   }
@@ -127,7 +145,7 @@ class _Step2ServiceScreenState extends State<Step2ServiceScreen> {
   Widget _servicesSection() {
     if (_loadingServices) {
       return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 20),
+        padding: EdgeInsets.symmetric(vertical: 30),
         child: Center(child: CircularProgressIndicator()),
       );
     }
@@ -140,11 +158,11 @@ class _Step2ServiceScreenState extends State<Step2ServiceScreen> {
             textAlign: TextAlign.center,
             style: GoogleFonts.nunito(
               color: AppColors.textSecondary,
-              fontSize: 15,
+              fontSize: 16,
               fontWeight: FontWeight.w700,
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 14),
           TolButton(label: 'RÉESSAYER', onTap: _loadServices),
         ],
       );
@@ -156,7 +174,7 @@ class _Step2ServiceScreenState extends State<Step2ServiceScreen> {
         textAlign: TextAlign.center,
         style: GoogleFonts.nunito(
           color: AppColors.textSecondary,
-          fontSize: 15,
+          fontSize: 16,
           fontWeight: FontWeight.w700,
         ),
       );
@@ -164,11 +182,11 @@ class _Step2ServiceScreenState extends State<Step2ServiceScreen> {
     return LayoutBuilder(
       builder: (context, constraints) => Wrap(
         alignment: WrapAlignment.center,
-        spacing: 10,
-        runSpacing: 10,
+        spacing: 12,
+        runSpacing: 12,
         children: services
             .map((service) => SizedBox(
-                  width: (constraints.maxWidth - 18) / 2,
+                  width: (constraints.maxWidth - 20) / 2,
                   child: _serviceTile(service),
                 ))
             .toList(),
@@ -186,13 +204,13 @@ class _Step2ServiceScreenState extends State<Step2ServiceScreen> {
       }),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
-        height: 86,
+        height: 116,
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(16),
           border: Border.all(
             color: selected ? AppColors.success : const Color(0xFFE7EAF2),
-            width: selected ? 1.6 : 1,
+            width: selected ? 2 : 1,
           ),
           boxShadow: [
             BoxShadow(
@@ -207,17 +225,17 @@ class _Step2ServiceScreenState extends State<Step2ServiceScreen> {
           children: [
             if (selected)
               Positioned(
-                top: -10,
-                right: -8,
+                top: -8,
+                right: -6,
                 child: Container(
-                  width: 30,
-                  height: 30,
+                  width: 32,
+                  height: 32,
                   decoration: const BoxDecoration(
                     color: AppColors.success,
                     shape: BoxShape.circle,
                   ),
                   child: const Icon(Icons.check_rounded,
-                      color: Colors.white, size: 23),
+                      color: Colors.white, size: 24),
                 ),
               ),
             Center(
@@ -225,25 +243,30 @@ class _Step2ServiceScreenState extends State<Step2ServiceScreen> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Container(
-                    width: 38,
-                    height: 38,
-                    padding: const EdgeInsets.all(7),
+                    width: 52,
+                    height: 52,
+                    padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: color,
-                      shape: BoxShape.circle,
+                      color: color.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(14),
                     ),
-                    child: Icon(_serviceIcon(service.name),
-                        color: Colors.white, size: 20),
+                    child: _isVoiceService(service.name)
+                        ? Icon(Icons.phone_rounded, color: color, size: 32)
+                        : Image.asset(_serviceAsset(service.name),
+                            fit: BoxFit.contain),
                   ),
-                  const SizedBox(height: 3),
+                  const SizedBox(height: 6),
                   FittedBox(
                     fit: BoxFit.scaleDown,
-                    child: Text(
-                      service.name,
-                      style: GoogleFonts.nunito(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w900,
-                        color: AppColors.textPrimary,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                      child: Text(
+                        service.name,
+                        style: GoogleFonts.nunito(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w900,
+                          color: AppColors.textPrimary,
+                        ),
                       ),
                     ),
                   ),

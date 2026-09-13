@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Transfer On Line - Statut du paiement</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --success: #16a34a;
+            --warning: #ea580c;
+            --danger: #dc2626;
+            --bg: #f8fafc;
+            --card-bg: #ffffff;
+            --text-main: #0f172a;
+            --text-muted: #64748b;
+        }
+        body {
+            margin: 0;
+            padding: 24px 16px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: var(--bg);
+            color: var(--text-main);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            box-sizing: border-box;
+        }
+        .card {
+            background-color: var(--card-bg);
+            border-radius: 16px;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.01);
+            max-width: 440px;
+            width: 100%;
+            padding: 32px 24px;
+            text-align: center;
+            border: 1px solid #e2e8f0;
+        }
+        .icon-container {
+            width: 72px;
+            height: 72px;
+            border-radius: 50%;
+            margin: 0 auto 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .icon-success {
+            background-color: #dcfce7;
+            color: var(--success);
+        }
+        .icon-pending {
+            background-color: #ffedd5;
+            color: var(--warning);
+        }
+        .icon-failed {
+            background-color: #fee2e2;
+            color: var(--danger);
+        }
+        .icon-svg {
+            width: 40px;
+            height: 40px;
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 2.5;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+        h1 {
+            font-size: 22px;
+            margin: 0 0 8px;
+            font-weight: 700;
+        }
+        p.subtitle {
+            margin: 0 0 24px;
+            font-size: 15px;
+            color: var(--text-muted);
+            line-height: 1.5;
+        }
+        .details-box {
+            background-color: #f1f5f9;
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 24px;
+            text-align: left;
+            font-size: 14px;
+        }
+        .detail-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+        .detail-row:last-child {
+            margin-bottom: 0;
+        }
+        .detail-label {
+            color: var(--text-muted);
+        }
+        .detail-value {
+            font-weight: 600;
+            color: var(--text-main);
+        }
+        .btn {
+            display: inline-block;
+            width: 100%;
+            box-sizing: border-box;
+            background-color: var(--primary);
+            color: #ffffff;
+            font-weight: 600;
+            padding: 14px 20px;
+            border-radius: 10px;
+            text-decoration: none;
+            font-size: 16px;
+            transition: background-color 0.15s ease;
+        }
+        .btn:hover {
+            background-color: #1d4ed8;
+        }
+        .btn-secondary {
+            background-color: transparent;
+            color: var(--text-muted);
+            border: 1px solid #cbd5e1;
+            margin-top: 10px;
+        }
+        .btn-secondary:hover {
+            background-color: #f1f5f9;
+        }
+        .redirect-notice {
+            margin-top: 16px;
+            font-size: 13px;
+            color: var(--text-muted);
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        {% if status == 'accepted' %}
+            <div class="icon-container icon-success">
+                <svg class="icon-svg" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
+            </div>
+            <h1>Paiement Confirmé !</h1>
+            <p class="subtitle">Votre paiement a été validé avec succès. Votre transfert est en cours d'exécution.</p>
+        {% elif status == 'pending' %}
+            <div class="icon-container icon-pending">
+                <svg class="icon-svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            </div>
+            <h1>Paiement en attente</h1>
+            <p class="subtitle">Votre transaction est en cours de traitement par l'opérateur.</p>
+        {% else %}
+            <div class="icon-container icon-failed">
+                <svg class="icon-svg" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </div>
+            <h1>Paiement non finalisé</h1>
+            <p class="subtitle">Le paiement a été interrompu ou refusé par l'opérateur.</p>
+        {% endif %}
+
+        <div class="details-box">
+            <div class="detail-row">
+                <span class="detail-label">Référence :</span>
+                <span class="detail-value">{{ payment.reference }}</span>
+            </div>
+            <div class="detail-row">
+                <span class="detail-label">Montant :</span>
+                <span class="detail-value">{{ payment.amount }} FCFA</span>
+            </div>
+            {% if transaction %}
+            <div class="detail-row">
+                <span class="detail-label">Destinataire :</span>
+                <span class="detail-value">{{ transaction.phone_number }}</span>
+            </div>
+            {% endif %}
+        </div>
+
+        <a id="deepLinkBtn" href="{{ deep_link }}" class="btn">
+            Retourner à l'application
+        </a>
+
+        <div class="redirect-notice" id="redirectNotice">
+            Redirection automatique vers l'application...
+        </div>
+    </div>
+
+    <script>
+        (function() {
+            var deepLink = "{{ deep_link|escapejs }}";
+            if (deepLink) {
+                // Tentative de redirection automatique vers l'application mobile
+                setTimeout(function() {
+                    window.location.href = deepLink;
+                }, 1000);
+            }
+        })();
+    </script>
+</body>
+</html>
+

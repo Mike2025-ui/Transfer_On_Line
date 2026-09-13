@@ -216,6 +216,8 @@ class TransactionResultAuthTests(TestCase):
             format='json',
         )
         tx = Transaction.objects.get(reference=response.data['reference'])
+        PaymentService.apply_status(tx.payment, 'accepted')
+        tx.refresh_from_db()
         self.assertEqual(tx.gateway_id, self.gw_a.id)
         return tx
 
@@ -310,13 +312,14 @@ class DoubleDispatchProtectionTests(TestCase):
             format='json',
         )
         tx = Transaction.objects.get(reference=response.data['reference'])
-        attempt = tx.attempts.get(attempt_number=1)
-        self.assertEqual(attempt.status, 'assigned')
         # PendingTransactionsView only exposes a task once payment is
         # confirmed - see PendingTransactionsAuthTests._create_transaction's
         # doc for why.
         verify_payment.return_value = PaymentStatusResult(status='accepted', raw={'data': {'status': 'ACCEPTED'}})
         PaymentService.verify(tx.payment)
+        tx.refresh_from_db()
+        attempt = tx.attempts.get(attempt_number=1)
+        self.assertEqual(attempt.status, 'assigned')
         self.client.credentials(HTTP_X_GATEWAY_SECRET=self.secret)
 
         first_poll = self.client.get(reverse('api_transaction_pending'))

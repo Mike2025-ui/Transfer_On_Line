@@ -64,7 +64,7 @@ python manage.py shell < scripts/seed_data.py
 
 ```bash
 # Exécuter les tests (sans le test threading SQLite)
-docker-compose exec backend python manage.py test apps.accounts apps.core apps.payments
+docker-compose exec backend python manage.py test apps.core apps.payments apps.devices apps.dashboard
 
 # Vérifier la configuration de production
 docker-compose exec backend python manage.py check --deploy
@@ -289,7 +289,6 @@ docker-compose exec backend python manage.py showmigrations
 - [ ] HTTPS/SSL configuré (certbot)
 - [ ] Domaine pointant vers VPS
 - [ ] Credentials de paiement (Jèko/GeniusPay) en place
-- [ ] Credentials de SMS (IKODDI) en place
 - [ ] Backups automatiques configurés
 - [ ] Logs centralisés (Sentry recommandé)
 - [ ] Firewall configuré (ports 80, 443 ouverts)

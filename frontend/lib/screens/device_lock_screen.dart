@@ -61,80 +61,96 @@ class _DeviceLockScreenState extends State<DeviceLockScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return WillPopScope(
-      onWillPop: () async => false,
+    return PopScope(
+      canPop: false,
       child: Scaffold(
         backgroundColor: const Color(0xFF02152A),
         body: SafeArea(
-          child: Center(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    width: 96,
-                    height: 96,
-                    decoration: const BoxDecoration(
-                      color: Color(0xFF06B43E),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(Icons.lock_outline_rounded,
-                        color: Colors.white, size: 52),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              return SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    minHeight: constraints.maxHeight,
                   ),
-                  const SizedBox(height: 24),
-                  Text(
-                    'Vérification locale',
-                    style: GoogleFonts.nunito(
-                      fontSize: 28,
-                      fontWeight: FontWeight.w900,
-                      color: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Text(
-                    'Déverrouillez votre téléphone pour réouvrir l’application.',
-                    textAlign: TextAlign.center,
-                    style: GoogleFonts.nunito(
-                      fontSize: 16,
-                      color: Colors.white70,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 28),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: _loading ? null : _authenticate,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF06B43E),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                      ),
-                      child: _loading
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 500),
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Container(
+                              width: 96,
+                              height: 96,
+                              decoration: const BoxDecoration(
+                                color: Color(0xFF06B43E),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(Icons.lock_outline_rounded,
+                                  color: Colors.white, size: 52),
+                            ),
+                            const SizedBox(height: 24),
+                            Text(
+                              'Vérification locale',
+                              style: GoogleFonts.nunito(
+                                fontSize: 28,
+                                fontWeight: FontWeight.w900,
                                 color: Colors.white,
                               ),
-                            )
-                          : Text(
-                              'VÉRIFIER LE TÉLÉPHONE',
+                            ),
+                            const SizedBox(height: 10),
+                            Text(
+                              'Déverrouillez votre téléphone pour réouvrir l’application.',
+                              textAlign: TextAlign.center,
                               style: GoogleFonts.nunito(
                                 fontSize: 16,
-                                fontWeight: FontWeight.w900,
+                                color: Colors.white70,
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
+                            const SizedBox(height: 28),
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton(
+                                onPressed: _loading ? null : _authenticate,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF06B43E),
+                                  foregroundColor: Colors.white,
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 16),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                ),
+                                child: _loading
+                                    ? const SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Colors.white,
+                                        ),
+                                      )
+                                    : Text(
+                                        'VÉRIFIER LE TÉLÉPHONE',
+                                        style: GoogleFonts.nunito(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w900,
+                                        ),
+                                      ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
-                ],
-              ),
-            ),
+                ),
+              );
+            },
           ),
         ),
       ),

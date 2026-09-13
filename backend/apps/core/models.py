@@ -2,7 +2,7 @@ import hashlib
 import re
 import secrets
 import uuid
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -350,7 +350,7 @@ class Transaction(models.Model):
 
     def save(self, *args, **kwargs):
         if not self.commission:
-            self.commission = self.amount * Decimal('0.01')
+            self.commission = (self.amount * Decimal('0.015')).quantize(Decimal('1'), rounding=ROUND_HALF_UP)
         super().save(*args, **kwargs)
 
     def sync_from_payment(self):
@@ -372,7 +372,14 @@ class Transaction(models.Model):
 
         if not self.payment:
             return
-        new_status = 'pending' if self.payment.status == 'accepted' else 'failed'
+        if self.payment.status == 'accepted':
+            new_status = 'pending'
+        elif self.payment.status in ('failed', 'cancelled', 'expired'):
+            new_status = 'failed'
+        else:
+            # Payment is still pending/processing: keep current transaction status,
+            # do not prematurely fail an ongoing payment session.
+            return
         TransactionStateMachine.transition(self, new_status, reason='payment_status_synced', payment_status=self.payment.status)
 
     def __str__(self):

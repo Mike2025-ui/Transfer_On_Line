@@ -297,7 +297,7 @@ class JekoProviderTests(TestCase):
         with patch('apps.payments.providers.jeko.requests.post', return_value=response) as fake_post:
             result = JekoProvider().create_payment(
                 transaction_id='TOL-1', amount='1000', description='Internet - achat',
-                customer={'payment_method': 'wave', 'operator_code': 'orange', 'phone': '+2250700000001'},
+                customer={'operator_code': 'orange', 'phone': '+2250700000001'},
             )
 
         args, kwargs = fake_post.call_args
@@ -311,8 +311,15 @@ class JekoProviderTests(TestCase):
         self.assertEqual(body['reference'], 'TOL-1')
         self.assertEqual(body['paymentDetails']['type'], 'redirect')
         self.assertEqual(body['paymentDetails']['data']['paymentMethod'], 'wave')
-        self.assertEqual(body['paymentDetails']['data']['successUrl'], 'https://app.example.com/payment/success')
-        self.assertEqual(body['paymentDetails']['data']['errorUrl'], 'https://app.example.com/payment/cancel')
+        self.assertNotIn('forceProviderDirect', body['paymentDetails']['data'])
+        self.assertEqual(
+            body['paymentDetails']['data']['successUrl'],
+            'https://app.example.com/payment/success?reference=TOL-1&status=success',
+        )
+        self.assertEqual(
+            body['paymentDetails']['data']['errorUrl'],
+            'https://app.example.com/payment/cancel?reference=TOL-1&status=error',
+        )
 
         self.assertEqual(result.provider_transaction_id, 'pr-1')
         self.assertEqual(result.checkout_url, 'https://pay.jeko.africa/pay_request/pr/pr-1')
@@ -322,15 +329,28 @@ class JekoProviderTests(TestCase):
         response = _FakeJekoResponse(200, {'id': 'pr-2', 'status': 'pending', 'redirectUrl': 'https://x'})
         with patch('apps.payments.providers.jeko.requests.post', return_value=response) as fake_post:
             JekoProvider().create_payment(
-                transaction_id='TOL-2', amount='1000', description='x', customer={'payment_method': 'mtn'},
+                transaction_id='TOL-2', amount='1000', description='x', customer={},
             )
         self.assertEqual(fake_post.call_args.kwargs['json']['amountCents'], 100000)
 
-    def test_unsupported_operator_is_rejected_without_calling_jeko(self):
+    def test_default_payment_method_is_not_inferred_from_subscription_operator(self):
+        response = _FakeJekoResponse(200, {'id': 'pr-3', 'status': 'pending', 'redirectUrl': 'https://x'})
+        with patch('apps.payments.providers.jeko.requests.post', return_value=response) as fake_post:
+            JekoProvider().create_payment(
+                transaction_id='TOL-3', amount='1000', description='x',
+                customer={'operator_code': 'orange'},
+            )
+        self.assertEqual(
+            fake_post.call_args.kwargs['json']['paymentDetails']['data']['paymentMethod'],
+            'wave',
+        )
+
+    def test_unknown_payment_method_is_rejected_before_calling_jeko(self):
         with patch('apps.payments.providers.jeko.requests.post') as fake_post:
             with self.assertRaises(JekoError):
                 JekoProvider().create_payment(
-                    transaction_id='TOL-3', amount='1000', description='x', customer={'payment_method': 'unknown'},
+                    transaction_id='TOL-3', amount='1000', description='x', customer={},
+                    metadata={'jeko_payment_method': 'unknown'},
                 )
         fake_post.assert_not_called()
 
@@ -339,7 +359,7 @@ class JekoProviderTests(TestCase):
         with patch('apps.payments.providers.jeko.requests.post') as fake_post:
             with self.assertRaises(JekoError):
                 JekoProvider().create_payment(
-                    transaction_id='TOL-4', amount='1000', description='x', customer={'payment_method': 'mtn'},
+                    transaction_id='TOL-4', amount='1000', description='x', customer={},
                 )
         fake_post.assert_not_called()
 
@@ -348,7 +368,7 @@ class JekoProviderTests(TestCase):
         with patch('apps.payments.providers.jeko.requests.post', return_value=response):
             with self.assertRaises(JekoError) as ctx:
                 JekoProvider().create_payment(
-                    transaction_id='TOL-5', amount='1000', description='x', customer={'payment_method': 'wave'},
+                    transaction_id='TOL-5', amount='1000', description='x', customer={},
                 )
         self.assertNotIn('test-key', str(ctx.exception))
 
@@ -409,6 +429,7 @@ class JekoWebhookTests(TestCase):
     def _transaction_completed_payload(self, event_id='evt-jeko-1', status='success'):
         return {
             'id': event_id, 'amount': {'amount': 1000, 'currency': 'XOF'},
+            'id': event_id, 'amount': {'amount': 100000, 'currency': 'XOF'},
             'fees': {'amount': 10, 'currency': 'XOF'}, 'status': status,
             'paymentMethod': 'orange', 'transactionType': 'PaymentRequest',
             'transactionDetails': {'id': 'pr-jeko-1', 'reference': 'TOL-J1'},
@@ -471,3 +492,64 @@ class JekoWebhookTests(TestCase):
         self.assertEqual(self.payment.status, 'pending')
         event = WebhookEvent.objects.get(provider='jeko', event_id='link-req-1')
         self.assertTrue(event.processed)
+
+    def test_completed_status_marks_payment_accepted(self, _redis_lock):
+        response = self._post_signed(self._transaction_completed_payload(event_id='evt-jeko-completed', status='completed'))
+        self.assertEqual(response.status_code, 200)
+        self.payment.refresh_from_db()
+        self.assertEqual(self.payment.status, 'accepted')
+
+    def test_amount_mismatch_is_rejected_with_400(self, _redis_lock):
+        payload = self._transaction_completed_payload()
+        payload['amount']['amount'] = 50000
+        response = self._post_signed(payload)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('amount mismatch', response.data['error'])
+        self.payment.refresh_from_db()
+        self.assertEqual(self.payment.status, 'pending')
+
+    def test_currency_mismatch_is_rejected_with_400(self, _redis_lock):
+        payload = self._transaction_completed_payload()
+        payload['amount']['currency'] = 'EUR'
+        response = self._post_signed(payload)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('currency mismatch', response.data['error'])
+        self.payment.refresh_from_db()
+        self.assertEqual(self.payment.status, 'pending')
+
+
+@override_settings(JEKO_WEBHOOK_SECRET='test_jeko_webhook_secret')
+@patch('apps.payments.services.payment_service.redis_lock', return_value=nullcontext())
+class JekoReturnViewTests(TestCase):
+    def setUp(self):
+        self.payment = Payment.objects.create(
+            method='jeko', reference='TOL-RETURN-1', provider_transaction_id='pr-jeko-return-1', amount=1000, status='pending',
+        )
+
+    @patch('apps.payments.services.payment_service.PaymentService.verify')
+    def test_success_callback_sets_payment_to_verified_status(self, verify_mock, _redis_lock):
+        verify_mock.return_value = self.payment
+        self.payment.status = 'pending'
+        self.payment.save(update_fields=['status', 'updated_at'])
+
+        response = self.client.get(
+            reverse('api_jeko_return'),
+            {'reference': 'TOL-RETURN-1', 'status': 'success'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['payment_reference'], 'TOL-RETURN-1')
+        self.assertEqual(response.data['payment_status'], 'pending')
+        verify_mock.assert_called_once_with(self.payment)
+
+    @patch('apps.payments.services.payment_service.PaymentService.verify')
+    def test_return_view_renders_html_for_browser(self, verify_mock, _redis_lock):
+        response = self.client.get(
+            reverse('api_jeko_return'),
+            {'reference': 'TOL-RETURN-1', 'status': 'success'},
+            HTTP_ACCEPT='text/html,application/xhtml+xml',
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'TOL-RETURN-1')
+        self.assertContains(response, 'transfertonline://payment')
+        verify_mock.assert_called_once_with(self.payment)

@@ -50,9 +50,32 @@ def build_ussd_code(tx):
     })
 
 
+def _payment_method_label(method):
+    labels = {
+        'auto': 'Automatique',
+        'jeko': 'Jèko',
+        'geniuspay': 'GeniusPay',
+    }
+    if method is None:
+        return None
+    return labels.get(method.lower(), method.title())
+
+
+def _payment_method_logo(method):
+    logos = {
+        'auto': 'auto',
+        'jeko': 'jeko',
+        'geniuspay': 'geniuspay',
+    }
+    if method is None:
+        return None
+    return logos.get(method.lower(), method.lower())
+
+
 def transaction_payload(tx, ussd_code=None):
     """Full detail, for Flutter-facing responses - the client needs
     payment_method/checkout_url to redirect the user to pay."""
+    payment_method = tx.payment_method or 'auto'
     return {
         'id': tx.id,
         'reference': tx.reference,
@@ -62,7 +85,9 @@ def transaction_payload(tx, ussd_code=None):
         'amount': float(tx.amount),
         'commission': float(tx.commission),
         'status': tx.status,
-        'payment_method': tx.payment_method,
+        'payment_method': payment_method,
+        'payment_method_label': _payment_method_label(payment_method),
+        'payment_method_logo': _payment_method_logo(payment_method),
         'payment_reference': tx.payment_reference,
         'payment_status': tx.payment.status if tx.payment else None,
         'checkout_url': tx.payment.checkout_url if tx.payment else None,

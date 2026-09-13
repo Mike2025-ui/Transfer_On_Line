@@ -123,13 +123,13 @@ class StepProgressBar extends StatelessWidget {
     return LayoutBuilder(builder: (context, constraints) {
       final itemWidth = constraints.maxWidth / 4;
       return SizedBox(
-        height: 58,
+        height: 64,
         child: Stack(
           children: [
             Positioned(
               left: itemWidth / 2,
               right: itemWidth / 2,
-              top: 20,
+              top: 22,
               child: Container(height: 2.5, color: Colors.white),
             ),
             Row(
@@ -142,8 +142,8 @@ class StepProgressBar extends StatelessWidget {
                   child: Column(
                     children: [
                       Container(
-                        width: 34,
-                        height: 34,
+                        width: 38,
+                        height: 38,
                         decoration: BoxDecoration(
                           color: Colors.white,
                           shape: BoxShape.circle,
@@ -163,11 +163,11 @@ class StepProgressBar extends StatelessWidget {
                         child: Center(
                           child: done
                               ? const Icon(Icons.check_rounded,
-                                  color: AppColors.success, size: 22)
+                                  color: AppColors.success, size: 24)
                               : Text(
                                   '$step',
                                   style: GoogleFonts.nunito(
-                                    fontSize: 15,
+                                    fontSize: 16,
                                     fontWeight: FontWeight.w900,
                                     color: active
                                         ? AppColors.success
@@ -183,7 +183,7 @@ class StepProgressBar extends StatelessWidget {
                           steps[index],
                           maxLines: 1,
                           style: GoogleFonts.nunito(
-                            fontSize: 11,
+                            fontSize: 12,
                             fontWeight:
                                 active ? FontWeight.w900 : FontWeight.w700,
                             color: Colors.white,
@@ -235,10 +235,10 @@ class GreenHeader extends StatelessWidget {
         ),
       ),
       padding: EdgeInsets.only(
-        top: MediaQuery.of(context).padding.top + 2,
-        bottom: 4,
-        left: 14,
-        right: 14,
+        top: MediaQuery.of(context).padding.top + 4,
+        bottom: 8,
+        left: 16,
+        right: 16,
       ),
       child: Column(
         children: [
@@ -255,8 +255,8 @@ class GreenHeader extends StatelessWidget {
                   ),
                 ),
               Container(
-                width: 40,
-                height: 40,
+                width: 44,
+                height: 44,
                 decoration: const BoxDecoration(
                   color: Colors.white,
                   shape: BoxShape.circle,
@@ -265,35 +265,35 @@ class GreenHeader extends StatelessWidget {
                   child: Icon(
                     step == 4 ? Icons.fact_check_outlined : Icons.edit_document,
                     color: AppColors.success,
-                    size: 23,
+                    size: 25,
                   ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 3),
+          const SizedBox(height: 5),
           Text(
             title,
             textAlign: TextAlign.center,
             style: GoogleFonts.nunito(
-              fontSize: 20,
+              fontSize: 22,
               fontWeight: FontWeight.w900,
               color: Colors.white,
-              height: 1.05,
+              height: 1.1,
             ),
           ),
-          const SizedBox(height: 2),
+          const SizedBox(height: 3),
           Text(
             subtitle,
             textAlign: TextAlign.center,
             style: GoogleFonts.nunito(
-              fontSize: 12,
-              height: 1.15,
+              fontSize: 13,
+              height: 1.2,
               fontWeight: FontWeight.w700,
               color: Colors.white.withValues(alpha: 0.92),
             ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 6),
           StepProgressBar(currentStep: step),
         ],
       ),
@@ -319,23 +319,23 @@ class TolButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return SizedBox(
       width: double.infinity,
-      height: 52,
+      height: 58,
       child: ElevatedButton(
         onPressed: loading ? null : onTap,
         style: ElevatedButton.styleFrom(
           backgroundColor: color ?? AppColors.primary,
           foregroundColor: Colors.white,
           shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
           elevation: 7,
           shadowColor: AppColors.primary.withValues(alpha: 0.24),
         ),
         child: loading
             ? const SizedBox(
-                width: 22,
-                height: 22,
+                width: 24,
+                height: 24,
                 child: CircularProgressIndicator(
-                    color: Colors.white, strokeWidth: 2.4),
+                    color: Colors.white, strokeWidth: 2.6),
               )
             : FittedBox(
                 fit: BoxFit.scaleDown,
@@ -346,7 +346,7 @@ class TolButton extends StatelessWidget {
                     Text(
                       label.replaceAll('›', '').trim(),
                       style: GoogleFonts.nunito(
-                        fontSize: 16,
+                        fontSize: 17,
                         fontWeight: FontWeight.w900,
                         color: Colors.white,
                       ),
@@ -354,7 +354,7 @@ class TolButton extends StatelessWidget {
                     if (label.contains('›')) ...[
                       const SizedBox(width: 16),
                       const Icon(Icons.chevron_right_rounded,
-                          color: Colors.white, size: 24),
+                          color: Colors.white, size: 26),
                     ],
                   ],
                 ),
@@ -378,7 +378,7 @@ class TolCard extends StatelessWidget {
       child: Container(
         decoration: BoxDecoration(
           color: AppColors.card,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(14),
           border: Border.all(color: const Color(0xFFE9ECF4)),
           boxShadow: [
             BoxShadow(
@@ -388,7 +388,7 @@ class TolCard extends StatelessWidget {
             ),
           ],
         ),
-        padding: padding ?? const EdgeInsets.all(16),
+        padding: padding ?? const EdgeInsets.all(18),
         child: child,
       ),
     );
@@ -402,7 +402,7 @@ class SectionTitle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.only(bottom: 12),
       child: Text(
         title.toUpperCase(),
         style: GoogleFonts.nunito(
@@ -461,9 +461,10 @@ class QuickAmountButton extends StatelessWidget {
         duration: const Duration(milliseconds: 180),
         decoration: BoxDecoration(
           color: selected ? AppColors.primary : Colors.white,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(14),
           border: Border.all(
             color: selected ? AppColors.primary : const Color(0xFFE7EAF2),
+            width: selected ? 2 : 1,
           ),
           boxShadow: [
             BoxShadow(
@@ -473,25 +474,24 @@ class QuickAmountButton extends StatelessWidget {
             ),
           ],
         ),
-        // Le contenu reste compact pour ne jamais depasser la cellule de
-        // grille sur les petits ecrans.
-        padding: const EdgeInsets.symmetric(vertical: 4),
+        padding: const EdgeInsets.symmetric(vertical: 12),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Text(
               '${amount}f',
               style: GoogleFonts.nunito(
-                fontSize: 16,
+                fontSize: 18,
                 fontWeight: FontWeight.w900,
                 color: selected ? Colors.white : AppColors.textPrimary,
               ),
             ),
+            const SizedBox(height: 2),
             Text(
               'FCFA',
               style: GoogleFonts.nunito(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
                 color: selected ? Colors.white : AppColors.textSecondary,
               ),
             ),

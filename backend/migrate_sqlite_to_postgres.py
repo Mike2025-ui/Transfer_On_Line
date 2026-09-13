@@ -64,18 +64,17 @@ def migrate_sqlite_to_postgres():
     
     # Step 5: Verify data
     print("Step 5: Verifying data...")
-    from apps.core.models import Operator, Service
-    from apps.accounts.models import Account
+    from apps.core.models import Operator, Service, Transaction
     from apps.payments.models import Payment
     
     operators_count = Operator.objects.count()
     services_count = Service.objects.count()
-    accounts_count = Account.objects.count()
+    transactions_count = Transaction.objects.count()
     payments_count = Payment.objects.count()
     
     print(f"  Operators: {operators_count}")
     print(f"  Services: {services_count}")
-    print(f"  Accounts: {accounts_count}")
+    print(f"  Transactions: {transactions_count}")
     print(f"  Payments: {payments_count}")
     
     print()

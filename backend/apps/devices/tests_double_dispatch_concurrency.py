@@ -34,12 +34,13 @@ wraps the whole test body in one uncommitted transaction a second thread's
 own connection would never see."""
 
 import threading
+import unittest
 import uuid
 from datetime import timedelta
 from io import StringIO
 
 from django.core.management import call_command
-from django.db import connections
+from django.db import connection, connections
 from django.test import TransactionTestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -92,6 +93,10 @@ class _ConcurrentPendingPollMixin:
 
 
 @override_settings(USE_NEW_TRANSACTION_ENGINE=True)
+@unittest.skipIf(
+    connection.vendor == 'sqlite',
+    'Concurrent threads require PostgreSQL MVCC; SQLite locks the entire database file.',
+)
 class DoubleDispatchConcurrencyTests(_ConcurrentPendingPollMixin, TransactionTestCase):
 
     def setUp(self):

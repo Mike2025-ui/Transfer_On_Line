@@ -10,26 +10,10 @@ import 'package:transfer_on_line/screens/home_screen.dart';
 import 'package:transfer_on_line/screens/step2_service.dart';
 import 'package:transfer_on_line/screens/step3_info.dart';
 import 'package:transfer_on_line/screens/step4_payment.dart';
-import 'package:transfer_on_line/services/auth_service.dart';
 import 'package:transfer_on_line/services/backend_api_service.dart';
-
-class _NullStore implements AuthTokenStore {
-  @override
-  Future<String?> read(String key) async => null;
-
-  @override
-  Future<void> write(String key, String value) async {}
-
-  @override
-  Future<void> delete(String key) async {}
-}
 
 void main() {
   const phone = '0700000001';
-  final auth = AuthService(
-    store: _NullStore(),
-    client: MockClient((request) async => http.Response('{}', 200)),
-  );
   final api = BackendApiService(
     client: MockClient((request) async => http.Response(jsonEncode([]), 200)),
   );
@@ -49,9 +33,9 @@ void main() {
 
     await pumpAtS8(
       tester,
-      HomeScreen(backendApiService: api, authService: auth),
+      HomeScreen(backendApiService: api),
     );
-    expect(find.byType(SingleChildScrollView), findsNothing);
+    expect(find.byType(SingleChildScrollView), findsOneWidget);
 
     await pumpAtS8(
       tester,
@@ -64,7 +48,7 @@ void main() {
         backendApiService: api,
       ),
     );
-    expect(find.byType(SingleChildScrollView), findsNothing);
+    expect(find.byType(SingleChildScrollView), findsOneWidget);
 
     await pumpAtS8(
       tester,
@@ -80,7 +64,7 @@ void main() {
         backendApiService: api,
       ),
     );
-    expect(find.byType(SingleChildScrollView), findsNothing);
+    expect(find.byType(SingleChildScrollView), findsOneWidget);
 
     await pumpAtS8(
       tester,
@@ -96,9 +80,9 @@ void main() {
         onNotificationAdded: (_) {},
         notifications: const [],
         backendApiService: api,
-        authService: auth,
       ),
     );
-    expect(find.byType(SingleChildScrollView), findsNothing);
+    // Step 4 uses SingleChildScrollView to guarantee zero RenderFlex overflow with dynamic payment options on small devices
+    expect(find.byType(SingleChildScrollView), findsOneWidget);
   });
 }

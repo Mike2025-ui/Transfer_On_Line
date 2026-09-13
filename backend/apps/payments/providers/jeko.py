@@ -1,5 +1,6 @@
 import logging
 from decimal import Decimal
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 import requests
 from django.conf import settings
@@ -10,8 +11,10 @@ from .retry import RetryableHTTPError, call_create_with_retries, call_verify_wit
 
 logger = logging.getLogger(__name__)
 
-# https://developer.jeko.africa/docs/payments/checkout - the only payment
-# methods documented for the redirect flow's paymentDetails.data.paymentMethod.
+# https://developer.jeko.africa/docs/payments/checkout - documented payment
+# methods accepted by paymentDetails.data.paymentMethod. This is deliberately
+# not inferred from the subscription operator: on the hosted checkout flow,
+# the customer chooses how to pay on Jèko's page.
 SUPPORTED_PAYMENT_METHODS = {'wave', 'orange', 'mtn', 'moov', 'djamo'}
 
 
@@ -20,23 +23,21 @@ class JekoError(PaymentProviderError):
 
 
 def status_to_local(raw_status):
-    """https://developer.jeko.africa/docs/payments/checkout documents exactly
-    three payment_request statuses: pending / success / error. Shared here
-    so the provider's verify_payment() and the JekoWebhookView (see
+    """https://developer.jeko.africa/docs/payments/checkout documents payment_request
+    and transaction statuses: pending / processing / success / completed / error / failed.
+    Shared here so the provider's verify_payment() and the JekoWebhookView (see
     apps/payments/webhooks.py) can never drift apart on this mapping."""
-    status = str(raw_status or '').lower()
-    if status == 'success':
+    status = str(raw_status or '').strip().lower()
+    if status in ('success', 'completed', 'paid'):
         return 'accepted'
-    if status == 'pending':
+    if status in ('pending', 'processing'):
         return 'pending'
     return 'failed'
 
 
 class JekoProvider(PaymentProvider):
     """https://developer.jeko.africa - standard merchant Payments API
-    (Jèko Checkout / redirect flow), NOT the separate "Service Providers"
-    marketplace-onboarding program (see apps/payments/providers/jeko_service.py's
-    module docstring for why that one is out of scope here).
+    (Jèko Checkout / redirect flow).
 
     Jèko's own docs state there is no sandbox environment - JEKO_BASE_URL
     always points at the one real API, and every create_payment() call
@@ -65,6 +66,25 @@ class JekoProvider(PaymentProvider):
         if not (self.api_key and self.api_key_id and self.store_id):
             raise JekoError('Jèko is not configured')
 
+    def _payment_method(self, customer, metadata):
+        method = (
+            (metadata or {}).get('jeko_payment_method')
+            or (metadata or {}).get('payment_method')
+            or (customer or {}).get('payment_method')
+            or getattr(settings, 'JEKO_DEFAULT_PAYMENT_METHOD', 'wave')
+        )
+        method = str(method or '').lower()
+        if method not in SUPPORTED_PAYMENT_METHODS:
+            raise JekoError(f'Unsupported Jèko payment method: {method}')
+        return method
+
+    def _callback_url(self, base_url, *, reference, status):
+        parsed = urlparse(base_url)
+        query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+        query.setdefault('reference', str(reference))
+        query.setdefault('status', status)
+        return urlunparse(parsed._replace(query=urlencode(query)))
+
     def create_payment(self, *, transaction_id, amount, description, customer, metadata=None):
         self._ensure_configured()
         amount_xof = Decimal(amount)
@@ -74,10 +94,6 @@ class JekoProvider(PaymentProvider):
         if amount_cents < 100 or amount_cents % 100 != 0:
             raise JekoError('Jèko amountCents must be at least 100 and a multiple of 100')
 
-        payment_method = str(customer.get('payment_method') or '').lower()
-        if payment_method not in SUPPORTED_PAYMENT_METHODS:
-            raise JekoError(f'Unsupported or missing Jèko payment method: {payment_method or "unknown"}')
-
         payload = {
             'storeId': self.store_id,
             'amountCents': amount_cents,
@@ -86,9 +102,13 @@ class JekoProvider(PaymentProvider):
             'paymentDetails': {
                 'type': 'redirect',
                 'data': {
-                    'paymentMethod': payment_method,
-                    'successUrl': settings.JEKO_SUCCESS_URL,
-                    'errorUrl': settings.JEKO_ERROR_URL,
+                    'paymentMethod': self._payment_method(customer, metadata),
+                    'successUrl': self._callback_url(
+                        settings.JEKO_SUCCESS_URL, reference=transaction_id, status='success',
+                    ),
+                    'errorUrl': self._callback_url(
+                        settings.JEKO_ERROR_URL, reference=transaction_id, status='error',
+                    ),
                 },
             },
         }

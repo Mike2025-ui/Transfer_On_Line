@@ -8,9 +8,10 @@ same pattern as tests_double_dispatch_concurrency.py), and the security
 checks (wrong attempt_id, wrong gateway, terminal attempt, missing key).
 """
 import threading
+import unittest
 import uuid
 
-from django.db import connections
+from django.db import connection, connections
 from django.test import TestCase, TransactionTestCase
 from django.urls import reverse
 from django.utils import timezone
@@ -137,6 +138,7 @@ class IdempotencyTests(_StepTestBase):
         self.assertEqual(response.data, {'action': 'INPUT', 'values': ['2']})
 
 
+@unittest.skipIf(connection.vendor == 'sqlite', 'Concurrent threads require PostgreSQL MVCC; SQLite locks the entire database file.')
 class ConcurrencyTests(TransactionTestCase):
     """Real threads, real separate DB connections - same proof pattern as
     tests_double_dispatch_concurrency.py (Phase 7.3)."""

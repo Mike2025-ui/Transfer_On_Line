@@ -79,6 +79,7 @@ class Scenario1FullSuccessTests(TestCase):
         # the rest of this project's suites.
         verify_payment.return_value = PaymentStatusResult(status='accepted', raw={'data': {'status': 'ACCEPTED'}})
         PaymentService.verify(tx.payment)
+        tx.refresh_from_db()
 
         # 1. Transaction créée.
         self.assertIsNotNone(tx.pk)
@@ -170,6 +171,8 @@ class Scenario2OrangeUnavailableTests(TestCase):
         )
         self.assertEqual(response.status_code, 201)
         tx = Transaction.objects.get(reference=response.data['reference'])
+        PaymentService.apply_status(tx.payment, 'accepted')
+        tx.refresh_from_db()
 
         self.assertIsNone(tx.gateway_id, 'Orange hors ligne : aucun Gateway ne doit être assigné, surtout pas MTN')
         self.assertEqual(tx.status, 'pending')
@@ -220,6 +223,8 @@ class Scenario3RetryableFailureTests(TestCase):
             format='json',
         )
         tx = Transaction.objects.get(reference=response.data['reference'])
+        PaymentService.apply_status(tx.payment, 'accepted')
+        tx.refresh_from_db()
         first_sim_id = tx.attempts.get(attempt_number=1).gateway_sim_id
 
         # Business-model audit Phase 7: authenticate as whichever Gateway the
@@ -279,6 +284,7 @@ class Scenario4NonRetryableFailureTests(TestCase):
             format='json',
         )
         tx = Transaction.objects.get(reference=response.data['reference'])
+        PaymentService.apply_status(tx.payment, 'accepted')
 
         result_response = self.client.post(
             reverse('api_transaction_result'),
@@ -325,6 +331,8 @@ class Scenario5TimeoutTests(TestCase):
             format='json',
         )
         tx = Transaction.objects.get(reference=response.data['reference'])
+        PaymentService.apply_status(tx.payment, 'accepted')
+        tx.refresh_from_db()
         attempt = tx.attempts.get(attempt_number=1)
         TransactionAttempt.objects.filter(pk=attempt.pk).update(created_at=timezone.now() - timedelta(seconds=99999))
 
@@ -373,6 +381,8 @@ class Scenario6LateResultTests(TestCase):
             format='json',
         )
         tx = Transaction.objects.get(reference=response.data['reference'])
+        PaymentService.apply_status(tx.payment, 'accepted')
+        tx.refresh_from_db()
         attempt = tx.attempts.get(attempt_number=1)
         TransactionAttempt.objects.filter(pk=attempt.pk).update(created_at=timezone.now() - timedelta(seconds=99999))
         ReservationManager.release_expired()
@@ -472,6 +482,8 @@ class Scenario7DuplicateRequestTests(TestCase):
             format='json',
         )
         tx = Transaction.objects.get(reference=response.data['reference'])
+        PaymentService.apply_status(tx.payment, 'accepted')
+        tx.refresh_from_db()
         payload = {'transaction_reference': str(tx.reference), 'success': True, 'result': 'OK'}
 
         first = self.client.post(reverse('api_transaction_result'), payload, format='json')

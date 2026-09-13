@@ -52,6 +52,7 @@ class InteractivePayloadNewEngineTests(TestCase):
     def test_ussd_code_with_steps_is_interactive(self):
         code = UssdCode.objects.create(operator=self.operator, service=self.service, label='Interactif', template='*133#')
         UssdStep.objects.create(ussd_code=code, order=1, step_type='INPUT')
+        _make_transaction(self.operator, self.service, code, self.gateway)
         tx = _make_transaction(self.operator, self.service, code, self.gateway)
         attempt = TransactionAttempt.objects.create(transaction=tx, gateway_sim=self.sim, attempt_number=1, status='dispatched')
 

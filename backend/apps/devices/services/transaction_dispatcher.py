@@ -58,6 +58,33 @@ def dispatch_paid_transaction(transaction):
             status__in=('assigned', 'dispatched', 'executing'),
         ).order_by('-attempt_number').first()
 
+    if not getattr(settings, 'USE_NEW_TRANSACTION_ENGINE', False):
+        from apps.devices.services.gateway_manager import GatewayManager
+        gateway = GatewayManager.select_operator_gateway(transaction.operator)
+        if gateway is None:
+            transaction.next_retry_at = timezone.now() + timedelta(
+                seconds=settings.TRANSACTION_ENGINE['RETRY_BACKOFF'][0],
+            )
+            transaction.save(update_fields=['next_retry_at', 'updated_at'])
+            TransactionEvent.log(
+                transaction,
+                'no_gateway_available',
+                mechanism='queued_for_retry',
+                payment_status=transaction.payment.status,
+                next_retry_at=transaction.next_retry_at.isoformat(),
+            )
+            return None
+        transaction.gateway = gateway
+        transaction.next_retry_at = None
+        transaction.save(update_fields=['gateway', 'next_retry_at', 'updated_at'])
+        TransactionEvent.log(
+            transaction,
+            'gateway_assigned',
+            mechanism='legacy_selector',
+            gateway_id=transaction.gateway_id,
+        )
+        return None
+
     attempt = Scheduler.select(transaction, transaction.operator)
     if attempt is None:
         transaction.next_retry_at = timezone.now() + timedelta(
@@ -66,7 +93,8 @@ def dispatch_paid_transaction(transaction):
         transaction.save(update_fields=['next_retry_at', 'updated_at'])
         TransactionEvent.log(
             transaction,
-            'gateway_waiting_after_payment',
+            'no_gateway_available',
+            mechanism='queued_for_retry',
             payment_status=transaction.payment.status,
             next_retry_at=transaction.next_retry_at.isoformat(),
         )
@@ -77,7 +105,8 @@ def dispatch_paid_transaction(transaction):
     transaction.save(update_fields=['gateway', 'next_retry_at', 'updated_at'])
     TransactionEvent.log(
         transaction,
-        'gateway_assigned_after_payment',
+        'gateway_assigned',
+        mechanism='scheduler',
         gateway_id=transaction.gateway_id,
         gateway_sim_id=attempt.gateway_sim_id,
         attempt_number=attempt.attempt_number,

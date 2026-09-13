@@ -74,6 +74,40 @@ services:
       timeout: 5s
       retries: 5
 
+  reconciler:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: transfer_on_line_reconciler
+    command: >
+      sh -c "
+        while true; do
+          python manage.py reconcile_pending_payments --stale-after-minutes 5 --expire-after-hours 12
+          sleep 120
+        done
+      "
+    env_file:
+      - ./backend/.env
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_NAME: ${POSTGRES_NAME:-transfer_on_line}
+      POSTGRES_USER: ${POSTGRES_USER:-transfer}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-transfer}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+    networks:
+      - transfer_network
+    restart: unless-stopped
+
+
 volumes:
   postgres_data:
     driver: local

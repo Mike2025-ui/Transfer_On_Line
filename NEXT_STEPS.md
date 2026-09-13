@@ -307,7 +307,6 @@ docker-compose exec postgres pg_dump -U transfer transfer_on_line > backup.sql
 1. Local avec Docker: Consulter `DOCKER_README.md`
 2. Configuration: Consulter `DEPLOYMENT.md`
 3. Erreurs Jèko: https://docs.jeko.africa
-4. Erreurs IKODDI: https://docs.ikoddi.com
 5. Erreurs GeniusPay: https://docs.geniuspay.ci
 
 ---

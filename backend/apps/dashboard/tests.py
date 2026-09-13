@@ -1,8 +1,10 @@
 import json
+import unittest
 from unittest.mock import patch
 
 from django.conf import settings
 from django.contrib.auth.models import User
+from django.db import connection
 from django.test import TestCase
 from django.urls import reverse
 
@@ -142,6 +144,7 @@ class UssdCodeCrudTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertFalse(UssdCode.objects.filter(label='Test').exists())
 
+    @unittest.skipIf(connection.vendor == 'sqlite', 'SQLite does not support unique constraints with nulls distinct')
     def test_create_a_second_active_row_for_the_same_pair_is_a_form_error_not_500(self):
         UssdCode.objects.create(operator=self.orange, service=self.internet, label='A', template='*456*{montant}#')
         response = self.client.post(
@@ -169,6 +172,7 @@ class UssdCodeCrudTests(TestCase):
         code.refresh_from_db()
         self.assertFalse(code.is_active)
 
+    @unittest.skipIf(connection.vendor == 'sqlite', 'SQLite does not support unique constraints with nulls distinct')
     def test_toggle_conflict_returns_409_json_not_500(self):
         active = UssdCode.objects.create(operator=self.orange, service=self.internet, label='A', template='*456*{montant}#')
         inactive = UssdCode.objects.create(

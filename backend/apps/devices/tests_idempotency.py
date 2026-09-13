@@ -162,8 +162,11 @@ class IdempotencyTests(TestCase):
         self._mock_create_payment(create_payment)
         key = 'client-attempt-reservation'
 
+        first = self.client.post(reverse('api_transaction_execute'), self._payload(idempotency_key=key), format='json')
         self.client.post(reverse('api_transaction_execute'), self._payload(idempotency_key=key), format='json')
-        self.client.post(reverse('api_transaction_execute'), self._payload(idempotency_key=key), format='json')
+        tx = Transaction.objects.get(idempotency_key=key)
+        PaymentService.apply_status(tx.payment, 'accepted')
+        PaymentService.apply_status(tx.payment, 'accepted')
 
         self.assertEqual(TransactionAttempt.objects.filter(gateway_sim=self.sim).count(), 1)
 
@@ -173,8 +176,11 @@ class IdempotencyTests(TestCase):
         self._mock_create_payment(create_payment)
         key = 'client-attempt-single-attempt'
 
+        first = self.client.post(reverse('api_transaction_execute'), self._payload(idempotency_key=key), format='json')
         self.client.post(reverse('api_transaction_execute'), self._payload(idempotency_key=key), format='json')
-        self.client.post(reverse('api_transaction_execute'), self._payload(idempotency_key=key), format='json')
+        tx = Transaction.objects.get(idempotency_key=key)
+        PaymentService.apply_status(tx.payment, 'accepted')
+        PaymentService.apply_status(tx.payment, 'accepted')
 
         self.assertEqual(TransactionAttempt.objects.count(), 1)
 
@@ -185,6 +191,9 @@ class IdempotencyTests(TestCase):
         key = 'client-attempt-retry'
         first = self.client.post(reverse('api_transaction_execute'), self._payload(idempotency_key=key), format='json')
         tx = Transaction.objects.get(reference=first.data['reference'])
+        PaymentService.apply_status(tx.payment, 'accepted')
+        tx.refresh_from_db()
+        self.client.credentials(HTTP_X_GATEWAY_SECRET=Gateway.objects.get(pk=tx.gateway_id).generate_secret())
 
         self.client.post(
             reverse('api_transaction_result'),
@@ -241,6 +250,9 @@ class IdempotencyTests(TestCase):
         key = 'client-attempt-failure-replay'
         first = self.client.post(reverse('api_transaction_execute'), self._payload(idempotency_key=key), format='json')
         tx = Transaction.objects.get(reference=first.data['reference'])
+        PaymentService.apply_status(tx.payment, 'accepted')
+        tx.refresh_from_db()
+        self.client.credentials(HTTP_X_GATEWAY_SECRET=Gateway.objects.get(pk=tx.gateway_id).generate_secret())
 
         self.client.post(
             reverse('api_transaction_result'),
@@ -275,6 +287,11 @@ class IdempotencyTests(TestCase):
         select_operator_gateway.assert_not_called()
 
 
+import unittest
+from django.db import connection
+
+
+@unittest.skipIf(connection.vendor == 'sqlite', 'Concurrent threads require PostgreSQL MVCC; SQLite locks the entire database file.')
 class ConcurrentIdempotentRequestTests(TransactionTestCase):
     """Real multi-threaded race (Part 4 of the brief), not a simulation:
     two independent DB connections racing to create a Transaction under the

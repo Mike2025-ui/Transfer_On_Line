@@ -109,77 +109,83 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
             ),
             Expanded(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(14, 4, 14, 12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    TolCard(
-                      padding: EdgeInsets.zero,
-                      child: Column(
-                        children: [
-                          _summaryRow(
-                            Image.asset(_operatorLogo(widget.operator),
-                                width: 34, height: 34, fit: BoxFit.contain),
-                            'Opérateur',
-                            widget.operator,
-                            AppColors.operatorColor(widget.operator),
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 24),
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 580),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        TolCard(
+                          padding: EdgeInsets.zero,
+                          child: Column(
+                            children: [
+                              _summaryRow(
+                                Image.asset(_operatorLogo(widget.operator),
+                                    width: 36, height: 36, fit: BoxFit.contain),
+                                'Opérateur',
+                                widget.operator,
+                                AppColors.operatorColor(widget.operator),
+                              ),
+                              _summaryRow(
+                                  const Icon(Icons.language_rounded,
+                                      color: AppColors.blue, size: 36),
+                                  'Service',
+                                  _displayService,
+                                  AppColors.blue),
+                              _summaryRow(
+                                  const Icon(Icons.phone_in_talk_outlined,
+                                      color: AppColors.textPrimary, size: 36),
+                                  'Numéro',
+                                  widget.phone,
+                                  AppColors.textPrimary),
+                              _summaryRow(
+                                  const Icon(Icons.attach_money_rounded,
+                                      color: AppColors.textPrimary, size: 36),
+                                  'Montant du forfait',
+                                  '${widget.amount} FCFA',
+                                  AppColors.textPrimary),
+                            ],
                           ),
-                          _summaryRow(
-                              const Icon(Icons.language_rounded,
-                                  color: AppColors.blue, size: 34),
-                              'Service',
-                              _displayService,
-                              AppColors.blue),
-                          _summaryRow(
-                              const Icon(Icons.phone_in_talk_outlined,
-                                  color: AppColors.textPrimary, size: 34),
-                              'Numéro',
-                              widget.phone,
-                              AppColors.textPrimary),
-                          _summaryRow(
-                              const Icon(Icons.attach_money_rounded,
-                                  color: AppColors.textPrimary, size: 34),
-                              'Montant du forfait',
-                              '${widget.amount} FCFA',
-                              AppColors.textPrimary),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        'Choisissez votre moyen de paiement',
-                        style: GoogleFonts.nunito(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w800,
-                          color: AppColors.textPrimary,
                         ),
-                      ),
+                        const SizedBox(height: 16),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            'Choisissez votre moyen de paiement',
+                            style: GoogleFonts.nunito(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.textPrimary,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        LayoutBuilder(
+                          builder: (context, constraints) {
+                            final cardWidth = (constraints.maxWidth - 12) / 2;
+                            return Wrap(
+                              spacing: 12,
+                              runSpacing: 12,
+                              children: _paymentOptions
+                                  .map((option) => SizedBox(
+                                        width: cardWidth,
+                                        child: _paymentOptionCard(option),
+                                      ))
+                                  .toList(),
+                            );
+                          },
+                        ),
+                        const SizedBox(height: 18),
+                        TolButton(
+                          label: 'PAYER ET SOUSCRIRE',
+                          loading: _loading,
+                          onTap: _confirm,
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 8),
-                    LayoutBuilder(
-                      builder: (context, constraints) {
-                        final cardWidth = (constraints.maxWidth - 10) / 2;
-                        return Wrap(
-                          spacing: 10,
-                          runSpacing: 10,
-                          children: _paymentOptions
-                              .map((option) => SizedBox(
-                                    width: cardWidth,
-                                    child: _paymentOptionCard(option),
-                                  ))
-                              .toList(),
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 8),
-                    TolButton(
-                      label: 'PAYER ET SOUSCRIRE',
-                      loading: _loading,
-                      onTap: _confirm,
-                    ),
-                  ],
+                  ),
                 ),
               ),
             ),
@@ -195,30 +201,37 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
       onTap: _loading
           ? null
           : () => setState(() => _jekoPaymentMethod = option.value),
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(14),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
-        height: 86,
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        height: 96,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
           color: selected ? const Color(0xFFF1FAF5) : Colors.white,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(14),
           border: Border.all(
             color: selected ? AppColors.success : const Color(0xFFE2E6EA),
-            width: selected ? 2 : 1,
+            width: selected ? 2 : 1.2,
           ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.04),
+              blurRadius: 10,
+              offset: const Offset(0, 3),
+            ),
+          ],
         ),
         child: Row(
           children: [
             _paymentLogo(option),
-            const SizedBox(width: 9),
+            const SizedBox(width: 10),
             Expanded(
               child: Text(
                 option.label,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: GoogleFonts.nunito(
-                  fontSize: 13,
+                  fontSize: 15,
                   fontWeight: FontWeight.w800,
                   color: AppColors.textPrimary,
                 ),
@@ -226,7 +239,7 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
             ),
             if (selected)
               const Icon(Icons.check_circle,
-                  color: AppColors.success, size: 20),
+                  color: AppColors.success, size: 24),
           ],
         ),
       ),
@@ -242,10 +255,10 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
             errorBuilder: (_, __, ___) => const Tooltip(
               message: 'Logo indisponible',
               child: Icon(Icons.account_balance_wallet_outlined,
-                  color: AppColors.textSecondary, size: 30),
+                  color: AppColors.textSecondary, size: 32),
             ),
           );
-    return SizedBox(width: 44, height: 44, child: image);
+    return SizedBox(width: 48, height: 48, child: image);
   }
 
   String get _displayService {
@@ -265,13 +278,13 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
 
   Widget _summaryRow(Widget leading, String label, String value, Color color) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: const BoxDecoration(
         border: Border(bottom: BorderSide(color: Color(0xFFECEEF5))),
       ),
       child: Row(
         children: [
-          SizedBox(width: 38, child: Center(child: leading)),
+          SizedBox(width: 40, child: Center(child: leading)),
           const SizedBox(width: 16),
           Flexible(
             child: FittedBox(
@@ -280,7 +293,7 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
               child: Text(
                 label,
                 style: GoogleFonts.nunito(
-                  fontSize: 15,
+                  fontSize: 16,
                   fontWeight: FontWeight.w700,
                   color: AppColors.textPrimary,
                 ),
@@ -296,7 +309,7 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
                 value,
                 textAlign: TextAlign.right,
                 style: GoogleFonts.nunito(
-                  fontSize: 15,
+                  fontSize: 16,
                   fontWeight: FontWeight.w900,
                   color: color,
                 ),

@@ -7,17 +7,7 @@ import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:transfer_on_line/models/models.dart';
 import 'package:transfer_on_line/screens/step4_payment.dart';
-import 'package:transfer_on_line/services/auth_service.dart';
 import 'package:transfer_on_line/services/backend_api_service.dart';
-
-class _NullStore implements AuthTokenStore {
-  @override
-  Future<String?> read(String key) async => null;
-  @override
-  Future<void> write(String key, String value) async {}
-  @override
-  Future<void> delete(String key) async {}
-}
 
 Transaction _pendingTransaction({String id = 'TOL-TEST', String status = 'pending'}) => Transaction(
       id: id,
@@ -47,8 +37,6 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   SharedPreferences.setMockInitialValues({});
 
-  final auth = AuthService(store: _NullStore(), client: MockClient((r) async => http.Response('{}', 200)));
-
   Future<void> pumpSuccessScreen(WidgetTester tester, Transaction tx, http.Client client) async {
     // Wide enough that the "VÉRIFIER MAINTENANT" button (only rendered after
     // the extended-wait threshold) and "VOIR LES NOTIFICATIONS" are on
@@ -60,7 +48,6 @@ void main() {
         transaction: tx,
         notifications: const [],
         backendApiService: BackendApiService(client: client),
-        authService: auth,
       ),
     ));
   }
@@ -258,7 +245,6 @@ void main() {
         transaction: _pendingTransaction(id: 'TOL-NOTIF', status: 'ok'),
         notifications: realNotifications,
         backendApiService: BackendApiService(client: client),
-        authService: auth,
       ),
     ));
     await tester.pump();

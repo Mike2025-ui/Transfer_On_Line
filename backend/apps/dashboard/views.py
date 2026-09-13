@@ -42,9 +42,9 @@ staff_member_required = user_passes_test(
 
 def dashboard_login(request):
     """The Back Office's own login page - session-based, entirely separate
-    from Django Admin's (/admin/login/, left untouched) and from the mobile
-    API's JWT auth (apps.accounts). A valid account that isn't staff is
-    bounced back here with an error rather than granted access."""
+    from Django Admin's (/admin/login/, left untouched). A valid account
+    that isn't staff is bounced back here with an error rather than granted
+    access."""
     if request.user.is_authenticated and request.user.is_staff:
         return redirect('dashboard')
     error = None
@@ -92,7 +92,7 @@ def dashboard_index(request):
     amount_yesterday = Transaction.objects.filter(status='success', created_at__date=yesterday).aggregate(Sum('amount'))['amount__sum'] or 0
     amount_pct = ((amount_today - amount_yesterday) / amount_yesterday * 100) if amount_yesterday else 0.0
 
-    commission_today = amount_today * Decimal('0.01')
+    commission_today = amount_today * Decimal('0.015')
 
     today_transactions = Transaction.objects.filter(created_at__date=today)
     total_transactions = today_transactions.count() or 1

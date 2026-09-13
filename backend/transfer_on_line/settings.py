@@ -314,8 +314,8 @@ CIRCUIT_BREAKER_RESET_SECONDS = int(os.environ.get('CIRCUIT_BREAKER_RESET_SECOND
 # logic. Two dicts, not a class: adding a future key never requires a migration
 # or a signature change anywhere that reads them.
 TRANSACTION_ENGINE = {
-    # Total attempts: initial execution + one retry.
-    "MAX_RETRY": int(os.environ.get("TXN_MAX_RETRY", "2")),
+    # Total attempts: initial execution + retries.
+    "MAX_RETRY": int(os.environ.get("TXN_MAX_RETRY", "3")),
     "TIMEOUT_SECONDS": int(os.environ.get("TXN_TIMEOUT_SECONDS", "90")),
     "RETRY_BACKOFF": [
         int(x) for x in os.environ.get("TXN_RETRY_BACKOFF", "30,45,60").split(",")

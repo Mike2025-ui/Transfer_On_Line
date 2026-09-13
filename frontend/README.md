@@ -57,11 +57,9 @@ lib/
 │   └── widgets.dart             # Composants réutilisables
 └── screens/
     ├── home_screen.dart         # Accueil + détail transaction
-    ├── step1_operator.dart      # Étape 1 : Choix opérateur
     ├── step2_service.dart       # Étape 2 : Service + opération
     ├── step3_info.dart          # Étape 3 : Numéro + montant
     ├── step4_payment.dart       # Étape 4 : Récap + paiement + succès
-    └── history_screen.dart      # Historique + Notifs + Profil
 ```
 
 ---

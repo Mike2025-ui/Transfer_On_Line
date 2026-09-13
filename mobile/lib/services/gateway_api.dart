@@ -106,7 +106,7 @@ class PendingTransaction {
 }
 
 /// One SMS job from `GET /api/gateway/sms/pending/` (SmsTask on the
-/// backend - OTP codes today, see apps.accounts.services.request_otp).
+/// backend.
 /// Unlike transactions, the backend never assigns a sim_slot for these -
 /// SMS always dials on the phone's default SIM for now.
 class SmsPendingTask {
@@ -482,10 +482,10 @@ class GatewayApi {
             'transaction_reference': transactionReference,
             'attempt_id': attemptId,
             'event': event,
-            if (fieldCount != null) 'field_count': fieldCount,
-            if (status != null) 'status': status,
-            if (operatorMessage != null) 'operator_message': operatorMessage,
-            if (errorCode != null) 'error_code': errorCode,
+            'field_count': ?fieldCount,
+            'status': ?status,
+            'operator_message': ?operatorMessage,
+            'error_code': ?errorCode,
           }),
         )
         .timeout(_requestTimeout);

@@ -5,14 +5,9 @@
 // longer exists anywhere in this project - it only ever failed to compile,
 // it never verified anything about this app.
 //
-// TransferOnLineApp.build() hardcodes `home: const SplashScreen()`, and
-// SplashScreen.initState() unconditionally kicks off a real
-// AuthService().restoreSession() call (a real flutter_secure_storage
-// platform-channel read, which has no in-memory fake in a plain
-// `flutter test` run - see AuthTokenStore's own doc comment in
-// lib/services/auth_service.dart) plus a 2.5s Future.delayed. SplashScreen
-// exposes no injection seam (unlike e.g. Step4PaymentScreen), and adding
-// one is out of scope here.
+// TransferOnLineApp.build() wraps the real app shell and starts with
+// DeviceLockScreen. Calling .build() directly exercises that wiring without
+// mounting platform biometric channels during a plain widget test.
 //
 // So this test deliberately never calls tester.pumpWidget(TransferOnLineApp())
 // - doing so would mount SplashScreen for real, hit that uncachable platform
@@ -46,7 +41,7 @@ void main() {
       expect(app.title, 'Transfer On Line');
       expect(app.debugShowCheckedModeBanner, isFalse);
       expect(app.theme, AppTheme.theme);
-      expect(app.home, isA<SplashScreen>());
+      expect(app.home, isNot(isA<SplashScreen>()));
     },
   );
 }

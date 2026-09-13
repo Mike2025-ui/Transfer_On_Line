@@ -6,23 +6,9 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:transfer_on_line/models/models.dart';
 import 'package:transfer_on_line/screens/step4_payment.dart';
-import 'package:transfer_on_line/services/auth_service.dart';
 import 'package:transfer_on_line/services/backend_api_service.dart';
 
-class _NullStore implements AuthTokenStore {
-  @override
-  Future<String?> read(String key) async => null;
-  @override
-  Future<void> write(String key, String value) async {}
-  @override
-  Future<void> delete(String key) async {}
-}
-
 void main() {
-  final auth = AuthService(
-      store: _NullStore(),
-      client: MockClient((r) async => http.Response('{}', 200)));
-
   Future<Map<String, dynamic>> pumpAndConfirm(
     WidgetTester tester, {
     required int operatorId,
@@ -34,9 +20,6 @@ void main() {
     late Map<String, dynamic> sentBody;
     final client = MockClient((request) async {
       sentBody = jsonDecode(request.body) as Map<String, dynamic>;
-      // Empty checkout_url: _confirm() throws right after this and shows a
-      // SnackBar - it never reaches launchUrl() (unmockable platform call)
-      // or SuccessScreen. The real HTTP POST has already happened by then.
       return http.Response(
         jsonEncode({
           'reference': 'TOL-TEST',
@@ -62,7 +45,6 @@ void main() {
         onNotificationAdded: (AppNotification _) {},
         notifications: const [],
         backendApiService: BackendApiService(client: client),
-        authService: auth,
       ),
     ));
 
@@ -81,10 +63,56 @@ void main() {
     expect(body['operator_id'], 1);
     expect(body['service_id'], 3);
     expect(body['operator'], 'Orange');
-    expect(body['service'], 'Internet');
+    expect(body['service'], 'internet');
     expect(body['amount'], 1000);
     expect(body['recipient_phone'], '0700000001');
     expect(body['payment_method'], 'jeko');
+    expect(body['jeko_payment_method'], 'wave');
+  });
+
+  testWidgets('selecting a payment method updates jeko_payment_method',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    late Map<String, dynamic> sentBody;
+    final client = MockClient((request) async {
+      sentBody = jsonDecode(request.body) as Map<String, dynamic>;
+      return http.Response(
+        jsonEncode({
+          'reference': 'TOL-TEST',
+          'status': 'pending',
+          'checkout_url': '',
+          'payment_reference': 'PAY-TEST',
+          'payment_status': 'pending',
+        }),
+        201,
+      );
+    });
+
+    await tester.pumpWidget(MaterialApp(
+      home: Step4PaymentScreen(
+        operatorId: 1,
+        serviceId: 3,
+        operator: 'Orange',
+        service: 'Internet',
+        operation: 'Souscription pour moi',
+        phone: '0700000001',
+        amount: 1000,
+        onTransactionAdded: (Transaction _) {},
+        onNotificationAdded: (AppNotification _) {},
+        notifications: const [],
+        backendApiService: BackendApiService(client: client),
+      ),
+    ));
+
+    await tester.tap(find.text('Orange Money'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('PAYER ET SOUSCRIRE'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(sentBody['jeko_payment_method'], 'orange');
   });
 
   testWidgets(
@@ -122,7 +150,6 @@ void main() {
         onNotificationAdded: (AppNotification _) {},
         notifications: const [],
         backendApiService: BackendApiService(client: client),
-        authService: auth,
       ),
     ));
 
@@ -136,9 +163,6 @@ void main() {
     expect(find.text('PAYER ET SOUSCRIRE'), findsOneWidget);
   });
 
-  // Audit frontend D4, §14/§17/§22 : vérifie qu'un double tap rapide ne
-  // crée jamais deux transactions - le bouton doit se désactiver (loading)
-  // dès le premier appui, avant même que la requête HTTP ne parte.
   testWidgets(
       'double clic rapide sur PAYER : une seule requête POST /transactions/execute/ part',
       (tester) async {
@@ -147,8 +171,6 @@ void main() {
     var postCalls = 0;
     final client = MockClient((request) async {
       if (request.url.path.endsWith('/transactions/execute/')) postCalls++;
-      // A slow-ish response widens the window during which a second tap
-      // could slip through if the button were not actually disabled yet.
       await Future<void>.delayed(const Duration(milliseconds: 30));
       return http.Response(
         jsonEncode({
@@ -175,30 +197,19 @@ void main() {
         onNotificationAdded: (AppNotification _) {},
         notifications: const [],
         backendApiService: BackendApiService(client: client),
-        authService: auth,
       ),
     ));
 
     await tester.tap(find.text('PAYER ET SOUSCRIRE'));
     await tester.pump();
-    // _confirm()'s first synchronous setState (_loading = true) replaces the
-    // button's entire label with a spinner (see TolButton) - it is not just
-    // visually disabled, the text is gone outright, which is itself the
-    // proof that a second tap on this exact label can no longer land.
-    expect(find.text('PAYER ET SOUSCRIRE'), findsNothing,
-        reason:
-            'the button must not be re-actionable while the request is in flight');
+    expect(find.text('PAYER ET SOUSCRIRE'), findsNothing);
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
 
     await tester.pump(const Duration(milliseconds: 100));
 
-    expect(postCalls, 1,
-        reason: 'a rushed double tap must never create two transactions');
+    expect(postCalls, 1);
   });
 
-  // Audit frontend D4, §19 : l'Idempotency-Key doit rester identique pour
-  // un nouvel essai depuis le MÊME écran (même instance de Step4PaymentScreen)
-  // - jamais régénérée à chaque tap.
   testWidgets(
       'la même Idempotency-Key est réutilisée si l\'utilisateur retente depuis le même écran',
       (tester) async {
@@ -237,14 +248,12 @@ void main() {
         onNotificationAdded: (AppNotification _) {},
         notifications: const [],
         backendApiService: BackendApiService(client: client),
-        authService: auth,
       ),
     ));
 
     await tester.tap(find.text('PAYER ET SOUSCRIRE'));
     await tester.pump();
-    await tester.pump(const Duration(
-        milliseconds: 50)); // first attempt fails (500), button re-enabled
+    await tester.pump(const Duration(milliseconds: 50));
 
     await tester.tap(find.text('PAYER ET SOUSCRIRE'));
     await tester.pump();
@@ -252,8 +261,6 @@ void main() {
 
     expect(seenKeys, hasLength(2));
     expect(seenKeys[0], isNotEmpty);
-    expect(seenKeys[0], seenKeys[1],
-        reason:
-            'a retry from the same screen instance must reuse the exact same key');
+    expect(seenKeys[0], seenKeys[1]);
   });
 }

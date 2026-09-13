@@ -5,9 +5,10 @@ unchanged. Real concurrency proof mirrors the pattern already established in
 apps/devices/tests_double_dispatch_concurrency.py (Phase 7.3).
 """
 import threading
+import unittest
 import uuid
 
-from django.db import connections
+from django.db import connection, connections
 from django.test import TestCase, TransactionTestCase, override_settings
 from django.utils import timezone
 
@@ -89,6 +90,10 @@ class InteractiveReservationCapacityTests(TestCase):
         self.assertIsNotNone(second_attempt)
 
 
+@unittest.skipIf(
+    connection.vendor == 'sqlite',
+    'Concurrent threads require PostgreSQL MVCC; SQLite locks the entire database file.',
+)
 class InteractiveReservationConcurrencyTests(TransactionTestCase):
     """Real threads, real separate DB connections - same proof pattern as
     tests_double_dispatch_concurrency.py (Phase 7.3)."""

@@ -16,6 +16,7 @@ from apps.core.services.retry_manager import RetryManager
 from apps.devices.models import GatewaySim
 from apps.devices.services.gateway_manager import GatewayManager
 from apps.devices.services.reservation_manager import ReservationManager
+from apps.core.serializers import transaction_payload
 from apps.payments.services.payment_service import PaymentService
 
 
@@ -338,7 +339,6 @@ class JekoFlowTests(TestCase):
                 'operation': 'subscription',
                 'phone': '0700000001',
                 'amount': 1000,
-                'jeko_payment_method': 'wave',
             },
             format='json',
         )
@@ -348,7 +348,8 @@ class JekoFlowTests(TestCase):
         self.assertEqual(response.data['payment_status'], 'pending')
         self.assertEqual(response.data['checkout_url'], 'https://pay.jeko.africa/pay_request/pr/token-123')
         self.assertTrue(Payment.objects.filter(method='jeko', amount=Decimal('1000')).exists())
-        self.assertEqual(create_payment.call_args.kwargs['customer']['payment_method'], 'wave')
+        self.assertNotIn('payment_method', create_payment.call_args.kwargs['customer'])
+        self.assertNotIn('jeko_payment_method', create_payment.call_args.kwargs['metadata'])
 
 
 @override_settings(
@@ -391,11 +392,15 @@ class NewTransactionEngineIntegrationTests(TestCase):
         return Gateway.objects.create(name=f'Orange - {host}', host=host, **defaults)
 
     def _execute(self):
-        return self.client.post(
+        response = self.client.post(
             reverse('api_transaction_execute'),
             {'operator': 'Orange', 'service': 'Internet', 'operation': 'subscription', 'phone': '0700000099', 'amount': 1000},
             format='json',
         )
+        if response.status_code == 201:
+            tx = Transaction.objects.get(reference=response.data['reference'])
+            PaymentService.apply_status(tx.payment, 'accepted')
+        return response
 
     def _last_event(self, tx, event_type):
         return tx.events.filter(event_type=event_type).order_by('-created_at').first()
@@ -721,8 +726,7 @@ class NewTransactionEngineIntegrationTests(TestCase):
         self.assertEqual(response.status_code, 502)
         tx = Transaction.objects.get(reference=response.data['reference'])
         self.assertEqual(tx.status, 'failed')
-        attempt = tx.attempts.get(attempt_number=1)
-        self.assertEqual(attempt.status, 'failed')
+        self.assertEqual(tx.attempts.count(), 0, 'no reservation is created before payment is accepted')
 
 
 @override_settings(USE_NEW_TRANSACTION_ENGINE=True)
@@ -987,6 +991,10 @@ class TransactionStatusViewTests(TestCase):
         self.device = Device.objects.create(uid='client-app', primary_phone='0700000001')
         self.operator = Operator.objects.create(name='Orange', code='orange')
         self.service = Service.objects.create(name='Internet', code='internet')
+        UssdCode.objects.create(
+            operator=self.operator, service=self.service, label='Internet test',
+            template='*456*{montant}#', is_active=True, is_default=True,
+        )
 
     def _transaction(self, status, payment_status='accepted'):
         payment = Payment.objects.create(method='jeko', reference=f'PAY-{status}', amount=1000, status=payment_status)
@@ -1056,6 +1064,23 @@ class TransactionStatusViewTests(TestCase):
         response = self.client.get(f'/api/gateway/transactions/{tx.reference}/status/')
         self.assertEqual(response.status_code, 200)
 
+    @patch('apps.payments.services.payment_service.PaymentService.verify')
+    def test_pending_transaction_triggers_active_verify_when_stale(self, verify_mock):
+        tx = self._transaction('pending', payment_status='pending')
+        old_time = timezone.now() - timedelta(seconds=20)
+        Payment.objects.filter(id=tx.payment_id).update(created_at=old_time, updated_at=old_time)
+        tx.payment.refresh_from_db()
+
+        response = self.client.get(reverse('api_transaction_status', args=[tx.reference]))
+        self.assertEqual(response.status_code, 200)
+        verify_mock.assert_called_once_with(tx.payment)
+
+    def test_backend_provides_payment_label_for_jeko(self):
+        tx = self._transaction('pending')
+        payload = transaction_payload(tx)
+        self.assertEqual(payload['payment_method_label'], 'Jèko')
+        self.assertEqual(payload['payment_method_logo'], 'jeko')
+
 
 class OperatorServiceListViewTests(TestCase):
     """P1: the Flutter Client's operator/service pickers must reflect the
@@ -1063,6 +1088,8 @@ class OperatorServiceListViewTests(TestCase):
 
     def setUp(self):
         self.client = APIClient()
+        Operator.objects.all().delete()
+        Service.objects.all().delete()
 
     def test_only_active_operators_are_listed(self):
         Operator.objects.create(name='Orange', code='orange', is_active=True)
@@ -1076,7 +1103,7 @@ class OperatorServiceListViewTests(TestCase):
     def test_operator_fields(self):
         operator = Operator.objects.create(name='Orange', code='orange', is_active=True)
         response = self.client.get(reverse('api_operators'))
-        self.assertEqual(response.data, [{'id': operator.id, 'name': 'Orange', 'code': 'orange'}])
+        self.assertEqual(response.data, [{'id': operator.id, 'name': 'Orange', 'code': 'orange', 'logo': 'orange'}])
 
     def test_no_active_operators_returns_empty_list(self):
         Operator.objects.create(name='Orange', code='orange', is_active=False)
@@ -1207,6 +1234,34 @@ class ExecuteTransactionViewIdContractTests(TestCase):
         self.assertEqual(response.status_code, 404)
         self.assertEqual(Transaction.objects.count(), 0)
 
+    @patch('apps.payments.providers.jeko.JekoProvider.create_payment')
+    def test_valid_jeko_payment_method_forwarded_to_provider(self, create_payment, _redis_lock):
+        from apps.payments.providers.base import PaymentInitResult
+        create_payment.return_value = PaymentInitResult(checkout_url='https://pay/tok', provider_transaction_id='tok', raw={})
+
+        response = self._execute(
+            operator_id=self.orange.id,
+            service_id=self.internet.id,
+            payment_method='jeko',
+            jeko_payment_method='orange',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(create_payment.called)
+        _, kwargs = create_payment.call_args
+        self.assertEqual(kwargs['customer']['payment_method'], 'orange')
+        self.assertEqual(kwargs['metadata']['jeko_payment_method'], 'orange')
+
+    def test_invalid_jeko_payment_method_is_rejected(self, _redis_lock):
+        response = self._execute(
+            operator_id=self.orange.id,
+            service_id=self.internet.id,
+            payment_method='jeko',
+            jeko_payment_method='invalid_wallet',
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('Unsupported jeko_payment_method', response.data['error'])
+
     def test_nonexistent_service_id_is_rejected(self, _redis_lock):
         response = self._execute(operator_id=self.orange.id, service_id=999999)
         self.assertEqual(response.status_code, 404)
@@ -1310,7 +1365,7 @@ class PendingTransactionsViewUssdDegradationTests(TestCase):
 
 
 class SmsGatewayTests(TestCase):
-    """SMS jobs (currently OTP codes - see apps.accounts) are polled and
+    """SMS jobs are polled and
     reported by the Android Gateway exactly like USSD transactions."""
 
     def setUp(self):
@@ -1461,11 +1516,15 @@ class NoCrossOperatorGatewayTests(TestCase):
         )
 
     def _execute(self):
-        return self.client.post(
+        response = self.client.post(
             reverse('api_transaction_execute'),
             {'operator': 'Orange', 'service': 'Internet', 'operation': 'subscription', 'phone': '0700000001', 'amount': 1000},
             format='json',
         )
+        if response.status_code == 201:
+            tx = Transaction.objects.get(reference=response.data['reference'])
+            PaymentService.apply_status(tx.payment, 'accepted')
+        return response
 
     @patch('apps.payments.providers.jeko.JekoProvider.create_payment')
     def test_orange_transaction_with_an_eligible_orange_gateway_selects_orange(self, create_payment, _redis_lock):

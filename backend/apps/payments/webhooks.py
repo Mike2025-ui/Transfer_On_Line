@@ -191,6 +191,30 @@ class GeniusPayWebhookView(APIView):
         })
 
 
+def _validate_jeko_event(payment, payload):
+    """Integrity check for Jèko webhooks after signature verification succeeds.
+    Verifies amount, currency, and transactionType."""
+    amount_obj = payload.get('amount')
+    if isinstance(amount_obj, dict):
+        curr = amount_obj.get('currency')
+        if curr and curr != 'XOF':
+            return f'currency mismatch: expected XOF, got {curr}'
+        amt = amount_obj.get('amount')
+        if amt is not None:
+            try:
+                expected_cents = int(Decimal(str(payment.amount)) * 100)
+                if int(amt) != expected_cents:
+                    return f'amount mismatch: payment has {payment.amount} XOF ({expected_cents} cents), webhook reports {amt} cents'
+            except (ValueError, InvalidOperation, TypeError):
+                return f'amount is not a valid number: {amt!r}'
+
+    tx_type = payload.get('transactionType')
+    if tx_type and tx_type != 'PaymentRequest':
+        return f'unsupported transactionType: {tx_type}'
+
+    return None
+
+
 class JekoWebhookView(APIView):
     permission_classes = [AllowAny]
 
@@ -228,13 +252,13 @@ class JekoWebhookView(APIView):
             },
         )
         if not created:
-            return Response({'received': True, 'status': 'duplicate-ignored'})
+            return Response({'received': True, 'status': 'duplicate-ignored'}, status=200)
 
         if payment_reference is None:
             event.processed = True
             event.processed_at = timezone.now()
             event.save(update_fields=['processed', 'processed_at'])
-            return Response({'received': True})
+            return Response({'received': True}, status=200)
 
         payment = Payment.objects.filter(reference=payment_reference, method='jeko').first()
         if payment is None:
@@ -242,13 +266,100 @@ class JekoWebhookView(APIView):
         if payment is None:
             return Response({'error': 'Payment not found'}, status=404)
 
-        _apply_status_safely(
-            payment,
-            jeko_status_to_local(body.get('status')),
-            raw_payload=body,
-            event_id=event_id,
+        error = _validate_jeko_event(payment, body)
+        if error:
+            logger.warning('Jèko webhook %s rejected for payment %s: %s', event_id, payment.reference, error)
+            return Response({'error': error}, status=400)
+
+        with db_transaction.atomic():
+            _apply_status_safely(
+                payment,
+                jeko_status_to_local(body.get('status')),
+                raw_payload=body,
+                event_id=event_id,
+            )
+            event.processed = True
+            event.processed_at = timezone.now()
+            event.save(update_fields=['processed', 'processed_at'])
+
+        return Response(
+            {'received': True, 'payment_reference': payment.reference, 'payment_status': payment.status},
+            status=200,
         )
-        event.processed = True
-        event.processed_at = timezone.now()
-        event.save(update_fields=['processed', 'processed_at'])
-        return Response({'received': True, 'payment_reference': payment.reference, 'payment_status': payment.status})
+
+
+class JekoReturnView(APIView):
+    """Backend callback used by Jèko's hosted checkout success/error redirect.
+
+    Jèko redirects to a configured successUrl/errorUrl after the customer
+    completes or cancels the checkout. We treat that redirect as the server's
+    authoritative confirmation point for the payment lifecycle: look up the
+    Payment by the reference Jèko includes, and verify/finalize it server-side.
+    When accessed from a browser, renders an HTML status page with a deep link back
+    to the mobile application.
+    """
+
+    permission_classes = [AllowAny]
+
+    def _resolve_reference(self, request):
+        if request.method == 'GET':
+            return request.GET.get('reference') or request.GET.get('transaction_reference') or request.GET.get('id')
+        return (
+            (request.data or {}).get('reference')
+            or (request.data or {}).get('transaction_reference')
+            or (request.data or {}).get('id')
+        )
+
+    def _resolve_status(self, request):
+        if request.method == 'GET':
+            return request.GET.get('status') or request.GET.get('state') or 'pending'
+        data = request.data or {}
+        return data.get('status') or data.get('state') or 'pending'
+
+    def _handle(self, request):
+        reference = self._resolve_reference(request)
+        if not reference:
+            return Response({'error': 'reference required'}, status=400)
+
+        payment = Payment.objects.filter(reference=reference, method='jeko').first()
+        if payment is None:
+            payment = Payment.objects.filter(provider_transaction_id=reference, method='jeko').first()
+        if payment is None:
+            return Response({'error': 'Payment not found'}, status=404)
+
+        provider_status = str(self._resolve_status(request) or '').lower()
+        if provider_status in {'success', 'accepted', 'completed'}:
+            PaymentService.verify(payment)
+        elif provider_status in {'cancelled', 'canceled', 'error', 'failed'}:
+            PaymentService.apply_status(payment, 'failed', raw_payload={'redirect_result': request.data or request.GET.dict()})
+        else:
+            PaymentService.apply_status(payment, 'pending', raw_payload={'redirect_result': request.data or request.GET.dict()})
+
+        tx = payment.transactions.first()
+
+        # If accessed from a web browser (HTML accept header), render friendly return template
+        accept_header = request.META.get('HTTP_ACCEPT', '')
+        if 'text/html' in accept_header and 'application/json' not in accept_header:
+            from django.shortcuts import render
+            deep_link = f'transfertonline://payment?reference={payment.reference}&status={payment.status}'
+            context = {
+                'payment': payment,
+                'transaction': tx,
+                'deep_link': deep_link,
+                'status': payment.status,
+            }
+            return render(request, 'payments/jeko_return.html', context)
+
+        return Response({
+            'received': True,
+            'payment_reference': payment.reference,
+            'payment_status': payment.status,
+            'provider_status': provider_status or 'pending',
+            'transaction': _safe_transaction_payload(tx) if tx else None,
+        })
+
+    def get(self, request):
+        return self._handle(request)
+
+    def post(self, request):
+        return self._handle(request)

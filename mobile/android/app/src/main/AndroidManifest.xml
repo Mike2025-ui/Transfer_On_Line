@@ -18,8 +18,7 @@
          once per phone (see requestBatteryOptimizationExemption). -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <!-- SMS delivery (Phase C, Étape 7) - OTP codes today, see
-         apps.accounts.services.request_otp / apps.devices.models.SmsTask. -->
+    <!-- SMS delivery (Phase C, Étape 7) - see apps.devices.models.SmsTask. -->
     <uses-permission android:name="android.permission.SEND_SMS" />
     <application
         android:label="gateway_apk"

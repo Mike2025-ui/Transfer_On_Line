@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../models/models.dart';
 import '../services/backend_api_service.dart';
+import '../services/notification_service.dart';
 import '../services/transaction_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/widgets.dart';
@@ -20,15 +21,8 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   late final BackendApiService _api =
       widget.backendApiService ?? BackendApiService();
-  // Identity architecture (Phase 8): starts empty, never sampleNotifications
-  // - a brand-new identity genuinely has zero notifications until the
-  // backend says otherwise; fabricating sample ones would misrepresent the
-  // authenticated user's real history.
   List<AppNotification> _notifications = [];
   List<Transaction> _transactions = [];
-  // Backed by GET /notifications/unread-count/, not derived from
-  // _notifications (which only ever holds one page) - stays accurate even
-  // past the first page of history.
   int _unreadCount = 0;
 
   List<OperatorItem>? _operators;
@@ -43,12 +37,6 @@ class _HomeScreenState extends State<HomeScreen> {
     _loadOperators();
   }
 
-  /// Identity architecture (Phase 7): the backend (`GET /transactions/my/`,
-  /// filtered by the JWT alone) is now the source of truth for history -
-  /// this is what makes a changed/reinstalled phone recover the exact same
-  /// purchases after a fresh OTP. The local cache (TransactionService)
-  /// stays only as an offline fallback and as the reconciliation seed for
-  /// a transaction that was still pending when the app last closed.
   Future<void> _loadTransactions() async {
     final saved = await TransactionService.load();
     if (saved.isNotEmpty && mounted) {
@@ -59,95 +47,31 @@ class _HomeScreenState extends State<HomeScreen> {
     // Backend - jamais supposée encore active sans vérifier, et jamais
     // relancée en parallèle pour toutes à la fois (voir _reconcilePending).
     if (saved.isNotEmpty) await _reconcilePending(saved);
-
-    try {
-      final remote = await _api.fetchMyTransactions();
-      if (!mounted) return;
-      setState(() => _transactions = remote.map(_toLocalTransaction).toList());
-      await TransactionService.save(_transactions);
-    } catch (_) {
-      // Backend unreachable - keep the local cache already produced.
-    }
   }
 
-  Transaction _toLocalTransaction(TransactionSummary s) {
-    final localStatus = switch (s.status) {
-      'success' => 'ok',
-      'cancelled' => 'cancelled',
-      'pending' || 'processing' => 'pending',
-      _ => 'fail',
-    };
-    return Transaction(
-      id: s.reference,
-      operator: s.operator,
-      service: s.service,
-      operation: s.transactionType,
-      phone: s.recipientPhone,
-      amount: s.amount.round(),
-      paymentMethod: s.paymentMethod ?? '',
-      date: s.createdAt ?? DateTime.now(),
-      status: localStatus,
-    );
-  }
-
-  /// Identity architecture (Phase 8): `GET /notifications/` +
-  /// `GET /notifications/unread-count/`, both filtered by the JWT alone -
-  /// this is what makes notifications survive a phone change/reinstall
-  /// exactly like transactions do (Phase 7).
   Future<void> _loadNotifications() async {
-    try {
-      final remote = await _api.fetchNotifications();
-      if (!mounted) return;
-      setState(() => _notifications = remote.map(_toAppNotification).toList());
-    } catch (_) {
-      // Leave whatever was already shown - never replace real data with an
-      // empty/fake list just because of a transient error.
-    }
-    try {
-      final count = await _api.fetchUnreadNotificationCount();
-      if (mounted) setState(() => _unreadCount = count);
-    } catch (_) {
-      // Keep the previous count rather than showing a misleading 0.
-    }
-  }
-
-  AppNotification _toAppNotification(NotificationItem n) {
-    final isSuccess = n.type == 'transaction_success';
-    return AppNotification(
-      id: n.id,
-      title: n.title,
-      message: n.message,
-      time: _formatNotificationTime(n.createdAt),
-      read: n.isRead,
-      icon: isSuccess ? 'success' : 'error',
-      type: isSuccess ? 'success' : 'error',
-      reference: n.transactionReference,
-    );
-  }
-
-  String _formatNotificationTime(DateTime? date) {
-    if (date == null) return '';
-    final local = date.toLocal();
-    final now = DateTime.now();
-    final h = local.hour.toString().padLeft(2, '0');
-    final m = local.minute.toString().padLeft(2, '0');
-    final isToday = local.year == now.year &&
-        local.month == now.month &&
-        local.day == now.day;
-    final isYesterday = now.difference(local).inDays == 1 && !isToday;
-    if (isToday) return "Aujourd'hui · $h:$m";
-    if (isYesterday) return 'Hier · $h:$m';
-    return '${local.day.toString().padLeft(2, '0')}/${local.month.toString().padLeft(2, '0')}/${local.year} · $h:$m';
+    final saved = await NotificationService.load();
+    if (!mounted) return;
+    setState(() {
+      _notifications = saved;
+      _unreadCount = saved.where((notification) => !notification.read).length;
+    });
   }
 
   Future<void> _markNotificationRead(AppNotification notification) async {
-    final id = notification.id;
-    if (id == null) return;
-    try {
-      await _api.markNotificationRead(notificationId: id);
-    } catch (_) {
-      // Best-effort: the local `read` flag is enough for this session.
-    }
+    final index = _notifications.indexWhere(
+      (item) =>
+          item.id == notification.id &&
+          item.reference == notification.reference &&
+          item.title == notification.title &&
+          item.time == notification.time,
+    );
+    if (index == -1 || _notifications[index].read) return;
+    setState(() {
+      _notifications[index].read = true;
+      _unreadCount = _notifications.where((item) => !item.read).length;
+    });
+    await NotificationService.save(_notifications);
   }
 
   /// Traitement séquentiel, une transaction à la fois - évite de déclencher
@@ -233,13 +157,14 @@ class _HomeScreenState extends State<HomeScreen> {
     return name == 'MTN' ? AppColors.textPrimary : Colors.white;
   }
 
-  String _operatorLogoAsset(String name) {
-    switch (name) {
-      case 'Orange':
+  String _operatorLogoAsset(String name, [String? logoSlug]) {
+    final slug = (logoSlug ?? name).toLowerCase();
+    switch (slug) {
+      case 'orange':
         return 'assets/images/Orange_logo.png';
-      case 'MTN':
+      case 'mtn':
         return 'assets/images/mtn.jpg';
-      case 'Moov':
+      case 'moov':
         return 'assets/images/moov.jpeg';
       default:
         // No known asset for this operator - Image.asset's errorBuilder in
@@ -291,10 +216,10 @@ class _HomeScreenState extends State<HomeScreen> {
         operatorId: operator.id,
         name: operator.name,
         color: _operatorCardColor(operator.name),
-        logo: _operatorLogoAsset(operator.name),
+        logo: _operatorLogoAsset(operator.name, operator.logo),
         textColor: _operatorCardTextColor(operator.name),
       ));
-      if (i != operators.length - 1) cards.add(const SizedBox(height: 16));
+      if (i != operators.length - 1) cards.add(const SizedBox(height: 18));
     }
     return Column(children: cards);
   }
@@ -305,7 +230,11 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _addNotification(AppNotification notification) {
-    setState(() => _notifications.insert(0, notification));
+    setState(() {
+      _notifications.insert(0, notification);
+      _unreadCount = _notifications.where((item) => !item.read).length;
+    });
+    NotificationService.save(_notifications);
   }
 
   @override
@@ -353,72 +282,91 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
             SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(18, 4, 18, 8),
-                child: Column(
-                  children: [
-                    Row(
-                      children: [
-                        const Spacer(),
-                        _notificationButton(unread),
-                      ],
-                    ),
-                    const SizedBox(height: 0),
-                    _logo(),
-                    const SizedBox(height: 0),
-                    Text(
-                      'TRANSFER',
-                      style: GoogleFonts.nunito(
-                        fontSize: 28,
-                        height: 0.98,
-                        fontWeight: FontWeight.w900,
-                        color: Colors.white,
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  return SingleChildScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        minHeight: constraints.maxHeight,
+                      ),
+                      child: Center(
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 580),
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(18, 6, 18, 16),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                Row(
+                                  children: [
+                                    const Spacer(),
+                                    _notificationButton(unread),
+                                  ],
+                                ),
+                                const SizedBox(height: 6),
+                                _logo(),
+                                const SizedBox(height: 6),
+                                Text(
+                                  'TRANSFER',
+                                  style: GoogleFonts.nunito(
+                                    fontSize: 30,
+                                    height: 0.98,
+                                    fontWeight: FontWeight.w900,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                                Text(
+                                  'ON LINE',
+                                  style: GoogleFonts.nunito(
+                                    fontSize: 30,
+                                    height: 1,
+                                    fontWeight: FontWeight.w900,
+                                    color: const Color(0xFF66D300),
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  'Souscrivez ou transférez\nvos forfaits en toute simplicité',
+                                  textAlign: TextAlign.center,
+                                  style: GoogleFonts.nunito(
+                                    fontSize: 14,
+                                    height: 1.3,
+                                    fontWeight: FontWeight.w800,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                                const SizedBox(height: 10),
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    _roundService(Icons.phone_rounded),
+                                    const SizedBox(width: 12),
+                                    _roundService(Icons.language_rounded),
+                                    const SizedBox(width: 12),
+                                    _roundService(Icons.sms_rounded),
+                                  ],
+                                ),
+                                const SizedBox(height: 12),
+                                Text(
+                                  'Choisissez votre opérateur',
+                                  style: GoogleFonts.nunito(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w900,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                                const SizedBox(height: 10),
+                                _operatorsSection(),
+                              ],
+                            ),
+                          ),
+                        ),
                       ),
                     ),
-                    Text(
-                      'ON LINE',
-                      style: GoogleFonts.nunito(
-                        fontSize: 28,
-                        height: 1,
-                        fontWeight: FontWeight.w900,
-                        color: const Color(0xFF66D300),
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Souscrivez ou transférez\nvos forfaits en toute simplicité',
-                      textAlign: TextAlign.center,
-                      style: GoogleFonts.nunito(
-                        fontSize: 13,
-                        height: 1.25,
-                        fontWeight: FontWeight.w800,
-                        color: Colors.white,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        _roundService(Icons.phone_rounded),
-                        const SizedBox(width: 8),
-                        _roundService(Icons.language_rounded),
-                        const SizedBox(width: 8),
-                        _roundService(Icons.sms_rounded),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Choisissez votre opérateur',
-                      style: GoogleFonts.nunito(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w900,
-                        color: Colors.white,
-                      ),
-                    ),
-                    const SizedBox(height: 5),
-                    _operatorsSection(),
-                  ],
-                ),
+                  );
+                },
               ),
             ),
           ],
@@ -478,20 +426,34 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _logo() {
-    // Le logo interne historique reste sans fond blanc, comme dans la maquette.
-    return Stack(
-      alignment: Alignment.center,
-      children: [
-        Icon(Icons.sync_rounded, color: Colors.orange.shade600, size: 82),
-        const Icon(Icons.sync_rounded, color: Color(0xFF0BA23E), size: 52),
-      ],
+    return Container(
+      width: 96,
+      height: 96,
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.35),
+            blurRadius: 18,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(24),
+        child: Image.asset(
+          'assets/images/app_logo.png',
+          fit: BoxFit.contain,
+        ),
+      ),
     );
   }
 
   Widget _roundService(IconData icon) {
     return Container(
-      width: 48,
-      height: 48,
+      width: 52,
+      height: 52,
       decoration: BoxDecoration(
         color: const Color(0xFF06B43E),
         shape: BoxShape.circle,
@@ -503,7 +465,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      child: Icon(icon, color: Colors.white, size: 22),
+      child: Icon(icon, color: Colors.white, size: 24),
     );
   }
 
@@ -528,13 +490,11 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
       child: Container(
-        // Carte large, espacée et suffisamment haute comme dans la maquette.
-        height: 54,
+        height: 76,
         margin: const EdgeInsets.symmetric(horizontal: 2),
-        padding: const EdgeInsets.symmetric(horizontal: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
           color: color,
-          // Moov reçoit une légère variation de bleu pour mieux ressortir.
           gradient: name == 'Moov'
               ? const LinearGradient(
                   begin: Alignment.centerLeft,
@@ -542,11 +502,11 @@ class _HomeScreenState extends State<HomeScreen> {
                   colors: [Color(0xFF0057DD), Color(0xFF147BFF)],
                 )
               : null,
-          borderRadius: BorderRadius.circular(22),
+          borderRadius: BorderRadius.circular(24),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.18),
-              blurRadius: 16,
+              color: Colors.black.withValues(alpha: 0.20),
+              blurRadius: 18,
               offset: const Offset(0, 8),
             ),
           ],
@@ -554,28 +514,22 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Row(
           children: [
             SizedBox(
-              // Le logo reste compact sur mobile pour laisser de la place au
-              // nom et a la fleche de navigation.
-              width: 64,
-              height: 54,
+              width: 66,
+              height: 60,
               child: logo.isEmpty
-                  // Placeholder local : la carte reste correcte si un logo
-                  // manque dans assets/images.
-                  ? Icon(Icons.business_rounded, color: textColor, size: 54)
+                  ? Icon(Icons.business_rounded, color: textColor, size: 50)
                   : Image.asset(
                       logo,
                       fit: BoxFit.contain,
                       errorBuilder: (_, __, ___) => Icon(
                         Icons.business_rounded,
                         color: textColor,
-                        size: 54,
+                        size: 50,
                       ),
                     ),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 14),
             Expanded(
-              // FittedBox reduit le texte si l'ecran est etroit. Le nom
-              // reste toujours sur une seule ligne et ne se coupe jamais.
               child: FittedBox(
                 fit: BoxFit.scaleDown,
                 alignment: Alignment.centerLeft,
@@ -591,8 +545,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
             ),
-            // Flèche blanche toujours visible à droite de la carte.
-            Icon(Icons.chevron_right_rounded, color: textColor, size: 30),
+            Icon(Icons.chevron_right_rounded, color: textColor, size: 34),
           ],
         ),
       ),
