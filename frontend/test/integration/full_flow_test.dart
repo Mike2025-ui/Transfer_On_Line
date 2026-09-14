@@ -9,6 +9,7 @@ import 'package:transfer_on_line/models/models.dart';
 import 'package:transfer_on_line/screens/step2_service.dart';
 import 'package:transfer_on_line/screens/step3_info.dart';
 import 'package:transfer_on_line/screens/step4_payment.dart';
+import 'package:transfer_on_line/services/auth_service.dart';
 import 'package:transfer_on_line/services/backend_api_service.dart';
 
 /// Best-available integration coverage for the flow requested by the D4
@@ -50,6 +51,11 @@ import 'package:transfer_on_line/services/backend_api_service.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   SharedPreferences.setMockInitialValues({});
+
+  final auth = AuthService(
+    store: _NullStore(),
+    client: MockClient((r) async => http.Response('{}', 200)),
+  );
 
   testWidgets(
     'Home -> Service -> Informations -> Paiement : les données réelles traversent toute la chaîne',
@@ -164,6 +170,7 @@ void main() {
           transaction: _pendingTransactionFromStep4(),
           notifications: const [],
           backendApiService: BackendApiService(client: client),
+          authService: auth,
         ),
       ));
 
@@ -210,6 +217,7 @@ void main() {
           transaction: _pendingTransactionFromStep4(),
           notifications: const [],
           backendApiService: BackendApiService(client: client),
+          authService: auth,
         ),
       ));
 
@@ -223,3 +231,11 @@ void main() {
   );
 }
 
+class _NullStore implements AuthTokenStore {
+  @override
+  Future<String?> read(String key) async => null;
+  @override
+  Future<void> write(String key, String value) async {}
+  @override
+  Future<void> delete(String key) async {}
+}

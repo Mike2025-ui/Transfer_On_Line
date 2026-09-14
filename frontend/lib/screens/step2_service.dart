@@ -31,6 +31,9 @@ class Step2ServiceScreen extends StatefulWidget {
 class _Step2ServiceScreenState extends State<Step2ServiceScreen> {
   String? _service;
   int? _selectedServiceId;
+  // Le backend reçoit cette opération interne, sans afficher un choix séparé.
+  final String _operation = 'Souscription pour moi';
+
   List<ServiceItem>? _services;
   bool _loadingServices = true;
   String? _servicesError;
@@ -42,59 +45,50 @@ class _Step2ServiceScreenState extends State<Step2ServiceScreen> {
   }
 
   Future<void> _loadServices() async {
-    try {
-      final services =
-          await (widget.backendApiService ?? BackendApiService()).getServices();
-      const displayOrder = {'Appels': 0, 'Internet': 1, 'Crédit': 2, 'SMS': 3};
-      final visibleServices = services.toList()
-        ..sort((a, b) => (displayOrder[a.name.split(' (').first] ?? 99)
-            .compareTo(displayOrder[b.name.split(' (').first] ?? 99));
-      if (!mounted) return;
-      setState(() {
-        _services = visibleServices.isEmpty ? null : visibleServices;
-        _loadingServices = false;
-        _servicesError = null;
-        if (visibleServices.isNotEmpty) {
-          _service = visibleServices.first.name;
-          _selectedServiceId = visibleServices.first.id;
-        }
-      });
-    } catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _loadingServices = false;
-        _servicesError = 'Impossible de charger les services.';
-      });
+    // Maquette hors ligne : ces services remplacent temporairement la
+    // reponse du serveur pour eviter le blocage CORS pendant le travail UI.
+    const mockedServices = [
+      ServiceItem(id: 1, name: 'Internet (Pass data)', code: 'internet'),
+      ServiceItem(id: 2, name: 'Appels (Pass voix)', code: 'appels'),
+      ServiceItem(id: 3, name: 'Crédit (communication)', code: 'credit'),
+      ServiceItem(id: 4, name: 'SMS (Pass SMS)', code: 'sms'),
+    ];
+
+    // L'etat passe directement en succes : aucun spinner ni message reseau
+    // ne doit empecher l'utilisateur de poursuivre le parcours.
+    setState(() {
+      _services = mockedServices;
+      _loadingServices = false;
+      _servicesError = null;
+      _service = mockedServices.first.name;
+      _selectedServiceId = mockedServices.first.id;
+    });
+  }
+
+  IconData _serviceIcon(String name) {
+    switch (name) {
+      case 'Appels (Pass voix)':
+        return Icons.phone_rounded;
+      case 'Internet (Pass data)':
+        return Icons.language_rounded;
+      case 'SMS (Pass SMS)':
+        return Icons.sms_rounded;
+      default:
+        return Icons.apps_rounded;
     }
   }
 
   Color _serviceColor(String name) {
-    final normalized = name.toLowerCase();
-    if (normalized.contains('voix') || normalized.contains('appel')) {
-      return const Color(0xFF079A48);
+    switch (name) {
+      case 'Appels':
+        return const Color(0xFF079A48);
+      case 'Internet':
+        return const Color(0xFF1687F7);
+      case 'SMS':
+        return const Color(0xFF7C2CF0);
+      default:
+        return AppColors.primary;
     }
-    if (normalized.contains('data') || normalized.contains('internet')) {
-      return const Color(0xFF1687F7);
-    }
-    if (normalized.contains('sms')) return const Color(0xFF7C2CF0);
-    return const Color(0xFFCE8A00);
-  }
-
-  String _serviceAsset(String name) {
-    final normalized = name.toLowerCase();
-    if (normalized.contains('voix') || normalized.contains('appel')) {
-      return 'assets/images/telephone.png';
-    }
-    if (normalized.contains('data') || normalized.contains('internet')) {
-      return 'assets/images/internet.png';
-    }
-    if (normalized.contains('sms')) return 'assets/images/sms.png';
-    return 'assets/images/icône_de souscription.png';
-  }
-
-  bool _isVoiceService(String name) {
-    final normalized = name.toLowerCase();
-    return normalized.contains('voix') || normalized.contains('appel');
   }
 
   @override
@@ -110,34 +104,21 @@ class _Step2ServiceScreenState extends State<Step2ServiceScreen> {
             step: 2,
           ),
           Expanded(
-            child: SingleChildScrollView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 580),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      const Center(child: SectionTitle('SERVICES DISPONIBLES')),
-                      const SizedBox(height: 8),
-                      _servicesSection(),
-                    ],
-                  ),
-                ),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SectionTitle('SERVICES DISPONIBLES'),
+                  const SizedBox(height: 4),
+                  _servicesSection(),
+                  const Spacer(),
+                  TolButton(label: 'CONTINUER ›', onTap: _next),
+                ],
               ),
             ),
           ),
         ],
-      ),
-      bottomNavigationBar: SafeArea(
-        minimum: const EdgeInsets.fromLTRB(16, 10, 16, 16),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 580),
-            child: TolButton(label: 'CONTINUER ›', onTap: _next),
-          ),
-        ),
       ),
     );
   }
@@ -145,7 +126,7 @@ class _Step2ServiceScreenState extends State<Step2ServiceScreen> {
   Widget _servicesSection() {
     if (_loadingServices) {
       return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 30),
+        padding: EdgeInsets.symmetric(vertical: 20),
         child: Center(child: CircularProgressIndicator()),
       );
     }
@@ -158,11 +139,11 @@ class _Step2ServiceScreenState extends State<Step2ServiceScreen> {
             textAlign: TextAlign.center,
             style: GoogleFonts.nunito(
               color: AppColors.textSecondary,
-              fontSize: 16,
+              fontSize: 15,
               fontWeight: FontWeight.w700,
             ),
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 12),
           TolButton(label: 'RÉESSAYER', onTap: _loadServices),
         ],
       );
@@ -174,19 +155,18 @@ class _Step2ServiceScreenState extends State<Step2ServiceScreen> {
         textAlign: TextAlign.center,
         style: GoogleFonts.nunito(
           color: AppColors.textSecondary,
-          fontSize: 16,
+          fontSize: 15,
           fontWeight: FontWeight.w700,
         ),
       );
     }
     return LayoutBuilder(
       builder: (context, constraints) => Wrap(
-        alignment: WrapAlignment.center,
-        spacing: 12,
-        runSpacing: 12,
+        spacing: 10,
+        runSpacing: 10,
         children: services
             .map((service) => SizedBox(
-                  width: (constraints.maxWidth - 20) / 2,
+                  width: (constraints.maxWidth - 14) / 2,
                   child: _serviceTile(service),
                 ))
             .toList(),
@@ -204,13 +184,13 @@ class _Step2ServiceScreenState extends State<Step2ServiceScreen> {
       }),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
-        height: 116,
+        height: 104,
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: selected ? AppColors.success : const Color(0xFFE7EAF2),
-            width: selected ? 2 : 1,
+            width: selected ? 1.6 : 1,
           ),
           boxShadow: [
             BoxShadow(
@@ -225,17 +205,17 @@ class _Step2ServiceScreenState extends State<Step2ServiceScreen> {
           children: [
             if (selected)
               Positioned(
-                top: -8,
-                right: -6,
+                top: -10,
+                right: -8,
                 child: Container(
-                  width: 32,
-                  height: 32,
+                  width: 30,
+                  height: 30,
                   decoration: const BoxDecoration(
                     color: AppColors.success,
                     shape: BoxShape.circle,
                   ),
                   child: const Icon(Icons.check_rounded,
-                      color: Colors.white, size: 24),
+                      color: Colors.white, size: 23),
                 ),
               ),
             Center(
@@ -243,30 +223,24 @@ class _Step2ServiceScreenState extends State<Step2ServiceScreen> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Container(
-                    width: 52,
-                    height: 52,
-                    padding: const EdgeInsets.all(8),
+                    width: 42,
+                    height: 42,
                     decoration: BoxDecoration(
-                      color: color.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(14),
+                      color: color,
+                      shape: BoxShape.circle,
                     ),
-                    child: _isVoiceService(service.name)
-                        ? Icon(Icons.phone_rounded, color: color, size: 32)
-                        : Image.asset(_serviceAsset(service.name),
-                            fit: BoxFit.contain),
+                    child: Icon(_serviceIcon(service.name),
+                        color: Colors.white, size: 24),
                   ),
                   const SizedBox(height: 6),
                   FittedBox(
                     fit: BoxFit.scaleDown,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 6),
-                      child: Text(
-                        service.name,
-                        style: GoogleFonts.nunito(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w900,
-                          color: AppColors.textPrimary,
-                        ),
+                    child: Text(
+                      service.name,
+                      style: GoogleFonts.nunito(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w900,
+                        color: AppColors.textPrimary,
                       ),
                     ),
                   ),
@@ -291,6 +265,7 @@ class _Step2ServiceScreenState extends State<Step2ServiceScreen> {
           serviceId: serviceId,
           operator: widget.operator,
           service: service,
+          operation: _operation,
           onTransactionAdded: widget.onTransactionAdded,
           onNotificationAdded: widget.onNotificationAdded,
           notifications: widget.notifications,

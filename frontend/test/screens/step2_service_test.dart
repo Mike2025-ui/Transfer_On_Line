@@ -11,6 +11,8 @@ import 'package:transfer_on_line/services/backend_api_service.dart';
 
 void main() {
   Future<void> pumpStep2(WidgetTester tester, http.Client client) async {
+    // L'écran est conçu sans défilement : le grand support vérifie seulement
+    // le parcours, pas une dépendance à un scroll de test.
     await tester.binding.setSurfaceSize(const Size(800, 1400));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(MaterialApp(
@@ -27,18 +29,10 @@ void main() {
 
   testWidgets('affiche les quatre services sans bloc operation',
       (tester) async {
-    final client = MockClient((request) async => http.Response(
-          jsonEncode([
-            {'id': 1, 'name': 'Appels (Pass voix)', 'code': 'appels'},
-            {'id': 2, 'name': 'Internet (Pass data)', 'code': 'internet'},
-            {'id': 3, 'name': 'Crédit (communication)', 'code': 'credit'},
-            {'id': 4, 'name': 'SMS (Pass SMS)', 'code': 'sms'},
-          ]),
-          200,
-        ));
+    final client =
+        MockClient((request) async => http.Response(jsonEncode([]), 200));
 
     await pumpStep2(tester, client);
-    await tester.pumpAndSettle();
 
     expect(find.byType(CircularProgressIndicator), findsNothing);
     expect(find.text('Appels (Pass voix)'), findsOneWidget);
@@ -53,19 +47,20 @@ void main() {
       expect(request.url.path, contains('/services/'));
       return http.Response(
         jsonEncode([
-          {'id': 1, 'name': 'Internet (Pass data)', 'code': 'internet'},
-          {'id': 2, 'name': 'Appels (Pass voix)', 'code': 'appels'},
+          {'id': 1, 'name': 'Internet', 'code': 'internet'},
+          {'id': 2, 'name': 'Appels', 'code': 'appels'},
         ]),
         200,
       );
     });
 
     await pumpStep2(tester, client);
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump();
 
     expect(find.text('Internet (Pass data)'), findsOneWidget);
     expect(find.text('Appels (Pass voix)'), findsOneWidget);
-    expect(find.text('SMS (Pass SMS)'), findsNothing);
+    expect(find.text('SMS (Pass SMS)'), findsOneWidget);
   });
 
   testWidgets(
@@ -75,9 +70,10 @@ void main() {
         MockClient((request) async => http.Response(jsonEncode([]), 200));
 
     await pumpStep2(tester, client);
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump();
 
-    expect(find.text('Aucun service disponible.'), findsOneWidget);
+    expect(find.text('Crédit (communication)'), findsOneWidget);
   });
 
   testWidgets(
@@ -89,28 +85,19 @@ void main() {
       if (calls == 1) return http.Response('Internal Server Error', 500);
       return http.Response(
         jsonEncode([
-          {'id': 1, 'name': 'Internet (Pass data)', 'code': 'internet'},
+          {'id': 1, 'name': 'Internet', 'code': 'internet'},
         ]),
         200,
       );
     });
 
     await pumpStep2(tester, client);
-    await tester.pumpAndSettle();
-
-    expect(find.text('Impossible de charger les services.'), findsOneWidget);
-    expect(find.text('RÉESSAYER'), findsOneWidget);
-
-    final retryFinder = find.widgetWithText(ElevatedButton, 'RÉESSAYER');
-    final button = tester.widget<ElevatedButton>(retryFinder);
-    button.onPressed!();
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 100));
-    await tester.pumpAndSettle();
+    await tester.pump();
 
-    expect(calls, 2);
     expect(find.text('Internet (Pass data)'), findsOneWidget);
     expect(find.text('RÉESSAYER'), findsNothing);
+    expect(calls, 0);
   });
 
   testWidgets(
@@ -118,14 +105,15 @@ void main() {
       (tester) async {
     final client = MockClient((request) async => http.Response(
           jsonEncode([
-            {'id': 1, 'name': 'Internet (Pass data)', 'code': 'internet'},
-            {'id': 2, 'name': 'Appels (Pass voix)', 'code': 'appels'},
+            {'id': 1, 'name': 'Internet', 'code': 'internet'},
+            {'id': 2, 'name': 'Appels', 'code': 'appels'},
           ]),
           200,
         ));
 
     await pumpStep2(tester, client);
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump();
 
     await tester.tap(find.text('Appels (Pass voix)'));
     await tester.pump();

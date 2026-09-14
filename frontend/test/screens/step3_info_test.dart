@@ -132,7 +132,7 @@ void main() {
     expect(step4.serviceId, 2);
     expect(step4.operator, 'Orange');
     expect(step4.service, 'Internet');
-    expect(step4.operation, isNull);
+    expect(step4.operation, 'Souscription pour moi');
     expect(step4.phone, '0700000001');
     expect(step4.amount, 1000);
   });
@@ -157,7 +157,7 @@ void main() {
       ),
     ));
 
-    expect(find.text('Numéro MTN à recharger'), findsOneWidget);
+    expect(find.text('Saisissez votre numéro MTN.'), findsOneWidget);
   });
 
   testWidgets('refuses an MTN number when Orange is selected', (tester) async {

@@ -520,7 +520,7 @@ class NotifDetailScreen extends StatelessWidget {
                       AppColors.textPrimary),
                   _infoRow(
                       Icons.percent_rounded,
-                      'Frais de service (1,5%)',
+                      'Frais de service (1%)',
                       _value(
                           notification.fee,
                           _extractField('Frais', notification.message,
@@ -537,6 +537,11 @@ class NotifDetailScreen extends StatelessWidget {
                       AppColors.success,
                       labelColor: AppColors.success,
                       valueSize: 24),
+                  _infoRow(
+                      Icons.account_balance_wallet_outlined,
+                      'Moyen de paiement',
+                      _value(notification.paymentMethod, 'CinetPay'),
+                      AppColors.orange),
                   _infoRow(
                       Icons.event_available_outlined,
                       'Date',

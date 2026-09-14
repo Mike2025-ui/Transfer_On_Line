@@ -6,28 +6,18 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_theme.dart';
 import '../models/models.dart';
+import '../services/auth_service.dart';
 import '../services/backend_api_service.dart';
 import '../services/transaction_service.dart';
 import '../screens/notifications_screen.dart';
 import '../widgets/widgets.dart';
-
-class _PaymentOption {
-  final String value;
-  final String label;
-  final String? assetPath;
-  final String? networkUrl;
-
-  const _PaymentOption(this.value, this.label, this.assetPath, this.networkUrl);
-}
 
 class Step4PaymentScreen extends StatefulWidget {
   final int operatorId;
   final int serviceId;
   final String operator;
   final String service;
-  // Compatibility only for older callers and saved history; never displayed
-  // or sent to the backend.
-  final String? operation;
+  final String operation;
   final String phone;
   final int amount;
   final Function(Transaction) onTransactionAdded;
@@ -39,6 +29,7 @@ class Step4PaymentScreen extends StatefulWidget {
   // sampleNotifications fixture.
   final List<AppNotification> notifications;
   final BackendApiService? backendApiService;
+  final AuthService? authService;
 
   const Step4PaymentScreen({
     super.key,
@@ -46,13 +37,14 @@ class Step4PaymentScreen extends StatefulWidget {
     required this.serviceId,
     required this.operator,
     required this.service,
-    this.operation,
+    required this.operation,
     required this.phone,
     required this.amount,
     required this.onTransactionAdded,
     required this.onNotificationAdded,
     required this.notifications,
     this.backendApiService,
+    this.authService,
   });
 
   @override
@@ -62,31 +54,23 @@ class Step4PaymentScreen extends StatefulWidget {
 class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
   late final BackendApiService _api =
       widget.backendApiService ?? BackendApiService();
+  late final AuthService _auth = widget.authService ?? AuthService();
   // Business-model audit Phase 5: one key per checkout attempt (this screen
   // instance), generated once and reused across every internal retry of
   // _confirm() - a genuinely new attempt only happens when the user leaves
   // and re-enters this screen, which creates a new instance/key.
   late final String _idempotencyKey = _generateIdempotencyKey();
   bool _loading = false;
-  String _jekoPaymentMethod = 'wave';
-  static const _paymentMethod = 'jeko';
-  static const _paymentLabel = 'Jeko';
+  // Djeko est la passerelle unique : son choix d'operateur reste dans sa
+  // page web securisee et n'est jamais expose dans l'application.
+  static const _paymentMethod = 'djeko';
+  static const _paymentLabel = 'Djeko';
 
   String _operatorLogo(String operator) {
     if (operator == 'MTN') return 'assets/images/mtn.jpg';
     if (operator == 'Moov') return 'assets/images/moov.jpeg';
     return 'assets/images/Orange_logo.png';
   }
-
-  static const _paymentOptions = [
-    _PaymentOption('wave', 'Wave', null, 'https://www.wave.com/favicon.ico'),
-    _PaymentOption(
-        'orange', 'Orange Money', 'assets/images/Orange-Money-logo.png', null),
-    _PaymentOption('mtn', 'MTN Money', 'assets/images/mtn_money.jpg', null),
-    _PaymentOption(
-        'moov', 'Moov Money', 'assets/images/Moov money CI.png', null),
-    _PaymentOption('djamo', 'Djamo', null, 'https://www.djamo.com/favicon.ico'),
-  ];
 
   @override
   Widget build(BuildContext context) {
@@ -108,84 +92,50 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
               step: 4,
             ),
             Expanded(
-              child: SingleChildScrollView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.fromLTRB(16, 10, 16, 24),
-                child: Center(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 580),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        TolCard(
-                          padding: EdgeInsets.zero,
-                          child: Column(
-                            children: [
-                              _summaryRow(
-                                Image.asset(_operatorLogo(widget.operator),
-                                    width: 36, height: 36, fit: BoxFit.contain),
-                                'Opérateur',
-                                widget.operator,
-                                AppColors.operatorColor(widget.operator),
-                              ),
-                              _summaryRow(
-                                  const Icon(Icons.language_rounded,
-                                      color: AppColors.blue, size: 36),
-                                  'Service',
-                                  _displayService,
-                                  AppColors.blue),
-                              _summaryRow(
-                                  const Icon(Icons.phone_in_talk_outlined,
-                                      color: AppColors.textPrimary, size: 36),
-                                  'Numéro',
-                                  widget.phone,
-                                  AppColors.textPrimary),
-                              _summaryRow(
-                                  const Icon(Icons.attach_money_rounded,
-                                      color: AppColors.textPrimary, size: 36),
-                                  'Montant du forfait',
-                                  '${widget.amount} FCFA',
-                                  AppColors.textPrimary),
-                            ],
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    TolCard(
+                      padding: EdgeInsets.zero,
+                      child: Column(
+                        children: [
+                          _summaryRow(
+                            Image.asset(_operatorLogo(widget.operator),
+                                width: 34, height: 34, fit: BoxFit.contain),
+                            'Opérateur',
+                            widget.operator,
+                            AppColors.operatorColor(widget.operator),
                           ),
-                        ),
-                        const SizedBox(height: 16),
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                            'Choisissez votre moyen de paiement',
-                            style: GoogleFonts.nunito(
-                              fontSize: 17,
-                              fontWeight: FontWeight.w800,
-                              color: AppColors.textPrimary,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        LayoutBuilder(
-                          builder: (context, constraints) {
-                            final cardWidth = (constraints.maxWidth - 12) / 2;
-                            return Wrap(
-                              spacing: 12,
-                              runSpacing: 12,
-                              children: _paymentOptions
-                                  .map((option) => SizedBox(
-                                        width: cardWidth,
-                                        child: _paymentOptionCard(option),
-                                      ))
-                                  .toList(),
-                            );
-                          },
-                        ),
-                        const SizedBox(height: 18),
-                        TolButton(
-                          label: 'PAYER ET SOUSCRIRE',
-                          loading: _loading,
-                          onTap: _confirm,
-                        ),
-                      ],
+                          _summaryRow(
+                              const Icon(Icons.language_rounded,
+                                  color: AppColors.blue, size: 34),
+                              'Service',
+                              _displayService,
+                              AppColors.blue),
+                          _summaryRow(
+                              const Icon(Icons.phone_in_talk_outlined,
+                                  color: AppColors.textPrimary, size: 34),
+                              'Numéro',
+                              widget.phone,
+                              AppColors.textPrimary),
+                          _summaryRow(
+                              const Icon(Icons.attach_money_rounded,
+                                  color: AppColors.textPrimary, size: 34),
+                              'Montant du forfait',
+                              '${widget.amount} FCFA',
+                              AppColors.textPrimary),
+                        ],
+                      ),
                     ),
-                  ),
+                    const SizedBox(height: 18),
+                    TolButton(
+                      label: 'PAYER ET SOUSCRIRE',
+                      loading: _loading,
+                      onTap: _confirm,
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -193,72 +143,6 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
         ),
       ),
     );
-  }
-
-  Widget _paymentOptionCard(_PaymentOption option) {
-    final selected = _jekoPaymentMethod == option.value;
-    return InkWell(
-      onTap: _loading
-          ? null
-          : () => setState(() => _jekoPaymentMethod = option.value),
-      borderRadius: BorderRadius.circular(14),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        height: 96,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: BoxDecoration(
-          color: selected ? const Color(0xFFF1FAF5) : Colors.white,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: selected ? AppColors.success : const Color(0xFFE2E6EA),
-            width: selected ? 2 : 1.2,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.04),
-              blurRadius: 10,
-              offset: const Offset(0, 3),
-            ),
-          ],
-        ),
-        child: Row(
-          children: [
-            _paymentLogo(option),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                option.label,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: GoogleFonts.nunito(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w800,
-                  color: AppColors.textPrimary,
-                ),
-              ),
-            ),
-            if (selected)
-              const Icon(Icons.check_circle,
-                  color: AppColors.success, size: 24),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _paymentLogo(_PaymentOption option) {
-    final image = option.assetPath != null
-        ? Image.asset(option.assetPath!, fit: BoxFit.contain)
-        : Image.network(
-            option.networkUrl!,
-            fit: BoxFit.contain,
-            errorBuilder: (_, __, ___) => const Tooltip(
-              message: 'Logo indisponible',
-              child: Icon(Icons.account_balance_wallet_outlined,
-                  color: AppColors.textSecondary, size: 32),
-            ),
-          );
-    return SizedBox(width: 48, height: 48, child: image);
   }
 
   String get _displayService {
@@ -269,22 +153,24 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
   }
 
   String get _backendService => switch (widget.service) {
-        'Appels (Pass voix)' => 'voix',
-        'Internet (Pass data)' => 'internet',
-        'Crédit (communication)' => 'credit',
-        'SMS (Pass SMS)' => 'sms',
-        _ => widget.service.toLowerCase(),
+        'Appels (Pass voix)' => 'Appels',
+        'Appels' => 'Appels',
+        'Internet (Pass data)' => 'Internet',
+        'Internet' => 'Internet',
+        'SMS (Pass SMS)' => 'SMS',
+        'SMS' => 'SMS',
+        _ => 'Crédit',
       };
 
   Widget _summaryRow(Widget leading, String label, String value, Color color) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
       decoration: const BoxDecoration(
         border: Border(bottom: BorderSide(color: Color(0xFFECEEF5))),
       ),
       child: Row(
         children: [
-          SizedBox(width: 40, child: Center(child: leading)),
+          SizedBox(width: 38, child: Center(child: leading)),
           const SizedBox(width: 16),
           Flexible(
             child: FittedBox(
@@ -293,7 +179,7 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
               child: Text(
                 label,
                 style: GoogleFonts.nunito(
-                  fontSize: 16,
+                  fontSize: 15,
                   fontWeight: FontWeight.w700,
                   color: AppColors.textPrimary,
                 ),
@@ -309,7 +195,7 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
                 value,
                 textAlign: TextAlign.right,
                 style: GoogleFonts.nunito(
-                  fontSize: 16,
+                  fontSize: 15,
                   fontWeight: FontWeight.w900,
                   color: color,
                 ),
@@ -328,21 +214,21 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
       final result = await _confirmServer();
       createdReference = result.reference;
       if (result.checkoutUrl.isEmpty) {
-        throw Exception('URL de paiement Jeko indisponible');
+        throw Exception('URL de paiement Djeko indisponible');
       }
       final launched = await launchUrl(
         Uri.parse(result.checkoutUrl),
         mode: LaunchMode.externalApplication,
       );
       if (!launched) {
-        throw Exception('Impossible d’ouvrir Jeko');
+        throw Exception('Impossible d’ouvrir Djeko');
       }
       final now = DateTime.now();
       final transaction = Transaction(
         id: result.reference,
         operator: widget.operator,
         service: _backendService,
-        operation: 'Souscription',
+        operation: widget.operation,
         phone: widget.phone,
         amount: widget.amount,
         paymentMethod: _paymentLabel,
@@ -369,7 +255,9 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
     } catch (error) {
       if (createdReference != null) {
         try {
-          await _api.cancelTransaction(createdReference);
+          final accessToken = await _auth.currentAccessToken();
+          await _api.cancelTransaction(createdReference,
+              accessToken: accessToken);
         } catch (_) {
           // L'annulation sera réconciliée par le statut backend au prochain essai.
         }
@@ -386,16 +274,17 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
 
   Future<BackendTransactionResult> _confirmServer() async {
     try {
+      final accessToken = await _auth.currentAccessToken();
       return await _api.createTransaction(
         operatorId: widget.operatorId,
         serviceId: widget.serviceId,
         operator: widget.operator,
         service: _backendService,
-        operation: 'Souscription',
+        operation: widget.operation,
         phone: widget.phone,
         amount: widget.amount,
         paymentMethod: _paymentMethod,
-        jekoPaymentMethod: _jekoPaymentMethod,
+        accessToken: accessToken,
         idempotencyKey: _idempotencyKey,
       );
     } catch (_) {
@@ -422,12 +311,14 @@ class SuccessScreen extends StatefulWidget {
   final Transaction transaction;
   final List<AppNotification> notifications;
   final BackendApiService? backendApiService;
+  final AuthService? authService;
 
   const SuccessScreen({
     super.key,
     required this.transaction,
     required this.notifications,
     this.backendApiService,
+    this.authService,
   });
 
   @override
@@ -466,6 +357,7 @@ class _SuccessScreenState extends State<SuccessScreen>
 
   late final BackendApiService _api =
       widget.backendApiService ?? BackendApiService();
+  late final AuthService _auth = widget.authService ?? AuthService();
   late Transaction _transaction = widget.transaction;
   Timer? _pollTimer;
   int _attempts = 0;
@@ -534,16 +426,20 @@ class _SuccessScreenState extends State<SuccessScreen>
     _checking = true;
     var stillPending = false;
     try {
+      final accessToken = await _auth.currentAccessToken();
       // transaction.id already holds the backend `reference` (see
       // _confirm() above: `id: result.reference`), which is exactly what
       // GET /transactions/<reference>/status/ expects.
-      final result = await _api.getTransactionStatus(_transaction.id);
+      final result = await _api.getTransactionStatus(_transaction.id,
+          accessToken: accessToken);
       if (result.isPending) {
         stillPending = true;
       } else {
         if (result.isFailed) {
           try {
-            await _api.cancelTransaction(_transaction.id);
+            final accessToken = await _auth.currentAccessToken();
+            await _api.cancelTransaction(_transaction.id,
+                accessToken: accessToken);
           } catch (_) {
             // Le backend garde son statut d'échec si cette notification échoue.
           }

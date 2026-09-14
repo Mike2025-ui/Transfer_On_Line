@@ -7,11 +7,29 @@ import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:transfer_on_line/screens/home_screen.dart';
 import 'package:transfer_on_line/screens/step2_service.dart';
+import 'package:transfer_on_line/services/auth_service.dart';
 import 'package:transfer_on_line/services/backend_api_service.dart';
+
+class _NullStore implements AuthTokenStore {
+  @override
+  Future<String?> read(String key) async => null;
+  @override
+  Future<void> write(String key, String value) async {}
+  @override
+  Future<void> delete(String key) async {}
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   SharedPreferences.setMockInitialValues({});
+
+  // A fake, in-memory-backed AuthService for every test in this file - none
+  // of them are about authentication, and the real flutter_secure_storage
+  // platform channel has no fake available in a plain `flutter test` run
+  // (see AuthTokenStore's own doc comment).
+  final auth = AuthService(
+      store: _NullStore(),
+      client: MockClient((r) async => http.Response('{}', 200)));
 
   Future<void> pumpHome(WidgetTester tester, http.Client client) async {
     // The real screen content is taller than the default 800x600 test
@@ -20,7 +38,9 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(800, 1600));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(MaterialApp(
-      home: HomeScreen(backendApiService: BackendApiService(client: client)),
+      home: HomeScreen(
+          backendApiService: BackendApiService(client: client),
+          authService: auth),
     ));
   }
 

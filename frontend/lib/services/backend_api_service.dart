@@ -98,8 +98,7 @@ class TransactionSummary {
         value == null ? null : DateTime.tryParse(value);
     return TransactionSummary(
       reference: json['reference'] as String? ?? '',
-      transactionType: json['transaction_type'] as String? ??
-          (json['service'] as String? ?? ''),
+      transactionType: json['transaction_type'] as String? ?? '',
       operator: json['operator'] as String? ?? '',
       service: json['service'] as String? ?? '',
       recipientPhone: json['recipient_phone'] as String? ?? '',
@@ -153,12 +152,22 @@ class BackendApiService {
 
   final http.Client _client;
 
-  // Provide the backend address at build time with
-  // --dart-define=TOL_API_BASE_URL=http://HOST:8000/api.
-  static const String baseUrl = String.fromEnvironment(
+  // Récupération de l'adresse de base injectée à la compilation via l'argument :
+  // --dart-define=TOL_API_BASE_URL=https://transfert-online.site/api
+  // ou sans /api (par exemple : --dart-define=TOL_API_BASE_URL=https://transfert-online.site).
+  static const String _rawBaseUrl = String.fromEnvironment(
     'TOL_API_BASE_URL',
-    defaultValue: 'https://transfert-online.site/api',
+    defaultValue: 'http://localhost:8000/api',
   );
+
+  /// URL racine normalisée vers l'API backend Django.
+  /// Cette propriété nettoie les espaces et les barres obliques finales (slashes),
+  /// puis ajoute automatiquement le préfixe "/api" obligatoire s'il a été omis
+  /// lors de la compilation de l'application, évitant ainsi toute erreur HTTP 404.
+  static String get baseUrl {
+    final clean = _rawBaseUrl.trim().replaceAll(RegExp(r'/+$'), '');
+    return clean.endsWith('/api') ? clean : '$clean/api';
+  }
 
   /// Confirmation must come from the backend, never from the checkout URL
   /// having merely opened - see `GET /transactions/{reference}/status/`.
@@ -237,21 +246,20 @@ class BackendApiService {
         .toList();
   }
 
-  /// operatorId/serviceId are the business-model audit's target contract
-  /// (see backend `_resolve_operator`/`_resolve_service` in
-  /// apps/devices/views.py, which already prioritises the id over the name
-  /// when both are sent). Optional and additive: no existing caller passes
-  /// them yet, so every current call keeps sending names exactly as before.
+  /// Initialise une nouvelle transaction et crée la session de paiement sur le backend.
+  /// Envoie une requête POST vers "$baseUrl/transactions/execute/".
+  /// [operatorId] et [serviceId] : identifiants numériques prioritaires de l'opérateur et du service.
+  /// [paymentMethod] : méthode de paiement par défaut fixée à 'djeko'.
+  /// [idempotencyKey] : clé unique protégeant contre les doubles débits en cas de réémission réseau.
   Future<BackendTransactionResult> createTransaction({
     required String operator,
     required String service,
-    String? operation,
+    required String operation,
     required String phone,
     required int amount,
     int? operatorId,
     int? serviceId,
-    String paymentMethod = 'jeko',
-    String? jekoPaymentMethod,
+    String paymentMethod = 'djeko',
     String? accessToken,
     String? idempotencyKey,
   }) async {
@@ -260,7 +268,9 @@ class BackendApiService {
       headers: {
         'Accept': 'application/json',
         'Content-Type': 'application/json',
+        // Jeton d'authentification Bearer (optionnel : associe la transaction à l'utilisateur connecté)
         if (accessToken != null) 'Authorization': 'Bearer $accessToken',
+        // Clé d'idempotence identifiant de manière unique cette tentative de transaction
         if (idempotencyKey != null) 'Idempotency-Key': idempotencyKey,
       },
       body: jsonEncode({
@@ -268,11 +278,11 @@ class BackendApiService {
         if (serviceId != null) 'service_id': serviceId,
         'operator': operator,
         'service': service,
+        'operation': operation,
         'phone': phone,
         'recipient_phone': phone,
         'amount': amount,
         'payment_method': paymentMethod,
-        if (jekoPaymentMethod != null) 'jeko_payment_method': jekoPaymentMethod,
       }),
     );
 
@@ -296,7 +306,10 @@ class BackendApiService {
       {String? accessToken}) async {
     final response = await _client.post(
       Uri.parse('$baseUrl/transactions/$reference/cancel/'),
-      headers: {'Accept': 'application/json'},
+      headers: {
+        'Accept': 'application/json',
+        if (accessToken != null) 'Authorization': 'Bearer $accessToken',
+      },
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception('Impossible d’annuler la session de paiement');
@@ -307,12 +320,15 @@ class BackendApiService {
   /// server-side by the JWT alone - a real access token is required, there
   /// is no anonymous equivalent of "my history".
   Future<List<TransactionSummary>> fetchMyTransactions({
-    String? accessToken,
+    required String accessToken,
     int page = 1,
   }) async {
     final response = await _client.get(
       Uri.parse('$baseUrl/transactions/my/?page=$page'),
-      headers: {'Accept': 'application/json'},
+      headers: {
+        'Accept': 'application/json',
+        'Authorization': 'Bearer $accessToken'
+      },
     );
     if (response.statusCode == 401) {
       throw Exception('Session expirée');
@@ -331,12 +347,15 @@ class BackendApiService {
   /// Identity architecture (Phase 8): `GET /notifications/`, filtered
   /// server-side by the JWT alone.
   Future<List<NotificationItem>> fetchNotifications({
-    String? accessToken,
+    required String accessToken,
     int page = 1,
   }) async {
     final response = await _client.get(
       Uri.parse('$baseUrl/notifications/?page=$page'),
-      headers: {'Accept': 'application/json'},
+      headers: {
+        'Accept': 'application/json',
+        'Authorization': 'Bearer $accessToken'
+      },
     );
     if (response.statusCode == 401) {
       throw Exception('Session expirée');
@@ -352,10 +371,14 @@ class BackendApiService {
         .toList();
   }
 
-  Future<int> fetchUnreadNotificationCount({String? accessToken}) async {
+  Future<int> fetchUnreadNotificationCount(
+      {required String accessToken}) async {
     final response = await _client.get(
       Uri.parse('$baseUrl/notifications/unread-count/'),
-      headers: {'Accept': 'application/json'},
+      headers: {
+        'Accept': 'application/json',
+        'Authorization': 'Bearer $accessToken'
+      },
     );
     if (response.statusCode != 200) {
       throw Exception(
@@ -366,12 +389,15 @@ class BackendApiService {
   }
 
   Future<NotificationItem> markNotificationRead({
-    String? accessToken,
+    required String accessToken,
     required int notificationId,
   }) async {
     final response = await _client.post(
       Uri.parse('$baseUrl/notifications/$notificationId/read/'),
-      headers: {'Accept': 'application/json'},
+      headers: {
+        'Accept': 'application/json',
+        'Authorization': 'Bearer $accessToken'
+      },
     );
     if (response.statusCode != 200) {
       throw Exception(
