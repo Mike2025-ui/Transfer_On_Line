@@ -66,14 +66,18 @@ void main() {
       final client = MockClient((request) async {
         final path = request.url.path;
         if (path.contains('/operators/')) {
-          return http.Response(jsonEncode([
-            {'id': 1, 'name': 'Orange', 'code': 'orange'},
-          ]), 200);
+          return http.Response(
+              jsonEncode([
+                {'id': 1, 'name': 'Orange', 'code': 'orange'},
+              ]),
+              200);
         }
         if (path.contains('/services/')) {
-          return http.Response(jsonEncode([
-            {'id': 2, 'name': 'Internet', 'code': 'internet'},
-          ]), 200);
+          return http.Response(
+              jsonEncode([
+                {'id': 2, 'name': 'Internet', 'code': 'internet'},
+              ]),
+              200);
         }
         if (path.contains('/amounts/')) {
           return http.Response(jsonEncode([]), 200);
@@ -106,8 +110,8 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      // Step2 -> Step3 (choix service réel + type d'opération)
-      await tester.tap(find.text('Internet'));
+      // Step2 -> Step3 (choix service réel)
+      await tester.tap(find.text('Pass data'));
       await tester.pump();
       await tester.tap(find.text('CONTINUER'));
       await tester.pumpAndSettle();
@@ -119,13 +123,15 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(Step4PaymentScreen), findsOneWidget);
-      final step4 = tester.widget<Step4PaymentScreen>(find.byType(Step4PaymentScreen));
+      final step4 =
+          tester.widget<Step4PaymentScreen>(find.byType(Step4PaymentScreen));
       expect(step4.operatorId, 1);
       expect(step4.serviceId, 2);
       expect(step4.operator, 'Orange');
-      expect(step4.service, 'Internet');
+      expect(step4.service, 'Pass data');
       expect(step4.phone, '0700000099');
-      expect(step4.amount, 1000, reason: 'the default quick-amount tile (1000) was never changed');
+      expect(step4.amount, 1000,
+          reason: 'the default quick-amount tile (1000) was never changed');
 
       // À partir d'ici, un vrai tap sur "PAYER..." appellerait launchUrl() -
       // un canal de plateforme réel non simulable ici. Voir SuccessScreen

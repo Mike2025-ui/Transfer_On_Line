@@ -62,7 +62,7 @@ class TransactionService {
         id: j['id'] as String,
         operator: j['operator'] as String,
         service: j['service'] as String,
-        operation: j['operation'] as String,
+        operation: j['operation'] as String?,
         phone: j['phone'] as String,
         amount: j['amount'] as int,
         paymentMethod: j['paymentMethod'] as String,

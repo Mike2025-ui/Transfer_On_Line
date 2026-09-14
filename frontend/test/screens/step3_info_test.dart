@@ -19,7 +19,6 @@ void main() {
         serviceId: 2,
         operator: 'Orange',
         service: 'Internet',
-        operation: 'Souscription pour moi',
         onTransactionAdded: (Transaction _) {},
         onNotificationAdded: (AppNotification _) {},
         notifications: const [],
@@ -132,7 +131,6 @@ void main() {
     expect(step4.serviceId, 2);
     expect(step4.operator, 'Orange');
     expect(step4.service, 'Internet');
-    expect(step4.operation, 'Souscription pour moi');
     expect(step4.phone, '0700000001');
     expect(step4.amount, 1000);
   });
@@ -149,7 +147,6 @@ void main() {
         serviceId: 2,
         operator: 'MTN',
         service: 'Internet',
-        operation: 'Souscription pour moi',
         onTransactionAdded: (Transaction _) {},
         onNotificationAdded: (AppNotification _) {},
         notifications: const [],

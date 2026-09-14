@@ -55,7 +55,6 @@ void main() {
         serviceId: serviceId,
         operator: 'Orange',
         service: 'Internet',
-        operation: 'Souscription pour moi',
         phone: '0700000001',
         amount: 1000,
         onTransactionAdded: (Transaction _) {},
@@ -66,6 +65,8 @@ void main() {
       ),
     ));
 
+    await tester.tap(find.text('Wave'));
+    await tester.pump();
     await tester.tap(find.text('PAYER ET SOUSCRIRE'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
@@ -84,7 +85,8 @@ void main() {
     expect(body['service'], 'Internet');
     expect(body['amount'], 1000);
     expect(body['recipient_phone'], '0700000001');
-    expect(body['payment_method'], 'djeko');
+    expect(body['payment_method'], 'auto');
+    expect(body['jeko_payment_method'], 'wave');
   });
 
   testWidgets(
@@ -115,7 +117,6 @@ void main() {
         serviceId: 3,
         operator: 'Orange',
         service: 'Internet',
-        operation: 'Souscription pour moi',
         phone: '0700000001',
         amount: 1000,
         onTransactionAdded: (Transaction _) {},
@@ -134,6 +135,70 @@ void main() {
     expect(find.text('Total à payer'), findsNothing);
     expect(find.text('Information tarifaire'), findsNothing);
     expect(find.text('PAYER ET SOUSCRIRE'), findsOneWidget);
+  });
+
+  testWidgets(
+      'les 5 moyens de paiement officiels sont affichés sans présélection',
+      (tester) async {
+    final client = MockClient((request) async => http.Response('{}', 200));
+    await tester.pumpWidget(MaterialApp(
+      home: Step4PaymentScreen(
+        operatorId: 1,
+        serviceId: 3,
+        operator: 'Orange',
+        service: 'Internet',
+        phone: '0700000001',
+        amount: 1000,
+        onTransactionAdded: (Transaction _) {},
+        onNotificationAdded: (AppNotification _) {},
+        notifications: const [],
+        backendApiService: BackendApiService(client: client),
+        authService: auth,
+      ),
+    ));
+
+    expect(find.text('Moyen de paiement'), findsOneWidget);
+    expect(find.text('Wave'), findsOneWidget);
+    expect(find.text('Orange Money'), findsOneWidget);
+    expect(find.text('MTN MoMo'), findsOneWidget);
+    expect(find.text('Moov Money'), findsOneWidget);
+    expect(find.text('Djamo'), findsOneWidget);
+    expect(find.byIcon(Icons.check_circle_rounded), findsNothing);
+  });
+
+  testWidgets(
+      'l\'absence de sélection de moyen de paiement bloque le paiement et affiche un message',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    var postCalled = false;
+    final client = MockClient((request) async {
+      postCalled = true;
+      return http.Response('{}', 200);
+    });
+
+    await tester.pumpWidget(MaterialApp(
+      home: Step4PaymentScreen(
+        operatorId: 1,
+        serviceId: 3,
+        operator: 'Orange',
+        service: 'Internet',
+        phone: '0700000001',
+        amount: 1000,
+        onTransactionAdded: (Transaction _) {},
+        onNotificationAdded: (AppNotification _) {},
+        notifications: const [],
+        backendApiService: BackendApiService(client: client),
+        authService: auth,
+      ),
+    ));
+
+    await tester.tap(find.text('PAYER ET SOUSCRIRE'));
+    await tester.pump();
+
+    expect(postCalled, isFalse);
+    expect(find.textContaining('Veuillez choisir un moyen de paiement'),
+        findsOneWidget);
   });
 
   // Audit frontend D4, §14/§17/§22 : vérifie qu'un double tap rapide ne
@@ -168,7 +233,6 @@ void main() {
         serviceId: 3,
         operator: 'Orange',
         service: 'Internet',
-        operation: 'Souscription pour moi',
         phone: '0700000001',
         amount: 1000,
         onTransactionAdded: (Transaction _) {},
@@ -178,6 +242,9 @@ void main() {
         authService: auth,
       ),
     ));
+
+    await tester.tap(find.text('Wave'));
+    await tester.pump();
 
     await tester.tap(find.text('PAYER ET SOUSCRIRE'));
     await tester.pump();
@@ -230,7 +297,6 @@ void main() {
         serviceId: 3,
         operator: 'Orange',
         service: 'Internet',
-        operation: 'Souscription pour moi',
         phone: '0700000001',
         amount: 1000,
         onTransactionAdded: (Transaction _) {},
@@ -240,6 +306,9 @@ void main() {
         authService: auth,
       ),
     ));
+
+    await tester.tap(find.text('Wave'));
+    await tester.pump();
 
     await tester.tap(find.text('PAYER ET SOUSCRIRE'));
     await tester.pump();

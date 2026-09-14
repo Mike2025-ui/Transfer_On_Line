@@ -119,3 +119,4 @@ class Command(BaseCommand):
                 )
 
         self.stdout.write(self.style.SUCCESS("\n✅ All production seed data initialized successfully!"))
+

@@ -59,40 +59,8 @@ class AuthService {
   static const _accessKey = 'auth_access_token';
   static const _refreshKey = 'auth_refresh_token';
 
-  /// The backend (apps.accounts.services.otp_service) delegates code
-  /// generation, delivery AND verification to IKODDI (OTP As A Service) -
-  /// the response never contains the code, in any build, and there is no
-  /// separate identifier to carry between request and verify: the pending
-  /// code is looked up server-side by phone_number alone.
-  Future<void> requestOtp(String phoneNumber) async {
-    final response = await _client.post(
-      Uri.parse('${BackendApiService.baseUrl}/auth/otp/request/'),
-      headers: const {'Content-Type': 'application/json'},
-      body: jsonEncode({'phone_number': phoneNumber}),
-    );
-    if (response.statusCode != 200) {
-      throw Exception(_extractError(response, 'Envoi du code impossible'));
-    }
-  }
-
-  Future<AuthSession> verifyOtp(String phoneNumber, String code) async {
-    final response = await _client.post(
-      Uri.parse('${BackendApiService.baseUrl}/auth/otp/verify/'),
-      headers: const {'Content-Type': 'application/json'},
-      body: jsonEncode({'phone_number': phoneNumber, 'code': code}),
-    );
-    if (response.statusCode != 200) {
-      throw Exception(_extractError(response, 'Code invalide ou expiré'));
-    }
-    final json = jsonDecode(response.body) as Map<String, dynamic>;
-    final session = AuthSession(
-      phoneNumber: json['phone_number'] as String? ?? phoneNumber,
-      accessToken: json['access'] as String,
-      refreshToken: json['refresh'] as String,
-    );
-    await _persist(session);
-    return session;
-  }
+  // Session persistence and JWT helpers are preserved below.
+  // Phone OTP (IKODDI/SMS) has been removed in favor of local phone authentication.
 
   /// Call once at startup. Returns a session if this device is already
   /// known (valid or refreshable token on file), or null if the phone+OTP
@@ -219,15 +187,6 @@ class AuthService {
           .isAfter(expiry.subtract(const Duration(seconds: 30)));
     } catch (_) {
       return true;
-    }
-  }
-
-  static String _extractError(http.Response response, String fallback) {
-    try {
-      final decoded = jsonDecode(response.body) as Map<String, dynamic>;
-      return decoded['error'] as String? ?? fallback;
-    } catch (_) {
-      return fallback;
     }
   }
 }

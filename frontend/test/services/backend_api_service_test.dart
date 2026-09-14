@@ -13,7 +13,13 @@ void main() {
         client: MockClient((request) async {
           expect(request.url.path, contains('/transactions/TOL-1/status/'));
           return http.Response(
-            jsonEncode({'status': 'pending', 'is_pending': true, 'is_success': false, 'is_failed': false, 'is_cancelled': false}),
+            jsonEncode({
+              'status': 'pending',
+              'is_pending': true,
+              'is_success': false,
+              'is_failed': false,
+              'is_cancelled': false
+            }),
             200,
           );
         }),
@@ -29,7 +35,13 @@ void main() {
     test('success', () async {
       final api = BackendApiService(
         client: MockClient((request) async => http.Response(
-              jsonEncode({'status': 'success', 'is_pending': false, 'is_success': true, 'is_failed': false, 'is_cancelled': false}),
+              jsonEncode({
+                'status': 'success',
+                'is_pending': false,
+                'is_success': true,
+                'is_failed': false,
+                'is_cancelled': false
+              }),
               200,
             )),
       );
@@ -43,7 +55,13 @@ void main() {
     test('failed', () async {
       final api = BackendApiService(
         client: MockClient((request) async => http.Response(
-              jsonEncode({'status': 'failed', 'is_pending': false, 'is_success': false, 'is_failed': true, 'is_cancelled': false}),
+              jsonEncode({
+                'status': 'failed',
+                'is_pending': false,
+                'is_success': false,
+                'is_failed': true,
+                'is_cancelled': false
+              }),
               200,
             )),
       );
@@ -56,7 +74,13 @@ void main() {
     test('cancelled', () async {
       final api = BackendApiService(
         client: MockClient((request) async => http.Response(
-              jsonEncode({'status': 'cancelled', 'is_pending': false, 'is_success': false, 'is_failed': false, 'is_cancelled': true}),
+              jsonEncode({
+                'status': 'cancelled',
+                'is_pending': false,
+                'is_success': false,
+                'is_failed': false,
+                'is_cancelled': true
+              }),
               200,
             )),
       );
@@ -68,7 +92,8 @@ void main() {
 
     test('404 throws TransactionNotFoundException', () async {
       final api = BackendApiService(
-        client: MockClient((request) async => http.Response(jsonEncode({'error': 'Transaction not found'}), 404)),
+        client: MockClient((request) async =>
+            http.Response(jsonEncode({'error': 'Transaction not found'}), 404)),
       );
 
       expect(
@@ -77,14 +102,18 @@ void main() {
       );
     });
 
-    test('a server error throws a generic exception, not TransactionNotFoundException', () async {
+    test(
+        'a server error throws a generic exception, not TransactionNotFoundException',
+        () async {
       final api = BackendApiService(
-        client: MockClient((request) async => http.Response('Internal Server Error', 500)),
+        client: MockClient(
+            (request) async => http.Response('Internal Server Error', 500)),
       );
 
       await expectLater(
         api.getTransactionStatus('TOL-5'),
-        throwsA(isA<Exception>().having((e) => e is TransactionNotFoundException, 'is 404', isFalse)),
+        throwsA(isA<Exception>().having(
+            (e) => e is TransactionNotFoundException, 'is 404', isFalse)),
       );
     });
 
@@ -93,7 +122,13 @@ void main() {
         client: MockClient((request) async {
           expect(request.headers['Authorization'], 'Bearer my-token');
           return http.Response(
-            jsonEncode({'status': 'pending', 'is_pending': true, 'is_success': false, 'is_failed': false, 'is_cancelled': false}),
+            jsonEncode({
+              'status': 'pending',
+              'is_pending': true,
+              'is_success': false,
+              'is_failed': false,
+              'is_cancelled': false
+            }),
             200,
           );
         }),
@@ -128,7 +163,8 @@ void main() {
 
     test('an empty list is returned as-is, not an error', () async {
       final api = BackendApiService(
-        client: MockClient((request) async => http.Response(jsonEncode([]), 200)),
+        client:
+            MockClient((request) async => http.Response(jsonEncode([]), 200)),
       );
 
       final operators = await api.getOperators();
@@ -138,7 +174,8 @@ void main() {
 
     test('a server error throws', () async {
       final api = BackendApiService(
-        client: MockClient((request) async => http.Response('Internal Server Error', 500)),
+        client: MockClient(
+            (request) async => http.Response('Internal Server Error', 500)),
       );
 
       expect(() => api.getOperators(), throwsA(isA<Exception>()));
@@ -146,7 +183,8 @@ void main() {
 
     test('a network failure throws', () async {
       final api = BackendApiService(
-        client: MockClient((request) async => throw const SocketException('offline')),
+        client: MockClient(
+            (request) async => throw const SocketException('offline')),
       );
 
       expect(() => api.getOperators(), throwsA(anything));
@@ -175,7 +213,8 @@ void main() {
 
     test('an empty list is returned as-is, not an error', () async {
       final api = BackendApiService(
-        client: MockClient((request) async => http.Response(jsonEncode([]), 200)),
+        client:
+            MockClient((request) async => http.Response(jsonEncode([]), 200)),
       );
 
       final services = await api.getServices();
@@ -185,7 +224,8 @@ void main() {
 
     test('a server error throws', () async {
       final api = BackendApiService(
-        client: MockClient((request) async => http.Response('Internal Server Error', 500)),
+        client: MockClient(
+            (request) async => http.Response('Internal Server Error', 500)),
       );
 
       expect(() => api.getServices(), throwsA(isA<Exception>()));
@@ -193,10 +233,12 @@ void main() {
   });
 
   group('BackendApiService.getAvailableAmounts', () {
-    test('returns the configured amounts for (operatorId, serviceId)', () async {
+    test('returns the configured amounts for (operatorId, serviceId)',
+        () async {
       final api = BackendApiService(
         client: MockClient((request) async {
-          expect(request.url.path, contains('/operators/1/services/2/amounts/'));
+          expect(
+              request.url.path, contains('/operators/1/services/2/amounts/'));
           return http.Response(
             jsonEncode([
               {'amount': 500},
@@ -230,9 +272,11 @@ void main() {
       expect(amounts.single.amount, 500.0);
     });
 
-    test('an empty list means no fixed catalog - free amount entry stays valid', () async {
+    test('an empty list means no fixed catalog - free amount entry stays valid',
+        () async {
       final api = BackendApiService(
-        client: MockClient((request) async => http.Response(jsonEncode([]), 200)),
+        client:
+            MockClient((request) async => http.Response(jsonEncode([]), 200)),
       );
 
       final amounts = await api.getAvailableAmounts(1, 2);
@@ -242,7 +286,8 @@ void main() {
 
     test('a server error throws', () async {
       final api = BackendApiService(
-        client: MockClient((request) async => http.Response('Internal Server Error', 500)),
+        client: MockClient(
+            (request) async => http.Response('Internal Server Error', 500)),
       );
 
       expect(() => api.getAvailableAmounts(1, 2), throwsA(isA<Exception>()));
@@ -250,7 +295,8 @@ void main() {
 
     test('a network failure throws', () async {
       final api = BackendApiService(
-        client: MockClient((request) async => throw const SocketException('offline')),
+        client: MockClient(
+            (request) async => throw const SocketException('offline')),
       );
 
       expect(() => api.getAvailableAmounts(1, 2), throwsA(anything));
@@ -258,15 +304,19 @@ void main() {
   });
 
   group('BackendApiService.createTransaction', () {
-    test('sends operator_id/service_id in addition to the names when provided', () async {
+    test('sends operator_id/service_id in addition to the names when provided',
+        () async {
       late Map<String, dynamic> sentBody;
       final api = BackendApiService(
         client: MockClient((request) async {
           sentBody = jsonDecode(request.body) as Map<String, dynamic>;
           return http.Response(
             jsonEncode({
-              'reference': 'TOL-1', 'status': 'pending', 'checkout_url': 'https://pay/tok',
-              'payment_reference': 'PAY-1', 'payment_status': 'pending',
+              'reference': 'TOL-1',
+              'status': 'pending',
+              'checkout_url': 'https://pay/tok',
+              'payment_reference': 'PAY-1',
+              'payment_status': 'pending',
             }),
             201,
           );
@@ -274,8 +324,13 @@ void main() {
       );
 
       await api.createTransaction(
-        operator: 'Orange', service: 'Internet', operation: 'subscription',
-        phone: '0700000001', amount: 500, operatorId: 1, serviceId: 2,
+        operator: 'Orange',
+        service: 'Internet',
+        operation: 'subscription',
+        phone: '0700000001',
+        amount: 500,
+        operatorId: 1,
+        serviceId: 2,
       );
 
       expect(sentBody['operator_id'], 1);
@@ -284,15 +339,20 @@ void main() {
       expect(sentBody['service'], 'Internet');
     });
 
-    test('omits operator_id/service_id when not provided - existing callers are unaffected', () async {
+    test(
+        'omits operator_id/service_id when not provided - existing callers are unaffected',
+        () async {
       late Map<String, dynamic> sentBody;
       final api = BackendApiService(
         client: MockClient((request) async {
           sentBody = jsonDecode(request.body) as Map<String, dynamic>;
           return http.Response(
             jsonEncode({
-              'reference': 'TOL-1', 'status': 'pending', 'checkout_url': 'https://pay/tok',
-              'payment_reference': 'PAY-1', 'payment_status': 'pending',
+              'reference': 'TOL-1',
+              'status': 'pending',
+              'checkout_url': 'https://pay/tok',
+              'payment_reference': 'PAY-1',
+              'payment_status': 'pending',
             }),
             201,
           );
@@ -300,8 +360,11 @@ void main() {
       );
 
       await api.createTransaction(
-        operator: 'Orange', service: 'Internet', operation: 'subscription',
-        phone: '0700000001', amount: 500,
+        operator: 'Orange',
+        service: 'Internet',
+        operation: 'subscription',
+        phone: '0700000001',
+        amount: 500,
       );
 
       expect(sentBody.containsKey('operator_id'), isFalse);
@@ -313,16 +376,24 @@ void main() {
       final api = BackendApiService(
         client: MockClient((request) async => http.Response(
               jsonEncode({
-                'reference': 'TOL-1', 'status': 'pending', 'checkout_url': 'https://pay/tok',
-                'payment_reference': 'PAY-1', 'payment_status': 'pending',
+                'reference': 'TOL-1',
+                'status': 'pending',
+                'checkout_url': 'https://pay/tok',
+                'payment_reference': 'PAY-1',
+                'payment_status': 'pending',
               }),
               201,
             )),
       );
 
       final result = await api.createTransaction(
-        operator: 'Orange', service: 'Internet', operation: 'subscription',
-        phone: '0700000001', amount: 500, operatorId: 1, serviceId: 2,
+        operator: 'Orange',
+        service: 'Internet',
+        operation: 'subscription',
+        phone: '0700000001',
+        amount: 500,
+        operatorId: 1,
+        serviceId: 2,
       );
 
       expect(result.reference, 'TOL-1');
@@ -339,11 +410,17 @@ void main() {
 
       expect(
         () => api.createTransaction(
-          operator: 'Orange', service: 'Internet', operation: 'subscription',
-          phone: '0700000001', amount: 500, operatorId: 999,
+          operator: 'Orange',
+          service: 'Internet',
+          operation: 'subscription',
+          phone: '0700000001',
+          amount: 500,
+          operatorId: 999,
         ),
-        throwsA(isA<Exception>().having((e) => e.toString(), 'message', contains('introuvable'))),
+        throwsA(isA<Exception>()
+            .having((e) => e.toString(), 'message', contains('introuvable'))),
       );
+    });
   });
 
   group('BackendApiService.baseUrl', () {

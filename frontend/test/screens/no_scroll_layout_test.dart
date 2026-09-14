@@ -43,7 +43,8 @@ void main() {
     expect(tester.takeException(), isNull);
   }
 
-  testWidgets('les écrans du tunnel restent visibles sur une hauteur S8',
+  testWidgets(
+      'les écrans du tunnel disposent du défilement et restent visibles sur S8',
       (tester) async {
     SharedPreferences.setMockInitialValues({});
 
@@ -51,7 +52,7 @@ void main() {
       tester,
       HomeScreen(backendApiService: api, authService: auth),
     );
-    expect(find.byType(SingleChildScrollView), findsNothing);
+    expect(find.byType(SingleChildScrollView), findsOneWidget);
 
     await pumpAtS8(
       tester,
@@ -64,7 +65,7 @@ void main() {
         backendApiService: api,
       ),
     );
-    expect(find.byType(SingleChildScrollView), findsNothing);
+    expect(find.byType(SingleChildScrollView), findsOneWidget);
 
     await pumpAtS8(
       tester,
@@ -73,14 +74,13 @@ void main() {
         serviceId: 1,
         operator: 'Orange',
         service: 'Internet (Pass data)',
-        operation: 'Souscription pour moi',
         onTransactionAdded: (_) {},
         onNotificationAdded: (_) {},
         notifications: const [],
         backendApiService: api,
       ),
     );
-    expect(find.byType(SingleChildScrollView), findsNothing);
+    expect(find.byType(SingleChildScrollView), findsOneWidget);
 
     await pumpAtS8(
       tester,
@@ -89,7 +89,6 @@ void main() {
         serviceId: 1,
         operator: 'Orange',
         service: 'Internet (Pass data)',
-        operation: 'Souscription pour moi',
         phone: phone,
         amount: 1000,
         onTransactionAdded: (_) {},
@@ -99,6 +98,6 @@ void main() {
         authService: auth,
       ),
     );
-    expect(find.byType(SingleChildScrollView), findsNothing);
+    expect(find.byType(SingleChildScrollView), findsOneWidget);
   });
 }

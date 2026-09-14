@@ -30,11 +30,11 @@ class _HistoryScreenState extends State<HistoryScreen> {
         return widget.transactions.where((t) => t.status == 'fail').toList();
       case 'Souscription':
         return widget.transactions
-            .where((t) => t.operation.contains('Souscription'))
+            .where((t) => t.operation?.contains('Souscription') ?? false)
             .toList();
       case 'Transfert':
         return widget.transactions
-            .where((t) => t.operation.contains('Transfert'))
+            .where((t) => t.operation?.contains('Transfert') ?? false)
             .toList();
       default:
         return widget.transactions;
@@ -346,7 +346,8 @@ class TransactionDetailScreen extends StatelessWidget {
               _rowWidget(opLogo, 'Opérateur', t.operator,
                   AppColors.operatorColor(t.operator)),
               _row('Service', t.service, AppColors.blue),
-              _row('Type d\'opération', t.operation, AppColors.primary),
+              if (t.operation != null && t.operation!.isNotEmpty)
+                _row('Type d\'opération', t.operation!, AppColors.primary),
               _row('Numéro', t.phone, null),
               _row('Montant', '${t.amount} FCFA', null),
               _row('Moyen de paiement', t.paymentMethod, AppColors.orange),

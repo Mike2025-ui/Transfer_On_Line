@@ -231,21 +231,28 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadOperators() async {
-    // Maquette hors ligne : on utilise trois opérateurs locaux pour que
-    // l'interface reste visible même si le serveur bloque la requête CORS.
-    const mockedOperators = [
-      OperatorItem(id: 1, name: 'Orange', code: 'orange'),
-      OperatorItem(id: 2, name: 'MTN', code: 'mtn'),
-      OperatorItem(id: 3, name: 'Moov', code: 'moov'),
-    ];
-
-    // On simule une réponse réussie : aucun chargement ni message d'erreur
-    // réseau ne doit apparaître pendant le travail sur l'écran graphique.
     setState(() {
-      _operators = mockedOperators;
-      _loadingOperators = false;
+      _loadingOperators = true;
       _operatorsError = null;
     });
+    try {
+      final operators = await _api.getOperators();
+      if (!mounted) return;
+      const displayOrder = {'Orange': 0, 'MTN': 1, 'Moov': 2};
+      operators.sort((a, b) =>
+          (displayOrder[a.name] ?? 99).compareTo(displayOrder[b.name] ?? 99));
+      setState(() {
+        _operators = operators;
+        _loadingOperators = false;
+        _operatorsError = null;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _loadingOperators = false;
+        _operatorsError = 'Impossible de charger les opérateurs.';
+      });
+    }
   }
 
   Color _operatorCardColor(String name) {
@@ -270,12 +277,10 @@ class _HomeScreenState extends State<HomeScreen> {
       case 'Orange':
         return 'assets/images/Orange_logo.png';
       case 'MTN':
-        return 'assets/images/mtn.jpg';
+        return 'assets/images/mtn.png';
       case 'Moov':
         return 'assets/images/moov.jpeg';
       default:
-        // No known asset for this operator - Image.asset's errorBuilder in
-        // _operatorCard falls back to a generic icon instead of crashing.
         return '';
     }
   }
@@ -283,7 +288,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _operatorsSection() {
     if (_loadingOperators) {
       return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 20),
+        padding: EdgeInsets.symmetric(vertical: 16),
         child: Center(child: CircularProgressIndicator(color: Colors.white)),
       );
     }
@@ -295,25 +300,31 @@ class _HomeScreenState extends State<HomeScreen> {
             textAlign: TextAlign.center,
             style: GoogleFonts.nunito(
               color: Colors.white70,
-              fontSize: 16,
+              fontSize: 15,
               fontWeight: FontWeight.w700,
             ),
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 10),
           TolButton(label: 'RÉESSAYER', onTap: _loadOperators),
         ],
       );
     }
     final operators = _operators ?? [];
     if (operators.isEmpty) {
-      return Text(
-        'Aucun opérateur disponible.',
-        textAlign: TextAlign.center,
-        style: GoogleFonts.nunito(
-          color: Colors.white70,
-          fontSize: 16,
-          fontWeight: FontWeight.w700,
-        ),
+      return Column(
+        children: [
+          Text(
+            'Aucun opérateur disponible.',
+            textAlign: TextAlign.center,
+            style: GoogleFonts.nunito(
+              color: Colors.white70,
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 10),
+          TolButton(label: 'RÉESSAYER', onTap: _loadOperators),
+        ],
       );
     }
     final cards = <Widget>[];
@@ -326,7 +337,7 @@ class _HomeScreenState extends State<HomeScreen> {
         logo: _operatorLogoAsset(operator.name),
         textColor: _operatorCardTextColor(operator.name),
       ));
-      if (i != operators.length - 1) cards.add(const SizedBox(height: 16));
+      if (i != operators.length - 1) cards.add(const SizedBox(height: 14));
     }
     return Column(children: cards);
   }
@@ -385,71 +396,83 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
             SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(18, 4, 18, 8),
-                child: Column(
-                  children: [
-                    Row(
-                      children: [
-                        const Spacer(),
-                        _notificationButton(unread),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    _logo(),
-                    const SizedBox(height: 4),
-                    Text(
-                      'TRANSFER',
-                      style: GoogleFonts.nunito(
-                        fontSize: 34,
-                        height: 0.98,
-                        fontWeight: FontWeight.w900,
-                        color: Colors.white,
+              child: SingleChildScrollView(
+                physics: const BouncingScrollPhysics(),
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 500),
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Row(
+                            children: [
+                              const Spacer(),
+                              _notificationButton(unread),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          _logo(),
+                          const SizedBox(height: 8),
+                          Text(
+                            'TRANSFER',
+                            style: GoogleFonts.nunito(
+                              fontSize: 30,
+                              height: 0.98,
+                              fontWeight: FontWeight.w900,
+                              color: Colors.white,
+                            ),
+                          ),
+                          Text(
+                            'ON LINE',
+                            style: GoogleFonts.nunito(
+                              fontSize: 30,
+                              height: 1,
+                              fontWeight: FontWeight.w900,
+                              color: const Color(0xFF66D300),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Souscrivez ou transférez\nvos forfaits en toute simplicité',
+                            textAlign: TextAlign.center,
+                            style: GoogleFonts.nunito(
+                              fontSize: 15,
+                              height: 1.25,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              _roundService(Icons.phone_rounded),
+                              const SizedBox(width: 12),
+                              _roundService(Icons.language_rounded),
+                              const SizedBox(width: 12),
+                              _roundService(Icons.sms_rounded),
+                              const SizedBox(width: 12),
+                              _roundService(Icons.swap_horiz_rounded),
+                            ],
+                          ),
+                          const SizedBox(height: 20),
+                          Text(
+                            'Choisissez votre opérateur',
+                            style: GoogleFonts.nunito(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w900,
+                              color: Colors.white,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          _operatorsSection(),
+                        ],
                       ),
                     ),
-                    Text(
-                      'ON LINE',
-                      style: GoogleFonts.nunito(
-                        fontSize: 34,
-                        height: 1,
-                        fontWeight: FontWeight.w900,
-                        color: const Color(0xFF66D300),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Souscrivez ou transférez\nvos forfaits en toute simplicité',
-                      textAlign: TextAlign.center,
-                      style: GoogleFonts.nunito(
-                        fontSize: 16,
-                        height: 1.25,
-                        fontWeight: FontWeight.w800,
-                        color: Colors.white,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        _roundService(Icons.phone_rounded),
-                        const SizedBox(width: 16),
-                        _roundService(Icons.language_rounded),
-                        const SizedBox(width: 16),
-                        _roundService(Icons.sms_rounded),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      'Choisissez votre opérateur',
-                      style: GoogleFonts.nunito(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w900,
-                        color: Colors.white,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    _operatorsSection(),
-                  ],
+                  ),
                 ),
               ),
             ),
@@ -474,22 +497,22 @@ class _HomeScreenState extends State<HomeScreen> {
         clipBehavior: Clip.none,
         children: [
           Container(
-            width: 60,
-            height: 60,
+            width: 42,
+            height: 42,
             decoration: const BoxDecoration(
               color: Colors.white,
               shape: BoxShape.circle,
             ),
             child: const Icon(Icons.notifications_none_rounded,
-                color: AppColors.textPrimary, size: 34),
+                color: AppColors.textPrimary, size: 24),
           ),
           if (unread > 0)
             Positioned(
               top: -2,
               right: -2,
               child: Container(
-                width: 28,
-                height: 28,
+                width: 20,
+                height: 20,
                 decoration: const BoxDecoration(
                     color: Colors.red, shape: BoxShape.circle),
                 child: Center(
@@ -497,7 +520,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     '$unread',
                     style: GoogleFonts.nunito(
                       color: Colors.white,
-                      fontSize: 16,
+                      fontSize: 11,
                       fontWeight: FontWeight.w900,
                     ),
                   ),
@@ -514,28 +537,28 @@ class _HomeScreenState extends State<HomeScreen> {
     return Stack(
       alignment: Alignment.center,
       children: [
-        Icon(Icons.sync_rounded, color: Colors.orange.shade600, size: 104),
-        const Icon(Icons.sync_rounded, color: Color(0xFF0BA23E), size: 65),
+        Icon(Icons.sync_rounded, color: Colors.orange.shade600, size: 76),
+        const Icon(Icons.sync_rounded, color: Color(0xFF0BA23E), size: 48),
       ],
     );
   }
 
   Widget _roundService(IconData icon) {
     return Container(
-      width: 74,
-      height: 58,
+      width: 48,
+      height: 48,
       decoration: BoxDecoration(
         color: const Color(0xFF06B43E),
         shape: BoxShape.circle,
         boxShadow: [
           BoxShadow(
             color: const Color(0xFF06B43E).withValues(alpha: 0.6),
-            blurRadius: 25,
-            spreadRadius: 3,
+            blurRadius: 20,
+            spreadRadius: 2,
           ),
         ],
       ),
-      child: Icon(icon, color: Colors.white, size: 32),
+      child: Icon(icon, color: Colors.white, size: 24),
     );
   }
 
@@ -546,6 +569,41 @@ class _HomeScreenState extends State<HomeScreen> {
     required String logo,
     Color textColor = Colors.white,
   }) {
+    Widget logoWidget;
+    if (name == 'Orange') {
+      logoWidget = Container(
+        width: 52,
+        height: 52,
+        decoration: BoxDecoration(
+          color: const Color(0xFFFF7900),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: Colors.white, width: 2),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: Image.asset(
+            logo,
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) =>
+                Icon(Icons.business_rounded, color: textColor, size: 36),
+          ),
+        ),
+      );
+    } else {
+      logoWidget = SizedBox(
+        width: 68,
+        height: 48,
+        child: logo.isEmpty
+            ? Icon(Icons.business_rounded, color: textColor, size: 36)
+            : Image.asset(
+                logo,
+                fit: BoxFit.contain,
+                errorBuilder: (_, __, ___) =>
+                    Icon(Icons.business_rounded, color: textColor, size: 36),
+              ),
+      );
+    }
+
     return GestureDetector(
       onTap: () => Navigator.push(
         context,
@@ -556,17 +614,16 @@ class _HomeScreenState extends State<HomeScreen> {
             onTransactionAdded: _addTransaction,
             onNotificationAdded: _addNotification,
             notifications: _notifications,
+            backendApiService: _api,
           ),
         ),
       ),
       child: Container(
-        // Carte large, espacée et suffisamment haute comme dans la maquette.
-        height: 68,
-        margin: const EdgeInsets.symmetric(horizontal: 2),
-        padding: const EdgeInsets.symmetric(horizontal: 12),
+        height: 72,
+        margin: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
           color: color,
-          // Moov reçoit une légère variation de bleu pour mieux ressortir.
           gradient: name == 'Moov'
               ? const LinearGradient(
                   begin: Alignment.centerLeft,
@@ -574,40 +631,20 @@ class _HomeScreenState extends State<HomeScreen> {
                   colors: [Color(0xFF0057DD), Color(0xFF147BFF)],
                 )
               : null,
-          borderRadius: BorderRadius.circular(22),
+          borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withValues(alpha: 0.18),
-              blurRadius: 16,
-              offset: const Offset(0, 8),
+              blurRadius: 14,
+              offset: const Offset(0, 6),
             ),
           ],
         ),
         child: Row(
           children: [
-            SizedBox(
-              // Le logo reste compact sur mobile pour laisser de la place au
-              // nom et a la fleche de navigation.
-              width: 92,
-              height: 84,
-              child: logo.isEmpty
-                  // Placeholder local : la carte reste correcte si un logo
-                  // manque dans assets/images.
-                  ? Icon(Icons.business_rounded, color: textColor, size: 54)
-                  : Image.asset(
-                      logo,
-                      fit: BoxFit.contain,
-                      errorBuilder: (_, __, ___) => Icon(
-                        Icons.business_rounded,
-                        color: textColor,
-                        size: 54,
-                      ),
-                    ),
-            ),
-            const SizedBox(width: 12),
+            logoWidget,
+            const SizedBox(width: 14),
             Expanded(
-              // FittedBox reduit le texte si l'ecran est etroit. Le nom
-              // reste toujours sur une seule ligne et ne se coupe jamais.
               child: FittedBox(
                 fit: BoxFit.scaleDown,
                 alignment: Alignment.centerLeft,
@@ -617,14 +654,13 @@ class _HomeScreenState extends State<HomeScreen> {
                   overflow: TextOverflow.ellipsis,
                   style: GoogleFonts.nunito(
                     color: textColor,
-                    fontSize: 30,
+                    fontSize: 22,
                     fontWeight: FontWeight.w900,
                   ),
                 ),
               ),
             ),
-            // Flèche blanche toujours visible à droite de la carte.
-            Icon(Icons.chevron_right_rounded, color: textColor, size: 42),
+            Icon(Icons.chevron_right_rounded, color: textColor, size: 32),
           ],
         ),
       ),

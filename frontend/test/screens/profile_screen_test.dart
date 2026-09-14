@@ -3,7 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:transfer_on_line/models/models.dart';
-import 'package:transfer_on_line/screens/phone_verification_screen.dart';
+import 'package:transfer_on_line/screens/device_lock_screen.dart';
 import 'package:transfer_on_line/screens/profile_screen.dart';
 import 'package:transfer_on_line/services/auth_service.dart';
 
@@ -21,7 +21,11 @@ class _InMemoryStore implements AuthTokenStore {
   }
 }
 
-Transaction _tx({required String status, required String operator, int amount = 1000}) => Transaction(
+Transaction _tx(
+        {required String status,
+        required String operator,
+        int amount = 1000}) =>
+    Transaction(
       id: 'TOL-1',
       operator: operator,
       service: 'Internet',
@@ -36,9 +40,14 @@ Transaction _tx({required String status, required String operator, int amount = 
 void main() {
   // Audit frontend D4, §18 : cet écran affichait un nom/email fictifs
   // ("Konan Yves", une adresse e-mail) jamais liés au compte réel.
-  testWidgets('shows the real phone number from AuthService, never a fabricated name or email', (tester) async {
-    final store = _InMemoryStore()..values['auth_phone_number'] = '+2250700000099';
-    final auth = AuthService(store: store, client: MockClient((r) async => http.Response('{}', 200)));
+  testWidgets(
+      'shows the real phone number from AuthService, never a fabricated name or email',
+      (tester) async {
+    final store = _InMemoryStore()
+      ..values['auth_phone_number'] = '+2250700000099';
+    final auth = AuthService(
+        store: store,
+        client: MockClient((r) async => http.Response('{}', 200)));
 
     await tester.binding.setSurfaceSize(const Size(800, 1600));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -49,11 +58,17 @@ void main() {
 
     expect(find.text('+2250700000099'), findsOneWidget);
     expect(find.text('Konan Yves'), findsNothing);
-    expect(find.textContaining('@'), findsNothing, reason: 'no fabricated email must ever be shown - the backend has no such field');
+    expect(find.textContaining('@'), findsNothing,
+        reason:
+            'no fabricated email must ever be shown - the backend has no such field');
   });
 
-  testWidgets('shows a placeholder, never a crash, when no phone number is stored', (tester) async {
-    final auth = AuthService(store: _InMemoryStore(), client: MockClient((r) async => http.Response('{}', 200)));
+  testWidgets(
+      'shows a placeholder, never a crash, when no phone number is stored',
+      (tester) async {
+    final auth = AuthService(
+        store: _InMemoryStore(),
+        client: MockClient((r) async => http.Response('{}', 200)));
 
     await tester.binding.setSurfaceSize(const Size(800, 1600));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -65,8 +80,12 @@ void main() {
     expect(find.text('Numéro non disponible'), findsOneWidget);
   });
 
-  testWidgets('statistics reflect the real transactions passed in, not sampleTransactions', (tester) async {
-    final auth = AuthService(store: _InMemoryStore(), client: MockClient((r) async => http.Response('{}', 200)));
+  testWidgets(
+      'statistics reflect the real transactions passed in, not sampleTransactions',
+      (tester) async {
+    final auth = AuthService(
+        store: _InMemoryStore(),
+        client: MockClient((r) async => http.Response('{}', 200)));
 
     await tester.binding.setSurfaceSize(const Size(800, 1600));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -78,12 +97,18 @@ void main() {
     ));
     await tester.pumpAndSettle();
 
-    expect(find.text('2 500'), findsOneWidget, reason: 'total spent must come from the real transaction, formatted');
-    expect(find.text('1'), findsWidgets, reason: 'the transaction count stat must reflect the real list length');
+    expect(find.text('2 500'), findsOneWidget,
+        reason: 'total spent must come from the real transaction, formatted');
+    expect(find.text('1'), findsWidgets,
+        reason: 'the transaction count stat must reflect the real list length');
   });
 
-  testWidgets('an empty transaction history shows a message instead of fabricated operator stats', (tester) async {
-    final auth = AuthService(store: _InMemoryStore(), client: MockClient((r) async => http.Response('{}', 200)));
+  testWidgets(
+      'an empty transaction history shows a message instead of fabricated operator stats',
+      (tester) async {
+    final auth = AuthService(
+        store: _InMemoryStore(),
+        client: MockClient((r) async => http.Response('{}', 200)));
 
     await tester.binding.setSurfaceSize(const Size(800, 1600));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -98,12 +123,16 @@ void main() {
   // Audit frontend D4, §18 : le bouton "Déconnexion" ne faisait rien
   // (onPressed: () {}) alors qu'AuthService.logout() existe et fonctionne
   // déjà (voir auth_service_test.dart).
-  testWidgets('Déconnexion calls AuthService.logout() and navigates to PhoneVerificationScreen', (tester) async {
+  testWidgets(
+      'Déconnexion calls AuthService.logout() and navigates to PhoneVerificationScreen',
+      (tester) async {
     final store = _InMemoryStore()
       ..values['auth_phone_number'] = '+2250700000099'
       ..values['auth_access_token'] = 'some-access-token'
       ..values['auth_refresh_token'] = 'some-refresh-token';
-    final auth = AuthService(store: store, client: MockClient((r) async => http.Response('{}', 200)));
+    final auth = AuthService(
+        store: store,
+        client: MockClient((r) async => http.Response('{}', 200)));
 
     await tester.binding.setSurfaceSize(const Size(800, 1600));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -115,14 +144,20 @@ void main() {
     await tester.tap(find.text('Déconnexion'));
     await tester.pumpAndSettle();
 
-    expect(find.byType(PhoneVerificationScreen), findsOneWidget);
-    expect(await store.read('auth_access_token'), isNull, reason: 'logout must actually clear the stored session, not just navigate');
+    expect(find.byType(DeviceLockScreen), findsOneWidget);
+    expect(await store.read('auth_access_token'), isNull,
+        reason:
+            'logout must actually clear the stored session, not just navigate');
     expect(await store.read('auth_refresh_token'), isNull);
   });
 
-  testWidgets('a rushed double tap on Déconnexion only ever runs one full logout', (tester) async {
+  testWidgets(
+      'a rushed double tap on Déconnexion only ever runs one full logout',
+      (tester) async {
     final store = _InMemoryStore();
-    final auth = AuthService(store: store, client: MockClient((r) async => http.Response('{}', 200)));
+    final auth = AuthService(
+        store: store,
+        client: MockClient((r) async => http.Response('{}', 200)));
 
     await tester.binding.setSurfaceSize(const Size(800, 1600));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -138,7 +173,7 @@ void main() {
     await tester.tap(find.text('Déconnexion'), warnIfMissed: false);
     await tester.pumpAndSettle();
 
-    expect(find.byType(PhoneVerificationScreen), findsOneWidget);
+    expect(find.byType(DeviceLockScreen), findsOneWidget);
     // 3 keys cleared exactly once - never 6, which a double-invoked logout
     // would produce.
     expect(store.deleteCalls, 3);

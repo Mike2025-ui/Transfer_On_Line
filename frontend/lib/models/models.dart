@@ -2,7 +2,7 @@ class Transaction {
   final String id;
   final String operator;
   final String service;
-  final String operation;
+  final String? operation;
   final String phone;
   final int amount;
   final String paymentMethod;
@@ -13,7 +13,7 @@ class Transaction {
     required this.id,
     required this.operator,
     required this.service,
-    required this.operation,
+    this.operation,
     required this.phone,
     required this.amount,
     required this.paymentMethod,
@@ -102,7 +102,8 @@ class OperatorItem {
   final String name;
   final String code;
 
-  const OperatorItem({required this.id, required this.name, required this.code});
+  const OperatorItem(
+      {required this.id, required this.name, required this.code});
 
   factory OperatorItem.fromJson(Map<String, dynamic> json) {
     return OperatorItem(

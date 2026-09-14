@@ -11,8 +11,6 @@ import 'package:transfer_on_line/services/backend_api_service.dart';
 
 void main() {
   Future<void> pumpStep2(WidgetTester tester, http.Client client) async {
-    // L'écran est conçu sans défilement : le grand support vérifie seulement
-    // le parcours, pas une dépendance à un scroll de test.
     await tester.binding.setSurfaceSize(const Size(800, 1400));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(MaterialApp(
@@ -27,18 +25,30 @@ void main() {
     ));
   }
 
-  testWidgets('affiche les quatre services sans bloc operation',
+  testWidgets('affiche les quatre services canoniques sans bloc operation',
       (tester) async {
-    final client =
-        MockClient((request) async => http.Response(jsonEncode([]), 200));
+    final client = MockClient((request) async {
+      expect(request.url.path, contains('/services/'));
+      return http.Response(
+        jsonEncode([
+          {'id': 1, 'name': 'Internet', 'code': 'internet'},
+          {'id': 2, 'name': 'Appels', 'code': 'appels'},
+          {'id': 3, 'name': 'Crédit', 'code': 'credit'},
+          {'id': 4, 'name': 'SMS', 'code': 'sms'},
+        ]),
+        200,
+      );
+    });
 
     await pumpStep2(tester, client);
+    await tester.pump();
+    await tester.pump();
 
     expect(find.byType(CircularProgressIndicator), findsNothing);
-    expect(find.text('Appels (Pass voix)'), findsOneWidget);
-    expect(find.text('Internet (Pass data)'), findsOneWidget);
-    expect(find.text('Crédit (communication)'), findsOneWidget);
-    expect(find.text('SMS (Pass SMS)'), findsOneWidget);
+    expect(find.text('Pass voix'), findsOneWidget);
+    expect(find.text('Pass data'), findsOneWidget);
+    expect(find.text('Crédit de communication'), findsOneWidget);
+    expect(find.text('Pass SMS'), findsOneWidget);
     expect(find.text('TYPE D’OPÉRATION'), findsNothing);
   });
 
@@ -58,9 +68,9 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    expect(find.text('Internet (Pass data)'), findsOneWidget);
-    expect(find.text('Appels (Pass voix)'), findsOneWidget);
-    expect(find.text('SMS (Pass SMS)'), findsOneWidget);
+    expect(find.text('Pass data'), findsOneWidget);
+    expect(find.text('Pass voix'), findsOneWidget);
+    expect(find.text('Pass SMS'), findsNothing);
   });
 
   testWidgets(
@@ -73,7 +83,8 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    expect(find.text('Crédit (communication)'), findsOneWidget);
+    expect(find.text('Aucun service disponible.'), findsOneWidget);
+    expect(find.text('RÉESSAYER'), findsOneWidget);
   });
 
   testWidgets(
@@ -95,13 +106,21 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    expect(find.text('Internet (Pass data)'), findsOneWidget);
+    expect(find.text('Impossible de charger les services.'), findsOneWidget);
+    expect(find.text('RÉESSAYER'), findsOneWidget);
+    expect(calls, 1);
+
+    await tester.tap(find.text('RÉESSAYER'));
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('Pass data'), findsOneWidget);
     expect(find.text('RÉESSAYER'), findsNothing);
-    expect(calls, 0);
+    expect(calls, 2);
   });
 
   testWidgets(
-      'selecting a service and continuing passes the real service name to Step3InfoScreen',
+      'selecting a service and continuing passes the canonical service name to Step3InfoScreen',
       (tester) async {
     final client = MockClient((request) async => http.Response(
           jsonEncode([
@@ -115,14 +134,14 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    await tester.tap(find.text('Appels (Pass voix)'));
+    await tester.tap(find.text('Pass voix'));
     await tester.pump();
     await tester.tap(find.text('CONTINUER'));
     await tester.pumpAndSettle();
 
     expect(find.byType(Step3InfoScreen), findsOneWidget);
     final step3 = tester.widget<Step3InfoScreen>(find.byType(Step3InfoScreen));
-    expect(step3.service, 'Appels (Pass voix)');
+    expect(step3.service, 'Pass voix');
     expect(step3.serviceId, 2);
     expect(step3.operator, 'Orange');
     expect(step3.operatorId, 1);

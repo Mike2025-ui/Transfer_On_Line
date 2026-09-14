@@ -3,16 +3,22 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:local_auth/local_auth.dart';
 
 class DeviceLockScreen extends StatefulWidget {
-  const DeviceLockScreen({super.key, required this.onAuthenticated});
+  const DeviceLockScreen({
+    super.key,
+    required this.onAuthenticated,
+    this.localAuth,
+  });
 
   final VoidCallback onAuthenticated;
+  final LocalAuthentication? localAuth;
 
   @override
   State<DeviceLockScreen> createState() => _DeviceLockScreenState();
 }
 
 class _DeviceLockScreenState extends State<DeviceLockScreen> {
-  final LocalAuthentication _auth = LocalAuthentication();
+  late final LocalAuthentication _auth =
+      widget.localAuth ?? LocalAuthentication();
   bool _loading = false;
 
   Future<void> _authenticate() async {
@@ -135,7 +141,7 @@ class _DeviceLockScreenState extends State<DeviceLockScreen> {
                                         ),
                                       )
                                     : Text(
-                                        'VÉRIFIER LE TÉLÉPHONE',
+                                        'RÉESSAYER',
                                         style: GoogleFonts.nunito(
                                           fontSize: 16,
                                           fontWeight: FontWeight.w900,

@@ -157,7 +157,7 @@ class BackendApiService {
   // ou sans /api (par exemple : --dart-define=TOL_API_BASE_URL=https://transfert-online.site).
   static const String _rawBaseUrl = String.fromEnvironment(
     'TOL_API_BASE_URL',
-    defaultValue: 'http://localhost:8000/api',
+    defaultValue: 'https://transfert-online.site/api',
   );
 
   /// URL racine normalisée vers l'API backend Django.
@@ -249,17 +249,18 @@ class BackendApiService {
   /// Initialise une nouvelle transaction et crée la session de paiement sur le backend.
   /// Envoie une requête POST vers "$baseUrl/transactions/execute/".
   /// [operatorId] et [serviceId] : identifiants numériques prioritaires de l'opérateur et du service.
-  /// [paymentMethod] : méthode de paiement par défaut fixée à 'djeko'.
+  /// [paymentMethod] : méthode de paiement (défaut 'auto' : Jèko en priorité avec fallback GeniusPay).
   /// [idempotencyKey] : clé unique protégeant contre les doubles débits en cas de réémission réseau.
   Future<BackendTransactionResult> createTransaction({
     required String operator,
     required String service,
-    required String operation,
+    String? operation,
     required String phone,
     required int amount,
     int? operatorId,
     int? serviceId,
-    String paymentMethod = 'djeko',
+    String paymentMethod = 'auto',
+    String? jekoPaymentMethod,
     String? accessToken,
     String? idempotencyKey,
   }) async {
@@ -278,11 +279,12 @@ class BackendApiService {
         if (serviceId != null) 'service_id': serviceId,
         'operator': operator,
         'service': service,
-        'operation': operation,
+        if (operation != null) 'operation': operation,
         'phone': phone,
         'recipient_phone': phone,
         'amount': amount,
         'payment_method': paymentMethod,
+        if (jekoPaymentMethod != null) 'jeko_payment_method': jekoPaymentMethod,
       }),
     );
 
