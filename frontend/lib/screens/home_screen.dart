@@ -199,14 +199,20 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     final operators = _operators ?? [];
     if (operators.isEmpty) {
-      return Text(
-        'Aucun opérateur disponible.',
-        textAlign: TextAlign.center,
-        style: GoogleFonts.nunito(
-          color: Colors.white70,
-          fontSize: 16,
-          fontWeight: FontWeight.w700,
-        ),
+      return Column(
+        children: [
+          Text(
+            'Aucun opérateur disponible.',
+            textAlign: TextAlign.center,
+            style: GoogleFonts.nunito(
+              color: Colors.white70,
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 14),
+          TolButton(label: 'RÉESSAYER', onTap: _loadOperators),
+        ],
       );
     }
     final cards = <Widget>[];
@@ -426,27 +432,12 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _logo() {
-    return Container(
-      width: 96,
-      height: 96,
-      margin: const EdgeInsets.only(bottom: 8),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.35),
-            blurRadius: 18,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(24),
-        child: Image.asset(
-          'assets/images/app_logo.png',
-          fit: BoxFit.contain,
-        ),
-      ),
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        Icon(Icons.sync_rounded, color: Colors.orange.shade600, size: 82),
+        const Icon(Icons.sync_rounded, color: Color(0xFF0BA23E), size: 52),
+      ],
     );
   }
 
