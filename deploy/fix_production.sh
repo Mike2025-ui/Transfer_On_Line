@@ -48,13 +48,21 @@ if [ -f "$CERT_PATH" ]; then
     fi
 else
     echo "Certificat SSL non trouvé. Phase de Bootstrap HTTP..."
-    # 1. Utiliser la configuration HTTP temporaire
+    # 1. Nettoyer les anciens liens dans sites-enabled qui bloquent nginx -t
+    rm -f /etc/nginx/sites-enabled/*
+    for f in /etc/nginx/conf.d/*.conf; do
+        if [ -f "$f" ] && grep -q "fullchain.pem" "$f" 2>/dev/null; then
+            mv "$f" "${f}.bak"
+        fi
+    done
+    
+    # 2. Utiliser la configuration HTTP temporaire
     cp deploy/nginx/transfert-online.site.bootstrap.conf /etc/nginx/sites-available/transfert-online.site
     ln -sf /etc/nginx/sites-available/transfert-online.site /etc/nginx/sites-enabled/transfert-online.site
     
     nginx -t
     systemctl restart nginx
-    echo "Nginx démarré en HTTP."
+    echo "Nginx démarré avec succès en HTTP."
 
     # 2. Générer le certificat SSL
     echo "Génération du certificat Let's Encrypt via Certbot..."
