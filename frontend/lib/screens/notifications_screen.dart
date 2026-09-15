@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/models.dart';
+import '../services/transaction_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/widgets.dart';
+import 'step4_payment.dart';
 
 class NotificationsScreen extends StatefulWidget {
   final List<AppNotification> notifications;
@@ -306,10 +308,41 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     final color = _notifColor(item.type);
     final time = item.time.split('·').last.trim();
     return GestureDetector(
-      onTap: () {
+      onTap: () async {
         final wasUnread = !item.read;
         setState(() => item.read = true);
         if (wasUnread) widget.onMarkRead?.call(item);
+        if (item.reference != null && item.reference!.isNotEmpty) {
+          final txs = await TransactionService.load();
+          final tx = txs.where((t) => t.id == item.reference).firstOrNull ??
+              Transaction(
+                id: item.reference!,
+                operator: item.operator ?? 'Orange',
+                service: item.service ?? 'Internet',
+                phone: item.phone ?? '',
+                amount: int.tryParse(
+                        item.amount?.replaceAll(RegExp(r'[^0-9]'), '') ?? '') ??
+                    500,
+                paymentMethod: item.paymentMethod ?? 'Paiement en ligne',
+                date: DateTime.now(),
+                status: item.type == 'success'
+                    ? 'ok'
+                    : (item.type == 'cancelled'
+                        ? 'cancelled'
+                        : (item.type == 'error' ? 'fail' : 'pending')),
+              );
+          if (!mounted) return;
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => SuccessScreen(
+                transaction: tx,
+                notifications: widget.notifications,
+              ),
+            ),
+          );
+          return;
+        }
         Navigator.push(
           context,
           MaterialPageRoute(
@@ -391,12 +424,16 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   Color _notifColor(String type) {
     if (type == 'error') return Colors.red;
     if (type == 'info') return AppColors.blue;
+    if (type == 'pending') return AppColors.amber;
+    if (type == 'cancelled') return Colors.grey.shade600;
     return AppColors.success;
   }
 
   IconData _notifIcon(String type) {
     if (type == 'error') return Icons.close_rounded;
     if (type == 'info') return Icons.info_rounded;
+    if (type == 'pending') return Icons.hourglass_top_rounded;
+    if (type == 'cancelled') return Icons.cancel_outlined;
     return Icons.check_rounded;
   }
 }
@@ -520,11 +557,11 @@ class NotifDetailScreen extends StatelessWidget {
                       AppColors.textPrimary),
                   _infoRow(
                       Icons.percent_rounded,
-                      'Frais de service (1%)',
+                      'Frais de service (1.5%)',
                       _value(
                           notification.fee,
                           _extractField('Frais', notification.message,
-                              fallback: '10 FCFA')),
+                              fallback: '15 FCFA')),
                       AppColors.textPrimary,
                       info: true),
                   _infoRow(

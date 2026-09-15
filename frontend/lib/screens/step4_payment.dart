@@ -8,6 +8,7 @@ import '../theme/app_theme.dart';
 import '../models/models.dart';
 import '../services/auth_service.dart';
 import '../services/backend_api_service.dart';
+import '../services/notification_service.dart';
 import '../services/transaction_service.dart';
 import '../screens/notifications_screen.dart';
 import '../widgets/widgets.dart';
@@ -56,6 +57,9 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
   bool _loading = false;
   String? _selectedPaymentMethod;
   static const _paymentMethod = 'auto';
+
+  int get _fee => (widget.amount * 0.015).round();
+  int get _total => widget.amount + _fee;
 
   static const List<_PaymentMethodOption> _paymentMethods = [
     _PaymentMethodOption(
@@ -155,6 +159,21 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
                               '${widget.amount} FCFA',
                               AppColors.textPrimary,
                             ),
+                            _summaryRow(
+                              const Icon(Icons.percent_rounded,
+                                  color: AppColors.success, size: 28),
+                              'Frais de service (1.5%)',
+                              '$_fee FCFA',
+                              AppColors.textPrimary,
+                            ),
+                            _summaryRow(
+                              const Icon(Icons.account_balance_wallet_outlined,
+                                  color: AppColors.success, size: 28),
+                              'Total à payer',
+                              '$_total FCFA',
+                              AppColors.success,
+                              isBold: true,
+                            ),
                           ],
                         ),
                       ),
@@ -162,7 +181,7 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
                       _paymentMethodsSection(),
                       const SizedBox(height: 20),
                       TolButton(
-                        label: 'PAYER ET SOUSCRIRE',
+                        label: 'PAYER ET SOUSCRIRE ($_total FCFA)',
                         loading: _loading,
                         onTap: _confirm,
                       ),
@@ -321,7 +340,8 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
         _ => 'Crédit',
       };
 
-  Widget _summaryRow(Widget leading, String label, String value, Color color) {
+  Widget _summaryRow(Widget leading, String label, String value, Color color,
+      {bool isBold = false}) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
       decoration: const BoxDecoration(
@@ -336,7 +356,7 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
               label,
               style: GoogleFonts.nunito(
                 fontSize: 14,
-                fontWeight: FontWeight.w700,
+                fontWeight: isBold ? FontWeight.w900 : FontWeight.w700,
                 color: AppColors.textPrimary,
               ),
             ),
@@ -346,7 +366,7 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
             value,
             textAlign: TextAlign.right,
             style: GoogleFonts.nunito(
-              fontSize: 14,
+              fontSize: isBold ? 15 : 14,
               fontWeight: FontWeight.w900,
               color: color,
             ),
@@ -373,16 +393,7 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
     try {
       final result = await _confirmServer();
       createdReference = result.reference;
-      if (result.checkoutUrl.isEmpty) {
-        throw Exception('URL de paiement indisponible');
-      }
-      final launched = await launchUrl(
-        Uri.parse(result.checkoutUrl),
-        mode: LaunchMode.externalApplication,
-      );
-      if (!launched) {
-        throw Exception('Impossible d’ouvrir la passerelle de paiement');
-      }
+
       final now = DateTime.now();
       final transaction = Transaction(
         id: result.reference,
@@ -395,6 +406,39 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
         status: 'pending',
       );
       widget.onTransactionAdded(transaction);
+
+      final dateStr =
+          '${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}/${now.year}';
+      final hourStr =
+          '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+      final appNotif = AppNotification(
+        title: 'Paiement en attente',
+        message:
+            'Votre paiement ${transaction.paymentMethod} est ouvert. Après confirmation, votre opération sera traitée automatiquement.\n\nMontant du forfait : ${transaction.amount} FCFA\nFrais de service : ${transaction.fee} FCFA\nTotal à payer : ${transaction.total} FCFA',
+        time: "Aujourd'hui · $hourStr",
+        read: false,
+        icon: 'pending',
+        type: 'pending',
+        reference: transaction.id,
+        operator: transaction.operator,
+        service: transaction.service,
+        phone: transaction.phone,
+        amount: '${transaction.amount} FCFA',
+        fee: '${transaction.fee} FCFA',
+        total: '${transaction.total} FCFA',
+        paymentMethod: transaction.paymentMethod,
+        date: dateStr,
+        heure: hourStr,
+      );
+      widget.onNotificationAdded(appNotif);
+
+      if (result.checkoutUrl.isNotEmpty) {
+        await launchUrl(
+          Uri.parse(result.checkoutUrl),
+          mode: LaunchMode.externalApplication,
+        );
+      }
+
       if (!mounted) return;
       Navigator.push(
         context,
@@ -435,6 +479,7 @@ class _Step4PaymentScreenState extends State<Step4PaymentScreen> {
         service: _backendService,
         phone: widget.phone,
         amount: widget.amount,
+        paymentAmount: _total,
         paymentMethod: _paymentMethod,
         jekoPaymentMethod: _selectedPaymentMethod,
         accessToken: accessToken,
@@ -656,19 +701,80 @@ class _SuccessScreenState extends State<SuccessScreen>
     _checkStatus();
   }
 
-  /// Corrects the locally-persisted record too, not just what is shown on
-  /// this screen - so the fix reaches the actual source of the P0-2 defect
-  /// (a transaction permanently stuck at 'pending' in local history).
   Future<void> _persistStatus(Transaction updated) async {
     final saved = await TransactionService.load();
     final index = saved.indexWhere((t) => t.id == updated.id);
-    if (index == -1) return;
-    saved[index] = updated;
-    await TransactionService.save(saved);
+    if (index != -1) {
+      saved[index] = updated;
+      await TransactionService.save(saved);
+    }
+
+    final isOk = updated.status == 'ok';
+    final isCancelled = updated.status == 'cancelled';
+    final notifTitle = isOk
+        ? 'Transaction réussie'
+        : (isCancelled ? 'Paiement annulé' : 'Transaction échouée');
+    final notifMsg = isOk
+        ? 'Votre forfait ${updated.service} a été activé avec succès.\n\nMontant du forfait : ${updated.amount} FCFA\nFrais de service : ${updated.fee} FCFA\nTotal débité : ${updated.total} FCFA'
+        : (isCancelled
+            ? 'Le paiement ${updated.paymentMethod} a été annulé avant sa confirmation.'
+            : 'Une erreur est survenue lors du paiement. Vérifiez votre solde ou réessayez.');
+    final notifType = isOk ? 'success' : (isCancelled ? 'cancelled' : 'error');
+
+    final notifs = await NotificationService.load();
+    final nIndex = notifs.indexWhere((n) => n.reference == updated.id);
+    if (nIndex != -1) {
+      final old = notifs[nIndex];
+      notifs[nIndex] = AppNotification(
+        title: notifTitle,
+        message: notifMsg,
+        time: old.time,
+        read: old.read,
+        icon: notifType,
+        type: notifType,
+        reference: updated.id,
+        operator: updated.operator,
+        service: updated.service,
+        phone: updated.phone,
+        amount: '${updated.amount} FCFA',
+        fee: '${updated.fee} FCFA',
+        total: '${updated.total} FCFA',
+        paymentMethod: updated.paymentMethod,
+        date: old.date,
+        heure: old.heure,
+        id: old.id,
+      );
+      await NotificationService.save(notifs);
+    }
+
+    final wIndex =
+        widget.notifications.indexWhere((n) => n.reference == updated.id);
+    if (wIndex != -1) {
+      final old = widget.notifications[wIndex];
+      widget.notifications[wIndex] = AppNotification(
+        title: notifTitle,
+        message: notifMsg,
+        time: old.time,
+        read: old.read,
+        icon: notifType,
+        type: notifType,
+        reference: updated.id,
+        operator: updated.operator,
+        service: updated.service,
+        phone: updated.phone,
+        amount: '${updated.amount} FCFA',
+        fee: '${updated.fee} FCFA',
+        total: '${updated.total} FCFA',
+        paymentMethod: updated.paymentMethod,
+        date: old.date,
+        heure: old.heure,
+        id: old.id,
+      );
+    }
   }
 
   String _operatorLogo(String operator) {
-    if (operator == 'MTN') return 'assets/images/mtn.jpg';
+    if (operator == 'MTN') return 'assets/images/mtn.png';
     if (operator == 'Moov') return 'assets/images/moov.jpeg';
     return 'assets/images/Orange_logo.png';
   }
@@ -832,7 +938,7 @@ class _SuccessScreenState extends State<SuccessScreen>
                   _detailRow(
                       const Icon(Icons.percent_rounded,
                           color: AppColors.success, size: 30),
-                      'Frais de service (1%)  ⓘ',
+                      'Frais de service (1.5%)  ⓘ',
                       '${t.fee} FCFA',
                       AppColors.textPrimary),
                   _detailRow(

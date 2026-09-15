@@ -347,7 +347,8 @@ class JekoFlowTests(TestCase):
         self.assertEqual(response.data['payment_method'], 'jeko')
         self.assertEqual(response.data['payment_status'], 'pending')
         self.assertEqual(response.data['checkout_url'], 'https://pay.jeko.africa/pay_request/pr/token-123')
-        self.assertTrue(Payment.objects.filter(method='jeko', amount=Decimal('1000')).exists())
+        self.assertTrue(Payment.objects.filter(method='jeko', amount=Decimal('1015')).exists())
+        self.assertTrue(Transaction.objects.filter(amount=Decimal('1000'), commission=Decimal('15')).exists())
         self.assertNotIn('payment_method', create_payment.call_args.kwargs['customer'])
         self.assertNotIn('jeko_payment_method', create_payment.call_args.kwargs['metadata'])
 

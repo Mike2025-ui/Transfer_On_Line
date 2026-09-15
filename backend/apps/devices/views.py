@@ -1,6 +1,6 @@
 import logging
 from datetime import timedelta
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from uuid import uuid4
 
 from django.conf import settings as dj_settings
@@ -320,11 +320,13 @@ class ExecuteTransactionView(APIView):
             validate_scenario_code(ussd_code)
         except ScenarioConfigurationError as exc:
             return Response({'error': str(exc)}, status=400)
+        fee = (amount * Decimal('0.015')).quantize(Decimal('1'), rounding=ROUND_HALF_UP)
+        payment_amount = amount + fee
         payment_reference = f'TOL-{timezone.now().strftime("%Y%m%d%H%M%S")}-{uuid4().hex[:8].upper()}'
         payment = Payment.objects.create(
             method=payment_method,
             reference=payment_reference,
-            amount=amount,
+            amount=payment_amount,
             status='pending',
         )
         tx_fields = dict(
@@ -337,6 +339,7 @@ class ExecuteTransactionView(APIView):
             gateway=None,
             phone_number=phone,
             amount=amount,
+            commission=fee,
             status='pending',
             payment=payment,
             payment_method=payment_method,

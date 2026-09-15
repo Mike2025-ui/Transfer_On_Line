@@ -40,12 +40,17 @@ class _Step3InfoScreenState extends State<Step3InfoScreen> {
   final _amountCtrl = TextEditingController(text: '1000');
   String? _phoneError;
 
-  // Prefixes mobiles ivoiriens: Orange 07/08/09, MTN 05/06 et Moov 01.
+  // Prefixes mobiles ivoiriens : Orange 07, MTN 05, Moov 01.
   static const _operatorPrefixes = {
-    'Orange': ['07', '08', '09'],
-    'MTN': ['05', '06'],
+    'Orange': ['07'],
+    'MTN': ['05'],
     'Moov': ['01'],
   };
+
+  String get _phoneHint {
+    final prefix = _operatorPrefixes[widget.operator]?.first ?? '07';
+    return 'Exemple : ${prefix}XXXXXXXX';
+  }
 
   // Montants rapides strictement [200, 500, 1000]
   static const _quickAmounts = [200, 500, 1000];
@@ -141,7 +146,7 @@ class _Step3InfoScreenState extends State<Step3InfoScreen> {
                       ),
                     ] else ...[
                       const SizedBox(height: 3),
-                      _hint('Exemple : 07XXXXXXXX'),
+                      _hint(_phoneHint),
                     ],
                     const SizedBox(height: 10),
                     _label('Montant'),

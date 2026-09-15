@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../models/models.dart';
 import '../services/auth_service.dart';
 import '../services/backend_api_service.dart';
+import '../services/notification_service.dart';
 import '../services/transaction_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/widgets.dart';
@@ -102,12 +103,26 @@ class _HomeScreenState extends State<HomeScreen> {
   /// this is what makes notifications survive a phone change/reinstall
   /// exactly like transactions do (Phase 7).
   Future<void> _loadNotifications() async {
+    final saved = await NotificationService.load();
+    if (saved.isNotEmpty && mounted) {
+      setState(() {
+        _notifications = saved;
+        _unreadCount = saved.where((n) => !n.read).length;
+      });
+    }
+
     final accessToken = await _safeAccessToken();
     if (accessToken == null) return;
     try {
       final remote = await _api.fetchNotifications(accessToken: accessToken);
       if (!mounted) return;
-      setState(() => _notifications = remote.map(_toAppNotification).toList());
+      if (remote.isNotEmpty) {
+        setState(() {
+          _notifications = remote.map(_toAppNotification).toList();
+          _unreadCount = _notifications.where((n) => !n.read).length;
+        });
+        await NotificationService.save(_notifications);
+      }
     } catch (_) {
       // Leave whatever was already shown - never replace real data with an
       // empty/fake list just because of a transient error.
@@ -162,6 +177,11 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _markNotificationRead(AppNotification notification) async {
+    notification.read = true;
+    setState(() {
+      _unreadCount = _notifications.where((n) => !n.read).length;
+    });
+    await NotificationService.save(_notifications);
     final id = notification.id;
     if (id == null) return;
     final accessToken = await _safeAccessToken();
@@ -348,7 +368,11 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _addNotification(AppNotification notification) {
-    setState(() => _notifications.insert(0, notification));
+    setState(() {
+      _notifications.insert(0, notification);
+      _unreadCount = _notifications.where((n) => !n.read).length;
+    });
+    NotificationService.save(_notifications);
   }
 
   @override

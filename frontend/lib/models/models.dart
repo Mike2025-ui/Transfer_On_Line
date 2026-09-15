@@ -47,7 +47,7 @@ class Transaction {
     }
   }
 
-  int get fee => (amount * 0.01).round();
+  int get fee => (amount * 0.015).round();
   int get total => amount + fee;
 }
 
@@ -222,7 +222,7 @@ List<AppNotification> sampleNotifications = [
   AppNotification(
       title: 'Souscription Internet Orange réussie',
       message:
-          'Numéro : 0701234567\nMontant forfait : 1000 FCFA\nFrais de service (1%) : 10 FCFA\nTotal débité : 1010 FCFA',
+          'Numéro : 0701234567\nMontant forfait : 1000 FCFA\nFrais de service (1.5%) : 15 FCFA\nTotal débité : 1015 FCFA',
       time: "Aujourd'hui · 10:45",
       read: false,
       icon: 'success',
@@ -245,7 +245,7 @@ List<AppNotification> sampleNotifications = [
   AppNotification(
       title: 'Transfert SMS Moov réussi',
       message:
-          'Numéro : 0101234567\nMontant forfait : 200 FCFA\nFrais de service (1%) : 2 FCFA\nTotal débité : 202 FCFA',
+          'Numéro : 0101234567\nMontant forfait : 200 FCFA\nFrais de service (1.5%) : 3 FCFA\nTotal débité : 203 FCFA',
       time: "Hier · 18:15",
       read: true,
       icon: 'success',
@@ -260,7 +260,7 @@ List<AppNotification> sampleNotifications = [
   AppNotification(
       title: 'Souscription Appels Orange réussie',
       message:
-          'Numéro : 0709876543\nMontant forfait : 500 FCFA\nFrais de service (1%) : 5 FCFA\nTotal débité : 505 FCFA',
+          'Numéro : 0709876543\nMontant forfait : 500 FCFA\nFrais de service (1.5%) : 8 FCFA\nTotal débité : 508 FCFA',
       time: "Avant-hier · 21:30",
       read: true,
       icon: 'success',

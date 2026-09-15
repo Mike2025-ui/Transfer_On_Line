@@ -67,7 +67,7 @@ void main() {
 
     await tester.tap(find.text('Wave'));
     await tester.pump();
-    await tester.tap(find.text('PAYER ET SOUSCRIRE'));
+    await tester.tap(find.textContaining('PAYER ET SOUSCRIRE'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
@@ -84,6 +84,7 @@ void main() {
     expect(body['operator'], 'Orange');
     expect(body['service'], 'Internet');
     expect(body['amount'], 1000);
+    expect(body['payment_amount'], 1015);
     expect(body['recipient_phone'], '0700000001');
     expect(body['payment_method'], 'auto');
     expect(body['jeko_payment_method'], 'wave');
@@ -131,10 +132,11 @@ void main() {
     expect(find.text('Paiement GeniusPay'), findsNothing);
     expect(find.text('Djeko'), findsNothing);
     expect(find.text('Paiement 100% sécurisé'), findsNothing);
-    expect(find.textContaining('Frais de service'), findsNothing);
-    expect(find.text('Total à payer'), findsNothing);
     expect(find.text('Information tarifaire'), findsNothing);
-    expect(find.text('PAYER ET SOUSCRIRE'), findsOneWidget);
+    expect(find.textContaining('Frais de service (1.5%)'), findsOneWidget);
+    expect(find.text('Total à payer'), findsOneWidget);
+    expect(find.text('1015 FCFA'), findsWidgets);
+    expect(find.textContaining('PAYER ET SOUSCRIRE'), findsOneWidget);
   });
 
   testWidgets(
@@ -193,7 +195,7 @@ void main() {
       ),
     ));
 
-    await tester.tap(find.text('PAYER ET SOUSCRIRE'));
+    await tester.tap(find.textContaining('PAYER ET SOUSCRIRE'));
     await tester.pump();
 
     expect(postCalled, isFalse);
@@ -246,13 +248,13 @@ void main() {
     await tester.tap(find.text('Wave'));
     await tester.pump();
 
-    await tester.tap(find.text('PAYER ET SOUSCRIRE'));
+    await tester.tap(find.textContaining('PAYER ET SOUSCRIRE'));
     await tester.pump();
     // _confirm()'s first synchronous setState (_loading = true) replaces the
     // button's entire label with a spinner (see TolButton) - it is not just
     // visually disabled, the text is gone outright, which is itself the
     // proof that a second tap on this exact label can no longer land.
-    expect(find.text('PAYER ET SOUSCRIRE'), findsNothing,
+    expect(find.textContaining('PAYER ET SOUSCRIRE'), findsNothing,
         reason:
             'the button must not be re-actionable while the request is in flight');
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
@@ -310,12 +312,12 @@ void main() {
     await tester.tap(find.text('Wave'));
     await tester.pump();
 
-    await tester.tap(find.text('PAYER ET SOUSCRIRE'));
+    await tester.tap(find.textContaining('PAYER ET SOUSCRIRE'));
     await tester.pump();
     await tester.pump(const Duration(
         milliseconds: 50)); // first attempt fails (500), button re-enabled
 
-    await tester.tap(find.text('PAYER ET SOUSCRIRE'));
+    await tester.tap(find.textContaining('PAYER ET SOUSCRIRE'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
@@ -324,5 +326,56 @@ void main() {
     expect(seenKeys[0], seenKeys[1],
         reason:
             'a retry from the same screen instance must reuse the exact same key');
+  });
+
+  testWidgets(
+      'confirmer le paiement ajoute une notification persistée avec les détails complets',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    AppNotification? addedNotif;
+    final client = MockClient((request) async => http.Response(
+          jsonEncode({
+            'reference': 'TOL-TEST-NOTIF',
+            'status': 'pending',
+            'checkout_url': '',
+            'payment_reference': 'PAY-TEST',
+            'payment_status': 'pending',
+          }),
+          201,
+        ));
+
+    await tester.pumpWidget(MaterialApp(
+      home: Step4PaymentScreen(
+        operatorId: 1,
+        serviceId: 3,
+        operator: 'Orange',
+        service: 'Internet',
+        phone: '0700000001',
+        amount: 1000,
+        onTransactionAdded: (Transaction _) {},
+        onNotificationAdded: (AppNotification n) => addedNotif = n,
+        notifications: const [],
+        backendApiService: BackendApiService(client: client),
+        authService: auth,
+      ),
+    ));
+
+    await tester.tap(find.text('Wave'));
+    await tester.pump();
+    await tester.tap(find.textContaining('PAYER ET SOUSCRIRE'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(addedNotif, isNotNull);
+    expect(addedNotif!.reference, 'TOL-TEST-NOTIF');
+    expect(addedNotif!.operator, 'Orange');
+    expect(addedNotif!.service, 'Internet');
+    expect(addedNotif!.phone, '0700000001');
+    expect(addedNotif!.amount, '1000 FCFA');
+    expect(addedNotif!.fee, '15 FCFA');
+    expect(addedNotif!.total, '1015 FCFA');
+    expect(addedNotif!.paymentMethod, 'Wave');
+    expect(addedNotif!.type, 'pending');
   });
 }
