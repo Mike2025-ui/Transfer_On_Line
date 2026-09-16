@@ -569,6 +569,7 @@ class _SuccessScreenState extends State<SuccessScreen>
       widget.backendApiService ?? BackendApiService();
   late final AuthService _auth = widget.authService ?? AuthService();
   late Transaction _transaction = widget.transaction;
+  String _stepStatus = 'awaiting_payment';
   Timer? _pollTimer;
   int _attempts = 0;
   bool _checking = false;
@@ -644,6 +645,14 @@ class _SuccessScreenState extends State<SuccessScreen>
           accessToken: accessToken);
       if (result.isPending) {
         stillPending = true;
+        if (mounted && result.stepStatus != _stepStatus) {
+          setState(() => _stepStatus = result.stepStatus);
+          if (result.stepStatus == 'payment_confirmed_processing_ussd') {
+            await _updatePendingNotification(
+              'Paiement validé ! Traitement par le serveur USSD en cours...',
+            );
+          }
+        }
       } else {
         if (result.isFailed) {
           try {
@@ -657,6 +666,7 @@ class _SuccessScreenState extends State<SuccessScreen>
         final newStatus = result.isSuccess
             ? 'ok'
             : (result.isCancelled ? 'cancelled' : 'fail');
+        _stepStatus = result.stepStatus;
         final updated = Transaction(
           id: _transaction.id,
           operator: _transaction.operator,
@@ -699,6 +709,163 @@ class _SuccessScreenState extends State<SuccessScreen>
     if (_checking) return;
     _pollTimer?.cancel();
     _checkStatus();
+  }
+
+  Future<void> _updatePendingNotification(String statusMessage) async {
+    try {
+      final notifs = await NotificationService.load();
+      final nIndex = notifs.indexWhere((n) => n.reference == _transaction.id);
+      if (nIndex != -1) {
+        final old = notifs[nIndex];
+        final updated = AppNotification(
+          title: 'Paiement confirmé - Activation en cours',
+          message:
+              '$statusMessage\n\nMontant du forfait : ${_transaction.amount} FCFA\nFrais : ${_transaction.fee} FCFA\nTotal : ${_transaction.total} FCFA',
+          time: old.time,
+          read: old.read,
+          icon: 'pending',
+          type: 'pending',
+          reference: old.reference,
+          operator: old.operator,
+          service: old.service,
+          phone: old.phone,
+          amount: old.amount,
+          fee: old.fee,
+          total: old.total,
+          paymentMethod: old.paymentMethod,
+          date: old.date,
+          heure: old.heure,
+          id: old.id,
+        );
+        notifs[nIndex] = updated;
+        await NotificationService.save(notifs);
+
+        final wIndex = widget.notifications
+            .indexWhere((n) => n.reference == _transaction.id);
+        if (wIndex != -1) {
+          widget.notifications[wIndex] = updated;
+        }
+      }
+    } catch (_) {}
+  }
+
+  Widget _buildExecutionStepsCard(bool isSuccess, String stepStatus) {
+    final paymentDone = isSuccess ||
+        stepStatus == 'payment_confirmed_processing_ussd' ||
+        stepStatus == 'completed';
+    final operatorActive =
+        !isSuccess && stepStatus == 'payment_confirmed_processing_ussd';
+    final operatorDone = isSuccess || stepStatus == 'completed';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.hub_outlined,
+                  size: 20, color: AppColors.textPrimary),
+              const SizedBox(width: 8),
+              Text(
+                'Progression de l\'activation',
+                style: GoogleFonts.nunito(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          _stepRow(
+            label: '1. Paiement en ligne (${_transaction.paymentMethod})',
+            isCompleted: paymentDone,
+            isInProgress: !paymentDone,
+          ),
+          const SizedBox(height: 10),
+          _stepRow(
+            label: '2. Confirmation du prestataire',
+            isCompleted: paymentDone,
+            isInProgress: false,
+          ),
+          const SizedBox(height: 10),
+          _stepRow(
+            label: '3. Traitement opérateur',
+            isCompleted: operatorDone,
+            isInProgress: operatorActive,
+          ),
+          const SizedBox(height: 10),
+          _stepRow(
+            label: '4. Activation du forfait',
+            isCompleted: operatorDone,
+            isInProgress: false,
+            last: true,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _stepRow({
+    required String label,
+    required bool isCompleted,
+    required bool isInProgress,
+    bool last = false,
+  }) {
+    return Row(
+      children: [
+        Container(
+          width: 24,
+          height: 24,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: isCompleted
+                ? AppColors.success
+                : (isInProgress
+                    ? const Color(0xFF1976D2)
+                    : const Color(0xFFCBD5E1)),
+          ),
+          child: Center(
+            child: isCompleted
+                ? const Icon(Icons.check, size: 14, color: Colors.white)
+                : (isInProgress
+                    ? const SizedBox(
+                        width: 12,
+                        height: 12,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(Icons.circle, size: 6, color: Colors.white)),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            label,
+            style: GoogleFonts.nunito(
+              fontSize: 14,
+              fontWeight: isCompleted || isInProgress
+                  ? FontWeight.w700
+                  : FontWeight.w600,
+              color: isCompleted
+                  ? AppColors.textPrimary
+                  : (isInProgress
+                      ? const Color(0xFF1976D2)
+                      : AppColors.textSecondary),
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   Future<void> _persistStatus(Transaction updated) async {
@@ -832,14 +999,23 @@ class _SuccessScreenState extends State<SuccessScreen>
               width: double.infinity,
               padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 12),
               decoration: BoxDecoration(
-                color: isSuccess || isPending
+                color: isSuccess
                     ? AppColors.primaryLight
-                    : AppColors.redLight,
+                    : isPending
+                        ? (_stepStatus == 'payment_confirmed_processing_ussd'
+                            ? const Color(0xFFEBF5FF)
+                            : AppColors.primaryLight)
+                        : AppColors.redLight,
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(
-                    color: isSuccess || isPending
+                    color: isSuccess
                         ? const Color(0xFFC5E7CE)
-                        : const Color(0xFFF5C2C2)),
+                        : isPending
+                            ? (_stepStatus ==
+                                    'payment_confirmed_processing_ussd'
+                                ? const Color(0xFFBBDCFF)
+                                : const Color(0xFFC5E7CE))
+                            : const Color(0xFFF5C2C2)),
               ),
               child: Column(
                 children: [
@@ -847,16 +1023,24 @@ class _SuccessScreenState extends State<SuccessScreen>
                     width: 64,
                     height: 64,
                     decoration: BoxDecoration(
-                      color: isSuccess || isPending
+                      color: isSuccess
                           ? AppColors.success
-                          : AppColors.red,
+                          : isPending
+                              ? (_stepStatus ==
+                                      'payment_confirmed_processing_ussd'
+                                  ? const Color(0xFF1976D2)
+                                  : AppColors.success)
+                              : AppColors.red,
                       shape: BoxShape.circle,
                     ),
                     child: Icon(
                       isSuccess
                           ? Icons.check_rounded
                           : isPending
-                              ? Icons.hourglass_top_rounded
+                              ? (_stepStatus ==
+                                      'payment_confirmed_processing_ussd'
+                                  ? Icons.cell_tower_rounded
+                                  : Icons.hourglass_top_rounded)
                               : isCancelled
                                   ? Icons.cancel_outlined
                                   : Icons.close_rounded,
@@ -869,16 +1053,24 @@ class _SuccessScreenState extends State<SuccessScreen>
                     isSuccess
                         ? 'Transaction réussie'
                         : isPending
-                            ? 'Paiement en attente'
+                            ? (_stepStatus ==
+                                    'payment_confirmed_processing_ussd'
+                                ? 'Paiement validé !'
+                                : 'Paiement en attente')
                             : isCancelled
                                 ? 'Paiement annulé'
                                 : 'Transaction échouée',
                     style: GoogleFonts.nunito(
                       fontSize: 22,
                       fontWeight: FontWeight.w900,
-                      color: isSuccess || isPending
+                      color: isSuccess
                           ? AppColors.success
-                          : AppColors.red,
+                          : isPending
+                              ? (_stepStatus ==
+                                      'payment_confirmed_processing_ussd'
+                                  ? const Color(0xFF1976D2)
+                                  : AppColors.success)
+                              : AppColors.red,
                     ),
                   ),
                   const SizedBox(height: 5),
@@ -886,7 +1078,10 @@ class _SuccessScreenState extends State<SuccessScreen>
                     isSuccess
                         ? 'Votre opération a été effectuée avec succès'
                         : isPending
-                            ? 'Finalisez le paiement ${t.paymentMethod}. Votre opération sera ensuite traitée automatiquement.'
+                            ? (_stepStatus ==
+                                    'payment_confirmed_processing_ussd'
+                                ? 'Paiement confirmé. Traitement par l\'opérateur en cours...'
+                                : 'Finalisez le paiement ${t.paymentMethod}. Votre opération sera ensuite traitée automatiquement.')
                             : isCancelled
                                 ? 'Le paiement a été annulé. Vous pouvez réessayer si vous le souhaitez.'
                                 : 'Une erreur est survenue lors du paiement. Vérifiez votre solde ou réessayez.',
@@ -900,6 +1095,12 @@ class _SuccessScreenState extends State<SuccessScreen>
                 ],
               ),
             ),
+            if (isSuccess ||
+                (isPending &&
+                    _stepStatus == 'payment_confirmed_processing_ussd')) ...[
+              const SizedBox(height: 16),
+              _buildExecutionStepsCard(isSuccess, _stepStatus),
+            ],
             const SizedBox(height: 18),
             TolCard(
               padding: EdgeInsets.zero,

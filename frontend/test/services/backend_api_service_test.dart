@@ -90,6 +90,47 @@ void main() {
       expect(result.isCancelled, isTrue);
     });
 
+    test('parses step_status when present', () async {
+      final api = BackendApiService(
+        client: MockClient((request) async => http.Response(
+              jsonEncode({
+                'status': 'pending',
+                'step_status': 'payment_confirmed_processing_ussd',
+                'is_pending': true,
+                'is_success': false,
+                'is_failed': false,
+                'is_cancelled': false,
+              }),
+              200,
+            )),
+      );
+
+      final result = await api.getTransactionStatus('TOL-STEP');
+
+      expect(result.isPending, isTrue);
+      expect(result.stepStatus, 'payment_confirmed_processing_ussd');
+    });
+
+    test('falls back step_status when absent', () async {
+      final api = BackendApiService(
+        client: MockClient((request) async => http.Response(
+              jsonEncode({
+                'status': 'success',
+                'is_pending': false,
+                'is_success': true,
+                'is_failed': false,
+                'is_cancelled': false,
+              }),
+              200,
+            )),
+      );
+
+      final result = await api.getTransactionStatus('TOL-FB');
+
+      expect(result.isSuccess, isTrue);
+      expect(result.stepStatus, 'completed');
+    });
+
     test('404 throws TransactionNotFoundException', () async {
       final api = BackendApiService(
         client: MockClient((request) async =>

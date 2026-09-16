@@ -45,6 +45,7 @@ class TransactionStatusResult {
     required this.isPending,
     required this.isFailed,
     required this.isCancelled,
+    this.stepStatus = 'awaiting_payment',
   });
 
   final String status;
@@ -52,14 +53,25 @@ class TransactionStatusResult {
   final bool isPending;
   final bool isFailed;
   final bool isCancelled;
+  final String stepStatus;
 
   factory TransactionStatusResult.fromJson(Map<String, dynamic> json) {
+    final isSuccess = json['is_success'] as bool? ?? false;
+    final isFailed = json['is_failed'] as bool? ?? false;
+    final isCancelled = json['is_cancelled'] as bool? ?? false;
+    final fallback = isSuccess
+        ? 'completed'
+        : (isFailed
+            ? 'failed'
+            : (isCancelled ? 'cancelled' : 'awaiting_payment'));
+
     return TransactionStatusResult(
       status: json['status'] as String? ?? 'pending',
-      isSuccess: json['is_success'] as bool? ?? false,
+      isSuccess: isSuccess,
       isPending: json['is_pending'] as bool? ?? true,
-      isFailed: json['is_failed'] as bool? ?? false,
-      isCancelled: json['is_cancelled'] as bool? ?? false,
+      isFailed: isFailed,
+      isCancelled: isCancelled,
+      stepStatus: json['step_status'] as String? ?? fallback,
     );
   }
 }
