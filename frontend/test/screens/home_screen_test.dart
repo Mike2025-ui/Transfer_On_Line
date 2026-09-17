@@ -267,4 +267,64 @@ void main() {
         reason:
             'a transient reconciliation error must never turn pending into failed');
   });
+
+  testWidgets(
+      'the notification bell badge displays unread count and disappears when notifications are cleared',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({
+      'notifications': jsonEncode([
+        {
+          'id': 101,
+          'title': 'Paiement validé',
+          'message': '1000 FCFA',
+          'time': '10:00',
+          'read': false,
+          'icon': 'success',
+          'type': 'success',
+        },
+        {
+          'id': 102,
+          'title': 'Paiement échoué',
+          'message': 'Solde insuffisant',
+          'time': '10:15',
+          'read': false,
+          'icon': 'error',
+          'type': 'error',
+        },
+      ]),
+    });
+
+    final client = MockClient((request) async {
+      if (request.url.path.contains('/operators/')) {
+        return http.Response(jsonEncode([]), 200);
+      }
+      return http.Response(jsonEncode([]), 200);
+    });
+
+    await pumpHome(tester, client);
+    await tester.pump();
+    await tester.pump();
+
+    // 2 notifications non lues -> le badge "2" doit être visible sur la cloche
+    expect(find.text('2'), findsOneWidget);
+
+    // L'utilisateur clique sur la cloche pour ouvrir l'écran des notifications
+    await tester.tap(find.byIcon(Icons.notifications_none_rounded));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Paiement validé'), findsOneWidget);
+
+    // L'utilisateur clique sur "Tout effacer"
+    await tester.tap(find.text('Tout effacer'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Paiement validé'), findsNothing);
+
+    // Retour sur l'accueil
+    await tester.tap(find.byIcon(Icons.arrow_back_rounded));
+    await tester.pumpAndSettle();
+
+    // De retour sur l'accueil, le badge "2" a complètement disparu
+    expect(find.text('2'), findsNothing);
+  });
 }

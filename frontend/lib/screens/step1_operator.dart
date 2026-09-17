@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../theme/app_theme.dart';
 import '../models/models.dart';
+import '../services/notification_service.dart';
 import 'step2_service.dart';
 import 'notifications_screen.dart';
 
@@ -11,7 +12,7 @@ import 'notifications_screen.dart';
 // Écran d'accueil / landing page. L'utilisateur choisit son opérateur
 // pour lancer le flux de souscription ou de transfert.
 
-class Step1OperatorScreen extends StatelessWidget {
+class Step1OperatorScreen extends StatefulWidget {
   const Step1OperatorScreen({
     super.key,
     required this.onTransactionAdded,
@@ -22,6 +23,26 @@ class Step1OperatorScreen extends StatelessWidget {
   final Function(Transaction) onTransactionAdded;
   final Function(AppNotification) onNotificationAdded;
   final String? preselectedOp;
+
+  @override
+  State<Step1OperatorScreen> createState() => _Step1OperatorScreenState();
+}
+
+class _Step1OperatorScreenState extends State<Step1OperatorScreen> {
+  List<AppNotification> _notifications = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadNotifications();
+  }
+
+  Future<void> _loadNotifications() async {
+    final saved = await NotificationService.load();
+    if (mounted) {
+      setState(() => _notifications = saved);
+    }
+  }
 
   void _goToStep2(BuildContext context, String op) {
     Navigator.push(
@@ -34,9 +55,9 @@ class Step1OperatorScreen extends StatelessWidget {
           // compiling with a placeholder rather than invented data.
           operatorId: -1,
           operator: op,
-          onTransactionAdded: onTransactionAdded,
-          onNotificationAdded: onNotificationAdded,
-          notifications: const [],
+          onTransactionAdded: widget.onTransactionAdded,
+          onNotificationAdded: widget.onNotificationAdded,
+          notifications: _notifications,
         ),
       ),
     );
@@ -45,13 +66,13 @@ class Step1OperatorScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // Si un opérateur est présélectionné, naviguer directement vers Step2
-    if (preselectedOp != null) {
+    if (widget.preselectedOp != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _goToStep2(context, preselectedOp!);
+        _goToStep2(context, widget.preselectedOp!);
       });
     }
 
-    final unread = sampleNotifications.where((n) => !n.read).length;
+    final unread = _notifications.where((n) => !n.read).length;
 
     return Scaffold(
       body: Container(
@@ -84,9 +105,16 @@ class Step1OperatorScreen extends StatelessWidget {
                         context,
                         MaterialPageRoute(
                           builder: (_) => NotificationsScreen(
-                              notifications: sampleNotifications),
+                            notifications: _notifications,
+                            onNotificationsChanged: (updated) {
+                              if (mounted) {
+                                setState(
+                                    () => _notifications = List.from(updated));
+                              }
+                            },
+                          ),
                         ),
-                      ),
+                      ).then((_) => _loadNotifications()),
                       child: Container(
                         width: 44,
                         height: 44,

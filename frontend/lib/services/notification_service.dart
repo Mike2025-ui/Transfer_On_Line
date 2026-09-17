@@ -6,16 +6,48 @@ import '../models/models.dart';
 
 class NotificationService {
   static const _key = 'notifications';
+  static const hiddenKey = 'locally_hidden_notification_keys';
 
-  static Future<List<AppNotification>> load() async {
+  static String notificationKey(AppNotification notification) {
+    if (notification.id != null) return 'id:${notification.id}';
+    return 'local:${notification.title}|${notification.time}|${notification.message}';
+  }
+
+  static Future<Set<String>> getHiddenKeys() async {
+    final prefs = await SharedPreferences.getInstance();
+    final list = prefs.getStringList(hiddenKey) ?? const [];
+    return list.toSet();
+  }
+
+  static Future<void> hideNotification(AppNotification notification) async {
+    final key = notificationKey(notification);
+    final prefs = await SharedPreferences.getInstance();
+    final current = (prefs.getStringList(hiddenKey) ?? const []).toSet();
+    current.add(key);
+    await prefs.setStringList(hiddenKey, current.toList());
+  }
+
+  static Future<void> hideNotifications(
+      Iterable<AppNotification> notifications) async {
+    final keys = notifications.map(notificationKey).toSet();
+    final prefs = await SharedPreferences.getInstance();
+    final current = (prefs.getStringList(hiddenKey) ?? const []).toSet();
+    current.addAll(keys);
+    await prefs.setStringList(hiddenKey, current.toList());
+  }
+
+  static Future<List<AppNotification>> load(
+      {bool includeHidden = false}) async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_key);
     if (raw == null || raw.isEmpty) return [];
     try {
       final list = jsonDecode(raw) as List<dynamic>;
-      return list
-          .map((item) => _fromJson(item as Map<String, dynamic>))
-          .toList();
+      final all =
+          list.map((item) => _fromJson(item as Map<String, dynamic>)).toList();
+      if (includeHidden) return all;
+      final hidden = (prefs.getStringList(hiddenKey) ?? const []).toSet();
+      return all.where((n) => !hidden.contains(notificationKey(n))).toList();
     } catch (_) {
       return [];
     }
@@ -36,6 +68,20 @@ class NotificationService {
     final updated = [notification, ...current];
     await save(updated);
     return updated;
+  }
+
+  static Future<void> remove(AppNotification notification) async {
+    await hideNotification(notification);
+    final current = await load(includeHidden: false);
+    final updated = current
+        .where((n) => notificationKey(n) != notificationKey(notification))
+        .toList();
+    await save(updated);
+  }
+
+  static Future<void> clearAll(Iterable<AppNotification> notifications) async {
+    await hideNotifications(notifications);
+    await clear();
   }
 
   static Future<void> clear() async {

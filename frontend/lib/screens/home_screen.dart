@@ -104,7 +104,7 @@ class _HomeScreenState extends State<HomeScreen> {
   /// exactly like transactions do (Phase 7).
   Future<void> _loadNotifications() async {
     final saved = await NotificationService.load();
-    if (saved.isNotEmpty && mounted) {
+    if (mounted) {
       setState(() {
         _notifications = saved;
         _unreadCount = saved.where((n) => !n.read).length;
@@ -113,26 +113,25 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final accessToken = await _safeAccessToken();
     if (accessToken == null) return;
+    final hiddenKeys = await NotificationService.getHiddenKeys();
     try {
       final remote = await _api.fetchNotifications(accessToken: accessToken);
       if (!mounted) return;
-      if (remote.isNotEmpty) {
-        setState(() {
-          _notifications = remote.map(_toAppNotification).toList();
-          _unreadCount = _notifications.where((n) => !n.read).length;
-        });
-        await NotificationService.save(_notifications);
-      }
+      // Exclure toute notification masquée ou supprimée localement
+      final visibleRemote = remote
+          .map(_toAppNotification)
+          .where((n) =>
+              !hiddenKeys.contains(NotificationService.notificationKey(n)))
+          .toList();
+
+      setState(() {
+        _notifications = visibleRemote;
+        _unreadCount = visibleRemote.where((n) => !n.read).length;
+      });
+      await NotificationService.save(visibleRemote);
     } catch (_) {
       // Leave whatever was already shown - never replace real data with an
       // empty/fake list just because of a transient error.
-    }
-    try {
-      final count =
-          await _api.fetchUnreadNotificationCount(accessToken: accessToken);
-      if (mounted) setState(() => _unreadCount = count);
-    } catch (_) {
-      // Keep the previous count rather than showing a misleading 0.
     }
   }
 
@@ -514,6 +513,14 @@ class _HomeScreenState extends State<HomeScreen> {
           builder: (_) => NotificationsScreen(
             notifications: _notifications,
             onMarkRead: _markNotificationRead,
+            onNotificationsChanged: (updated) {
+              if (mounted) {
+                setState(() {
+                  _notifications = List.from(updated);
+                  _unreadCount = _notifications.where((n) => !n.read).length;
+                });
+              }
+            },
           ),
         ),
       ).then((_) => _loadNotifications()),

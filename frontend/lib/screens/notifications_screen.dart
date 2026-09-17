@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../models/models.dart';
+import '../services/notification_service.dart';
 import '../services/transaction_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/widgets.dart';
@@ -15,15 +15,19 @@ class NotificationsScreen extends StatefulWidget {
   // so this screen still works standalone (e.g. tests, sampleNotifications
   // with no backend id).
   final void Function(AppNotification)? onMarkRead;
-  const NotificationsScreen(
-      {super.key, required this.notifications, this.onMarkRead});
+  final void Function(List<AppNotification>)? onNotificationsChanged;
+  const NotificationsScreen({
+    super.key,
+    required this.notifications,
+    this.onMarkRead,
+    this.onNotificationsChanged,
+  });
 
   @override
   State<NotificationsScreen> createState() => _NotificationsScreenState();
 }
 
 class _NotificationsScreenState extends State<NotificationsScreen> {
-  static const _hiddenNotificationsKey = 'locally_hidden_notification_keys';
   String _query = '';
   String _filter = 'Tout';
   final Set<String> _hiddenNotificationKeys = {};
@@ -36,16 +40,13 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   Future<void> _loadHiddenNotifications() async {
-    final prefs = await SharedPreferences.getInstance();
-    final saved = prefs.getStringList(_hiddenNotificationsKey) ?? const [];
+    final saved = await NotificationService.getHiddenKeys();
     if (!mounted) return;
     setState(() => _hiddenNotificationKeys.addAll(saved));
   }
 
-  String _notificationKey(AppNotification notification) {
-    if (notification.id != null) return 'id:${notification.id}';
-    return 'local:${notification.title}|${notification.time}|${notification.message}';
-  }
+  String _notificationKey(AppNotification notification) =>
+      NotificationService.notificationKey(notification);
 
   List<AppNotification> get _visibleNotifications => widget.notifications
       .where((notification) =>
@@ -221,7 +222,22 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                 final item = entry.value[index];
                 return Padding(
                   padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
-                  child: _notificationCard(item),
+                  child: Dismissible(
+                    key: Key(_notificationKey(item)),
+                    direction: DismissDirection.endToStart,
+                    background: Container(
+                      alignment: Alignment.centerRight,
+                      padding: const EdgeInsets.only(right: 20),
+                      decoration: BoxDecoration(
+                        color: Colors.red,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(Icons.delete_outline_rounded,
+                          color: Colors.white, size: 28),
+                    ),
+                    onDismissed: (_) => _deleteNotification(item),
+                    child: _notificationCard(item),
+                  ),
                 );
               },
             ),
@@ -249,11 +265,20 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
   Future<void> _hideNotificationsLocally() async {
     final keys = widget.notifications.map(_notificationKey).toSet();
-    final prefs = await SharedPreferences.getInstance();
-    final allKeys = {..._hiddenNotificationKeys, ...keys};
-    await prefs.setStringList(_hiddenNotificationsKey, allKeys.toList());
+    await NotificationService.clearAll(widget.notifications);
+    widget.notifications.clear();
     if (!mounted) return;
     setState(() => _hiddenNotificationKeys.addAll(keys));
+    widget.onNotificationsChanged?.call(widget.notifications);
+  }
+
+  Future<void> _deleteNotification(AppNotification item) async {
+    final key = _notificationKey(item);
+    await NotificationService.remove(item);
+    widget.notifications.removeWhere((n) => _notificationKey(n) == key);
+    if (!mounted) return;
+    setState(() => _hiddenNotificationKeys.add(key));
+    widget.onNotificationsChanged?.call(widget.notifications);
   }
 
   Widget _filterChip(String label) {
@@ -346,7 +371,14 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         Navigator.push(
           context,
           MaterialPageRoute(
-              builder: (_) => NotifDetailScreen(notification: item)),
+            builder: (detailCtx) => NotifDetailScreen(
+              notification: item,
+              onDelete: () async {
+                await _deleteNotification(item);
+                if (detailCtx.mounted) Navigator.pop(detailCtx);
+              },
+            ),
+          ),
         );
       },
       child: Container(
@@ -440,7 +472,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
 class NotifDetailScreen extends StatelessWidget {
   final AppNotification notification;
-  const NotifDetailScreen({super.key, required this.notification});
+  final VoidCallback? onDelete;
+  const NotifDetailScreen(
+      {super.key, required this.notification, this.onDelete});
 
   @override
   Widget build(BuildContext context) {
@@ -458,6 +492,14 @@ class NotifDetailScreen extends StatelessWidget {
               color: AppColors.success, size: 36),
           onPressed: () => Navigator.pop(context),
         ),
+        actions: [
+          if (onDelete != null)
+            IconButton(
+              icon: const Icon(Icons.delete_outline_rounded,
+                  color: Colors.red, size: 28),
+              onPressed: onDelete,
+            ),
+        ],
         title: Text(
           'Détail notification',
           style: GoogleFonts.nunito(
