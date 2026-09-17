@@ -466,7 +466,18 @@ class TransactionStatusView(APIView):
             payload['ussd_code'] = None
 
         status_value = payload['status']
+        payment_status = tx.payment.status if tx.payment else None
+        if status_value in ('success', 'ok'):
+            step_status = 'completed'
+        elif status_value in ('failed', 'cancelled'):
+            step_status = status_value
+        elif payment_status == 'accepted' or status_value == 'processing':
+            step_status = 'payment_confirmed_processing_ussd'
+        else:
+            step_status = 'awaiting_payment'
+
         payload.update({
+            'step_status': step_status,
             'is_pending': not TransactionStateMachine.is_terminal(status_value),
             'is_success': status_value == 'success',
             'is_failed': status_value == 'failed',

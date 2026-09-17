@@ -44,7 +44,11 @@ void main() {
         return okJson({
           'id': 1,
           'uuid': 'device-1',
-          'device': {'uuid': 'device-1', 'phone_number': '0700000000', 'details': {}},
+          'device': {
+            'uuid': 'device-1',
+            'phone_number': '0700000000',
+            'details': {},
+          },
           'heartbeat_status': 'online',
           'last_checkin': null,
         });
@@ -80,7 +84,11 @@ void main() {
         return okJson({
           'id': 1,
           'uuid': 'device-1',
-          'device': {'uuid': 'device-1', 'phone_number': '0700000000', 'details': {}},
+          'device': {
+            'uuid': 'device-1',
+            'phone_number': '0700000000',
+            'details': {},
+          },
           'heartbeat_status': 'online',
           'last_checkin': null,
         });
@@ -92,31 +100,41 @@ void main() {
       expect(secretHeaderValue(seenHeaders), secret);
     });
 
-    test('fetchPendingTransactions sends the secret as X-Gateway-Secret', () async {
-      Map<String, String>? seenHeaders;
-      final client = MockClient((request) async {
-        seenHeaders = request.headers;
-        return http.Response(jsonEncode(<dynamic>[]), 200);
-      });
-      final api = GatewayApi(client: client, gatewaySecret: secret);
+    test(
+      'fetchPendingTransactions sends the secret as X-Gateway-Secret',
+      () async {
+        Map<String, String>? seenHeaders;
+        final client = MockClient((request) async {
+          seenHeaders = request.headers;
+          return http.Response(jsonEncode(<dynamic>[]), 200);
+        });
+        final api = GatewayApi(client: client, gatewaySecret: secret);
 
-      await api.fetchPendingTransactions('gw-1');
+        await api.fetchPendingTransactions('gw-1');
 
-      expect(secretHeaderValue(seenHeaders), secret);
-    });
+        expect(secretHeaderValue(seenHeaders), secret);
+      },
+    );
 
-    test('reportTransactionResult sends the secret as X-Gateway-Secret', () async {
-      Map<String, String>? seenHeaders;
-      final client = MockClient((request) async {
-        seenHeaders = request.headers;
-        return http.Response('', 200);
-      });
-      final api = GatewayApi(client: client, gatewaySecret: secret);
+    test(
+      'reportTransactionResult sends the secret as X-Gateway-Secret',
+      () async {
+        Map<String, String>? seenHeaders;
+        final client = MockClient((request) async {
+          seenHeaders = request.headers;
+          return http.Response('', 200);
+        });
+        final api = GatewayApi(client: client, gatewaySecret: secret);
 
-      await api.reportTransactionResult(reference: 'ref-1', success: true, result: 'OK');
+        await api.reportTransactionResult(
+          reference: 'ref-1',
+          success: true,
+          result: 'OK',
+        );
 
-      expect(secretHeaderValue(seenHeaders), secret);
-    });
+        expect(secretHeaderValue(seenHeaders), secret);
+      },
+    );
 
     test('fetchSmsPending sends the secret as X-Gateway-Secret', () async {
       Map<String, String>? seenHeaders;
@@ -144,39 +162,53 @@ void main() {
       expect(secretHeaderValue(seenHeaders), secret);
     });
 
-    test('fetchGatewayStatus never sends the secret - not a protected endpoint', () async {
-      Map<String, String>? seenHeaders;
-      final client = MockClient((request) async {
-        seenHeaders = request.headers;
-        return okJson({
-          'id': 1,
-          'uuid': 'device-1',
-          'device': {'uuid': 'device-1', 'phone_number': '0700000000', 'details': {}},
-          'heartbeat_status': 'online',
-          'last_checkin': null,
+    test(
+      'fetchGatewayStatus never sends the secret - not a protected endpoint',
+      () async {
+        Map<String, String>? seenHeaders;
+        final client = MockClient((request) async {
+          seenHeaders = request.headers;
+          return okJson({
+            'id': 1,
+            'uuid': 'device-1',
+            'device': {
+              'uuid': 'device-1',
+              'phone_number': '0700000000',
+              'details': {},
+            },
+            'heartbeat_status': 'online',
+            'last_checkin': null,
+          });
         });
-      });
-      final api = GatewayApi(client: client, gatewaySecret: secret);
+        final api = GatewayApi(client: client, gatewaySecret: secret);
 
-      await api.fetchGatewayStatus();
+        await api.fetchGatewayStatus();
 
-      expect(secretHeaderValue(seenHeaders), isNull);
-    });
+        expect(secretHeaderValue(seenHeaders), isNull);
+      },
+    );
 
-    test('executeTransaction never sends the secret - the manual test-button endpoint, not protected', () async {
-      Map<String, String>? seenHeaders;
-      final client = MockClient((request) async {
-        seenHeaders = request.headers;
-        return okJson({'reference': 'ref-1'});
-      });
-      final api = GatewayApi(client: client, gatewaySecret: secret);
+    test(
+      'executeTransaction never sends the secret - the manual test-button endpoint, not protected',
+      () async {
+        Map<String, String>? seenHeaders;
+        final client = MockClient((request) async {
+          seenHeaders = request.headers;
+          return okJson({'reference': 'ref-1'});
+        });
+        final api = GatewayApi(client: client, gatewaySecret: secret);
 
-      await api.executeTransaction(
-        TransactionRequest(type: 'subscription', recipientPhone: '0700000000', amount: 500),
-      );
+        await api.executeTransaction(
+          TransactionRequest(
+            type: 'subscription',
+            recipientPhone: '0700000000',
+            amount: 500,
+          ),
+        );
 
-      expect(secretHeaderValue(seenHeaders), isNull);
-    });
+        expect(secretHeaderValue(seenHeaders), isNull);
+      },
+    );
   });
 
   group('generateIdempotencyKey', () {
@@ -230,7 +262,11 @@ void main() {
       final client = MockClient((request) async {
         seenRequest = request;
         return http.Response(
-          jsonEncode({'action': 'INPUT', 'values': ['0700000000', '500']}), 200,
+          jsonEncode({
+            'action': 'INPUT',
+            'values': ['0700000000', '500'],
+          }),
+          200,
         );
       });
       final api = GatewayApi(client: client, gatewaySecret: secret);
@@ -253,59 +289,74 @@ void main() {
       expect(response.values, ['0700000000', '500']);
     });
 
-    test('FINAL_FIELD is serialized exactly per the Phase C contract', () async {
-      http.Request? seenRequest;
-      final client = MockClient((request) async {
-        seenRequest = request;
-        return http.Response(jsonEncode({'action': 'DONE'}), 200);
-      });
-      final api = GatewayApi(client: client, gatewaySecret: secret);
+    test(
+      'FINAL_FIELD is serialized exactly per the Phase C contract',
+      () async {
+        http.Request? seenRequest;
+        final client = MockClient((request) async {
+          seenRequest = request;
+          return http.Response(jsonEncode({'action': 'DONE'}), 200);
+        });
+        final api = GatewayApi(client: client, gatewaySecret: secret);
 
-      final response = await api.sendTransactionStep(
-        transactionReference: 'TOL-1',
-        attemptId: 45,
-        event: 'FINAL_FIELD',
-        idempotencyKey: 'KEY-B',
-      );
+        final response = await api.sendTransactionStep(
+          transactionReference: 'TOL-1',
+          attemptId: 45,
+          event: 'FINAL_FIELD',
+          idempotencyKey: 'KEY-B',
+        );
 
-      expect(capturedBody(seenRequest!), {
-        'transaction_reference': 'TOL-1',
-        'attempt_id': 45,
-        'event': 'FINAL_FIELD',
-      });
-      expect(response.action, 'DONE');
-    });
+        expect(capturedBody(seenRequest!), {
+          'transaction_reference': 'TOL-1',
+          'attempt_id': 45,
+          'event': 'FINAL_FIELD',
+        });
+        expect(response.action, 'DONE');
+      },
+    );
 
-    test('RESULT SUCCESS is serialized exactly, operator_message never truncated', () async {
-      const fullMessage =
-          'Transfert effectué avec succès. Montant : 500 FCFA. Identifiant : 847291. Merci.';
-      http.Request? seenRequest;
-      final client = MockClient((request) async {
-        seenRequest = request;
-        return http.Response(jsonEncode({'action': 'DONE', 'status': 'SUCCESS'}), 200);
-      });
-      final api = GatewayApi(client: client, gatewaySecret: secret);
+    test(
+      'RESULT SUCCESS is serialized exactly, operator_message never truncated',
+      () async {
+        const fullMessage =
+            'Transfert effectué avec succès. Montant : 500 FCFA. Identifiant : 847291. Merci.';
+        http.Request? seenRequest;
+        final client = MockClient((request) async {
+          seenRequest = request;
+          return http.Response(
+            jsonEncode({'action': 'DONE', 'status': 'SUCCESS'}),
+            200,
+          );
+        });
+        final api = GatewayApi(client: client, gatewaySecret: secret);
 
-      final response = await api.sendTransactionStep(
-        transactionReference: 'TOL-1',
-        attemptId: 45,
-        event: 'RESULT',
-        idempotencyKey: 'KEY-C',
-        status: 'SUCCESS',
-        operatorMessage: fullMessage,
-      );
+        final response = await api.sendTransactionStep(
+          transactionReference: 'TOL-1',
+          attemptId: 45,
+          event: 'RESULT',
+          idempotencyKey: 'KEY-C',
+          status: 'SUCCESS',
+          operatorMessage: fullMessage,
+        );
 
-      expect(capturedBody(seenRequest!)['operator_message'], fullMessage);
-      expect((capturedBody(seenRequest!)['operator_message'] as String).length, fullMessage.length);
-      expect(response.action, 'DONE');
-      expect(response.status, 'SUCCESS');
-    });
+        expect(capturedBody(seenRequest!)['operator_message'], fullMessage);
+        expect(
+          (capturedBody(seenRequest!)['operator_message'] as String).length,
+          fullMessage.length,
+        );
+        expect(response.action, 'DONE');
+        expect(response.status, 'SUCCESS');
+      },
+    );
 
     test('RESULT FAILED is serialized exactly with error_code', () async {
       http.Request? seenRequest;
       final client = MockClient((request) async {
         seenRequest = request;
-        return http.Response(jsonEncode({'action': 'DONE', 'status': 'RETRY_SCHEDULED'}), 200);
+        return http.Response(
+          jsonEncode({'action': 'DONE', 'status': 'RETRY_SCHEDULED'}),
+          200,
+        );
       });
       final api = GatewayApi(client: client, gatewaySecret: secret);
 
@@ -330,66 +381,183 @@ void main() {
       expect(response.status, 'RETRY_SCHEDULED');
     });
 
-    test('HTTP 401 raises TransactionStepException with statusCode preserved', () async {
-      final client = MockClient((request) async {
-        return http.Response(jsonEncode({'error': 'Gateway authentication required'}), 401);
-      });
-      final api = GatewayApi(client: client, gatewaySecret: secret);
+    test(
+      'HTTP 401 raises TransactionStepException with statusCode preserved',
+      () async {
+        final client = MockClient((request) async {
+          return http.Response(
+            jsonEncode({'error': 'Gateway authentication required'}),
+            401,
+          );
+        });
+        final api = GatewayApi(client: client, gatewaySecret: secret);
 
-      await expectLater(
-        api.sendTransactionStep(
-          transactionReference: 'TOL-1', attemptId: 45, event: 'NEW_FIELD',
-          idempotencyKey: 'KEY-A', fieldCount: 1,
-        ),
-        throwsA(isA<TransactionStepException>()
-            .having((e) => e.statusCode, 'statusCode', 401)
-            .having((e) => e.errorMessage, 'errorMessage', 'Gateway authentication required')),
+        await expectLater(
+          api.sendTransactionStep(
+            transactionReference: 'TOL-1',
+            attemptId: 45,
+            event: 'NEW_FIELD',
+            idempotencyKey: 'KEY-A',
+            fieldCount: 1,
+          ),
+          throwsA(
+            isA<TransactionStepException>()
+                .having((e) => e.statusCode, 'statusCode', 401)
+                .having(
+                  (e) => e.errorMessage,
+                  'errorMessage',
+                  'Gateway authentication required',
+                ),
+          ),
+        );
+      },
+    );
+
+    test(
+      'HTTP 403 raises TransactionStepException with statusCode preserved',
+      () async {
+        final client = MockClient((request) async {
+          return http.Response(
+            jsonEncode({'error': 'This Gateway was not assigned this attempt'}),
+            403,
+          );
+        });
+        final api = GatewayApi(client: client, gatewaySecret: secret);
+
+        await expectLater(
+          api.sendTransactionStep(
+            transactionReference: 'TOL-1',
+            attemptId: 45,
+            event: 'NEW_FIELD',
+            idempotencyKey: 'KEY-A',
+            fieldCount: 1,
+          ),
+          throwsA(
+            isA<TransactionStepException>().having(
+              (e) => e.statusCode,
+              'statusCode',
+              403,
+            ),
+          ),
+        );
+      },
+    );
+
+    test(
+      'HTTP 409 raises TransactionStepException with statusCode preserved',
+      () async {
+        final client = MockClient((request) async {
+          return http.Response(
+            jsonEncode({'error': 'Attempt is not active (status=success)'}),
+            409,
+          );
+        });
+        final api = GatewayApi(client: client, gatewaySecret: secret);
+
+        await expectLater(
+          api.sendTransactionStep(
+            transactionReference: 'TOL-1',
+            attemptId: 45,
+            event: 'NEW_FIELD',
+            idempotencyKey: 'KEY-A',
+            fieldCount: 1,
+          ),
+          throwsA(
+            isA<TransactionStepException>().having(
+              (e) => e.statusCode,
+              'statusCode',
+              409,
+            ),
+          ),
+        );
+      },
+    );
+
+    test(
+      'a slow backend raises TimeoutException, not a wrapped exception',
+      () async {
+        final client = MockClient((request) async {
+          await Future.delayed(const Duration(seconds: 20));
+          return http.Response(jsonEncode({'action': 'DONE'}), 200);
+        });
+        final api = GatewayApi(client: client, gatewaySecret: secret);
+
+        await expectLater(
+          api.sendTransactionStep(
+            transactionReference: 'TOL-1',
+            attemptId: 45,
+            event: 'FINAL_FIELD',
+            idempotencyKey: 'KEY-A',
+          ),
+          throwsA(isA<TimeoutException>()),
+        );
+      },
+    );
+  });
+
+  group('dynamic configuration and testConnection', () {
+    test('formatBaseUrl cleans trailing slashes and ensures /api suffix', () {
+      expect(
+        GatewayApi.formatBaseUrl('https://example.com/api/'),
+        equals('https://example.com/api'),
+      );
+      expect(
+        GatewayApi.formatBaseUrl('https://example.com/'),
+        equals('https://example.com/api'),
+      );
+      expect(
+        GatewayApi.formatBaseUrl('https://example.com'),
+        equals('https://example.com/api'),
       );
     });
 
-    test('HTTP 403 raises TransactionStepException with statusCode preserved', () async {
-      final client = MockClient((request) async {
-        return http.Response(jsonEncode({'error': 'This Gateway was not assigned this attempt'}), 403);
-      });
-      final api = GatewayApi(client: client, gatewaySecret: secret);
+    test(
+      'testConnection succeeds when backend reaches heartbeat with valid credentials',
+      () async {
+        final client = MockClient((request) async {
+          if (request.url.path.endsWith('/gateways/')) {
+            return okJson({'id': 1, 'name': 'Serveur USSD 1'});
+          }
+          if (request.url.path.endsWith('/gateways/heartbeat/')) {
+            expect(
+              request.headers['x-gateway-secret'] ??
+                  request.headers['X-Gateway-Secret'],
+              equals('my-secret'),
+            );
+            return okJson({'id': 1, 'name': 'Serveur USSD 1'});
+          }
+          return http.Response('Not Found', 404);
+        });
+        final api = GatewayApi(client: client);
+        final result = await api.testConnection(
+          baseUrl: 'https://example.com',
+          secret: 'my-secret',
+        );
+        expect(result['success'], isTrue);
+        expect(result['message'], contains('Serveur USSD 1'));
+      },
+    );
 
-      await expectLater(
-        api.sendTransactionStep(
-          transactionReference: 'TOL-1', attemptId: 45, event: 'NEW_FIELD',
-          idempotencyKey: 'KEY-A', fieldCount: 1,
-        ),
-        throwsA(isA<TransactionStepException>().having((e) => e.statusCode, 'statusCode', 403)),
-      );
-    });
-
-    test('HTTP 409 raises TransactionStepException with statusCode preserved', () async {
-      final client = MockClient((request) async {
-        return http.Response(jsonEncode({'error': 'Attempt is not active (status=success)'}), 409);
-      });
-      final api = GatewayApi(client: client, gatewaySecret: secret);
-
-      await expectLater(
-        api.sendTransactionStep(
-          transactionReference: 'TOL-1', attemptId: 45, event: 'NEW_FIELD',
-          idempotencyKey: 'KEY-A', fieldCount: 1,
-        ),
-        throwsA(isA<TransactionStepException>().having((e) => e.statusCode, 'statusCode', 409)),
-      );
-    });
-
-    test('a slow backend raises TimeoutException, not a wrapped exception', () async {
-      final client = MockClient((request) async {
-        await Future.delayed(const Duration(seconds: 20));
-        return http.Response(jsonEncode({'action': 'DONE'}), 200);
-      });
-      final api = GatewayApi(client: client, gatewaySecret: secret);
-
-      await expectLater(
-        api.sendTransactionStep(
-          transactionReference: 'TOL-1', attemptId: 45, event: 'FINAL_FIELD', idempotencyKey: 'KEY-A',
-        ),
-        throwsA(isA<TimeoutException>()),
-      );
-    });
+    test(
+      'testConnection returns error when secret is rejected with 401',
+      () async {
+        final client = MockClient((request) async {
+          if (request.url.path.endsWith('/gateways/')) {
+            return okJson({'id': 1, 'name': 'Serveur USSD 1'});
+          }
+          return http.Response(
+            jsonEncode({'error': 'Invalid Gateway credentials'}),
+            401,
+          );
+        });
+        final api = GatewayApi(client: client);
+        final result = await api.testConnection(
+          baseUrl: 'https://example.com',
+          secret: 'wrong-secret',
+        );
+        expect(result['success'], isFalse);
+        expect(result['message'], contains('401'));
+      },
+    );
   });
 }

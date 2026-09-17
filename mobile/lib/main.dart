@@ -10,7 +10,9 @@ import 'services/ussd_service.dart';
 
 const _onboardingCompleteKey = 'onboarding_complete';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await GatewayApi.initPreferences();
   runApp(const GatewayApp());
 }
 
@@ -56,10 +58,13 @@ class _GatewayHomePageState extends State<GatewayHomePage> {
   String _message = 'Bienvenue sur le Gateway Android';
   GatewayStatus? _status;
   DeviceInfo? _deviceInfo;
+  String _configuredUrl = GatewayApi.baseUrl;
+  bool _hasConfiguredSecret = false;
 
   @override
   void initState() {
     super.initState();
+    _loadConfig();
     _loadDeviceInfo();
     _refreshStatus();
     _connectivityMonitor.start();
@@ -67,6 +72,16 @@ class _GatewayHomePageState extends State<GatewayHomePage> {
     // Post-frame: pushing a route requires the first frame (and this
     // widget's Navigator ancestor) to already be built.
     WidgetsBinding.instance.addPostFrameCallback((_) => _maybeShowOnboarding());
+  }
+
+  Future<void> _loadConfig() async {
+    final url = await GatewayApi.getConfiguredBaseUrl();
+    final secret = await GatewayApi.getConfiguredSecret();
+    if (!mounted) return;
+    setState(() {
+      _configuredUrl = url;
+      _hasConfiguredSecret = secret.trim().isNotEmpty;
+    });
   }
 
   /// Shown once per install (see [_onboardingCompleteKey]) - this app is
@@ -77,9 +92,9 @@ class _GatewayHomePageState extends State<GatewayHomePage> {
     final prefs = await SharedPreferences.getInstance();
     if (prefs.getBool(_onboardingCompleteKey) ?? false) return;
     if (!mounted) return;
-    await Navigator.of(context).push(
-      MaterialPageRoute(builder: (context) => const OnboardingScreen()),
-    );
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (context) => const OnboardingScreen()));
     await prefs.setBool(_onboardingCompleteKey, true);
   }
 
@@ -103,7 +118,8 @@ class _GatewayHomePageState extends State<GatewayHomePage> {
       setState(() {
         _status = result.status;
         if (result.dialed > 0 || result.reported > 0) {
-          _message = 'Reconnexion: ${result.dialed} composée(s), ${result.reported} rapportée(s).';
+          _message =
+              'Reconnexion: ${result.dialed} composée(s), ${result.reported} rapportée(s).';
         }
       });
     } catch (_) {
@@ -288,6 +304,180 @@ class _GatewayHomePageState extends State<GatewayHomePage> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
   }
 
+  Future<void> _openSettingsDialog() async {
+    final currentUrl = await GatewayApi.getConfiguredBaseUrl();
+    final currentSecret = await GatewayApi.getConfiguredSecret();
+    if (!mounted) return;
+
+    final urlController = TextEditingController(text: currentUrl);
+    final secretController = TextEditingController(text: currentSecret);
+    bool obscureSecret = true;
+    bool isTesting = false;
+    String? testMessage;
+    bool? testSuccess;
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.settings_cell, color: Colors.indigo),
+                SizedBox(width: 8),
+                Text('Configuration Serveur'),
+              ],
+            ),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text(
+                    'Configurez l\'adresse du serveur et le secret généré par python manage.py setup_gateway :',
+                    style: TextStyle(fontSize: 13, color: Colors.black87),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: urlController,
+                    decoration: const InputDecoration(
+                      labelText: 'URL API Backend',
+                      hintText: 'https://transfert-online.site/api',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.link),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: secretController,
+                    obscureText: obscureSecret,
+                    decoration: InputDecoration(
+                      labelText: 'X-Gateway-Secret',
+                      hintText: 'Secret généré (SHA-256)',
+                      border: const OutlineInputBorder(),
+                      prefixIcon: const Icon(Icons.key),
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          obscureSecret
+                              ? Icons.visibility
+                              : Icons.visibility_off,
+                        ),
+                        onPressed: () => setDialogState(
+                          () => obscureSecret = !obscureSecret,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  ElevatedButton.icon(
+                    icon: isTesting
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.wifi_protected_setup),
+                    label: Text(
+                      isTesting ? 'Vérification...' : 'Tester la connexion',
+                    ),
+                    onPressed: isTesting
+                        ? null
+                        : () async {
+                            setDialogState(() {
+                              isTesting = true;
+                              testMessage = null;
+                              testSuccess = null;
+                            });
+                            final res = await _api.testConnection(
+                              baseUrl: urlController.text,
+                              secret: secretController.text,
+                            );
+                            if (dialogContext.mounted) {
+                              setDialogState(() {
+                                isTesting = false;
+                                testSuccess = res['success'] as bool? ?? false;
+                                testMessage = res['message'] as String? ?? '';
+                              });
+                            }
+                          },
+                  ),
+                  if (testMessage != null) ...[
+                    const SizedBox(height: 10),
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: (testSuccess ?? false)
+                            ? Colors.green.shade50
+                            : Colors.red.shade50,
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(
+                          color: (testSuccess ?? false)
+                              ? Colors.green
+                              : Colors.red,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            (testSuccess ?? false)
+                                ? Icons.check_circle
+                                : Icons.error_outline,
+                            size: 18,
+                            color: (testSuccess ?? false)
+                                ? Colors.green
+                                : Colors.red,
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              testMessage!,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: (testSuccess ?? false)
+                                    ? Colors.green.shade900
+                                    : Colors.red.shade900,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                child: const Text('Fermer'),
+                onPressed: () => Navigator.of(dialogContext).pop(),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.indigo,
+                  foregroundColor: Colors.white,
+                ),
+                child: const Text('Enregistrer'),
+                onPressed: () async {
+                  await GatewayApi.saveSettings(
+                    baseUrl: urlController.text,
+                    secret: secretController.text,
+                  );
+                  await _loadConfig();
+                  if (dialogContext.mounted) {
+                    Navigator.of(dialogContext).pop();
+                  }
+                  _showSnack('Configuration enregistrée');
+                  _refreshStatus();
+                },
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
   Widget _statusCard() {
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 12),
@@ -314,6 +504,62 @@ class _GatewayHomePageState extends State<GatewayHomePage> {
             ),
             Text('SIM détectées: ${_deviceInfo?.sims.length ?? 0}'),
             const SizedBox(height: 12),
+            const Divider(),
+            const SizedBox(height: 4),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Serveur: $_configuredUrl',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.black87,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Icon(
+                            _hasConfiguredSecret
+                                ? Icons.check_circle
+                                : Icons.warning_amber_rounded,
+                            size: 16,
+                            color: _hasConfiguredSecret
+                                ? Colors.green
+                                : Colors.orange,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            _hasConfiguredSecret
+                                ? 'Secret Gateway configuré'
+                                : 'Secret Gateway manquant',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: _hasConfiguredSecret
+                                  ? Colors.green.shade800
+                                  : Colors.orange.shade900,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.settings, color: Colors.indigo),
+                  tooltip: 'Paramètres Serveur',
+                  onPressed: _openSettingsDialog,
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
             Text('Statut backend: ${_status?.heartbeatStatus ?? 'non chargé'}'),
             Text('Backend UUID: ${_status?.uuid ?? 'non chargé'}'),
             Text('Backend numéro: ${_status?.phoneNumber ?? 'non chargé'}'),
@@ -329,6 +575,11 @@ class _GatewayHomePageState extends State<GatewayHomePage> {
       appBar: AppBar(
         title: const Text('Gateway Android'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.settings),
+            onPressed: _openSettingsDialog,
+            tooltip: 'Configuration Serveur',
+          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _refreshStatus,

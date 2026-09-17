@@ -1,7 +1,8 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 import 'dart:math';
 
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'ussd_service.dart' show SimInfo;
 
@@ -243,12 +244,14 @@ class GatewayApi {
   /// is injectable the same way for tests; every real call site instead
   /// falls back to the compile-time `TOL_GATEWAY_SECRET` define baked into
   /// this specific phone's build (see [_defaultGatewaySecret]'s doc).
-  GatewayApi({http.Client? client, String? gatewaySecret})
+  GatewayApi({http.Client? client, String? gatewaySecret, String? baseUrl})
     : _client = client ?? http.Client(),
-      _gatewaySecret = gatewaySecret ?? _defaultGatewaySecret;
+      _gatewaySecret = gatewaySecret,
+      _baseUrl = baseUrl;
 
   final http.Client _client;
-  final String _gatewaySecret;
+  final String? _gatewaySecret;
+  final String? _baseUrl;
 
   // Provide the backend address at build time with
   // --dart-define=TOL_API_BASE_URL=http://HOST:8000/api.
@@ -273,8 +276,99 @@ class GatewayApi {
     defaultValue: '',
   );
 
-  Map<String, String> get _authHeaders =>
-      _gatewaySecret.isEmpty ? const {} : {'X-Gateway-Secret': _gatewaySecret};
+  static const String prefBaseUrlKey = 'tol_api_base_url';
+  static const String prefSecretKey = 'tol_gateway_secret';
+
+  static String? _cachedBaseUrl;
+  static String? _cachedSecret;
+
+  static String formatBaseUrl(String input) {
+    final clean = input.trim().replaceAll(RegExp(r'/+$'), '');
+    return clean.endsWith('/api') ? clean : '$clean/api';
+  }
+
+  static Future<void> initPreferences() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _cachedBaseUrl = prefs.getString(prefBaseUrlKey);
+      _cachedSecret = prefs.getString(prefSecretKey);
+    } catch (_) {
+      // Ignored in test environments
+    }
+  }
+
+  static Future<void> saveSettings({String? baseUrl, String? secret}) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (baseUrl != null && baseUrl.trim().isNotEmpty) {
+      final formatted = formatBaseUrl(baseUrl);
+      await prefs.setString(prefBaseUrlKey, formatted);
+      _cachedBaseUrl = formatted;
+    }
+    if (secret != null) {
+      final cleanSecret = secret.trim();
+      await prefs.setString(prefSecretKey, cleanSecret);
+      _cachedSecret = cleanSecret;
+    }
+  }
+
+  static Future<String> getConfiguredBaseUrl() async {
+    if (_cachedBaseUrl != null && _cachedBaseUrl!.isNotEmpty) {
+      return _cachedBaseUrl!;
+    }
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getString(prefBaseUrlKey);
+      if (saved != null && saved.isNotEmpty) {
+        _cachedBaseUrl = saved;
+        return saved;
+      }
+    } catch (_) {}
+    return baseUrl;
+  }
+
+  static Future<String> getConfiguredSecret() async {
+    if (_cachedSecret != null && _cachedSecret!.isNotEmpty) {
+      return _cachedSecret!;
+    }
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getString(prefSecretKey);
+      if (saved != null && saved.isNotEmpty) {
+        _cachedSecret = saved;
+        return saved;
+      }
+    } catch (_) {}
+    return _defaultGatewaySecret;
+  }
+
+  String get effectiveBaseUrl {
+    final customUrl = _baseUrl;
+    if (customUrl != null && customUrl.isNotEmpty) {
+      return customUrl;
+    }
+    final cached = _cachedBaseUrl;
+    if (cached != null && cached.isNotEmpty) {
+      return cached;
+    }
+    return baseUrl;
+  }
+
+  String get effectiveSecret {
+    final customSecret = _gatewaySecret;
+    if (customSecret != null) {
+      return customSecret;
+    }
+    final cached = _cachedSecret;
+    if (cached != null) {
+      return cached;
+    }
+    return _defaultGatewaySecret;
+  }
+
+  Map<String, String> get _authHeaders {
+    final secret = effectiveSecret;
+    return secret.isEmpty ? const {} : {'X-Gateway-Secret': secret};
+  }
 
   /// Stabilisation RC1 (priorité moyenne n°8): the `http` package applies no
   /// timeout of its own - without one, a single stalled connection (dead
@@ -285,10 +379,95 @@ class GatewayApi {
   /// before the next tick would even fire.
   static const _requestTimeout = Duration(seconds: 15);
 
+  /// Tests connection to the backend using either provided credentials or the current configured ones.
+  Future<Map<String, dynamic>> testConnection({
+    String? baseUrl,
+    String? secret,
+  }) async {
+    final targetUrl = baseUrl != null && baseUrl.trim().isNotEmpty
+        ? formatBaseUrl(baseUrl)
+        : effectiveBaseUrl;
+    final targetSecret = secret != null ? secret.trim() : effectiveSecret;
+    final headers = <String, String>{
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+      if (targetSecret.isNotEmpty) 'X-Gateway-Secret': targetSecret,
+    };
+
+    try {
+      // 1. Test basic reachability via /gateways/
+      final listRes = await _client
+          .get(
+            Uri.parse('$targetUrl/gateways/'),
+            headers: {'Accept': 'application/json'},
+          )
+          .timeout(_requestTimeout);
+
+      if (listRes.statusCode != 200) {
+        return {
+          'success': false,
+          'message':
+              'Serveur inaccessible ou URL incorrecte (HTTP ${listRes.statusCode}).',
+        };
+      }
+
+      // 2. Test authentication via /gateways/heartbeat/
+      if (targetSecret.isEmpty) {
+        return {
+          'success': false,
+          'message':
+              'Serveur accessible, mais aucun Secret Gateway n\'est configuré.',
+        };
+      }
+
+      final authRes = await _client
+          .post(
+            Uri.parse('$targetUrl/gateways/heartbeat/'),
+            headers: headers,
+            body: jsonEncode({
+              'status': 'online',
+              'gateway_uuid': 'ping_test',
+              'details': {'ping': true},
+            }),
+          )
+          .timeout(_requestTimeout);
+
+      if (authRes.statusCode == 200 || authRes.statusCode == 201) {
+        final data = jsonDecode(authRes.body);
+        final name = data['name'] ?? 'Gateway';
+        return {
+          'success': true,
+          'message': 'Connexion réussie ! Identifié comme : $name',
+        };
+      } else if (authRes.statusCode == 401) {
+        return {
+          'success': false,
+          'message':
+              'Secret Gateway invalide ou non reconnu par le serveur (401).',
+        };
+      } else if (authRes.statusCode == 403) {
+        return {
+          'success': false,
+          'message': 'Cette Gateway est désactivée sur le serveur (403).',
+        };
+      } else {
+        return {
+          'success': false,
+          'message': 'Erreur serveur (HTTP ${authRes.statusCode}).',
+        };
+      }
+    } catch (e) {
+      return {
+        'success': false,
+        'message': 'Erreur réseau : impossible de contacter le serveur ($e)',
+      };
+    }
+  }
+
   Future<GatewayStatus> fetchGatewayStatus() async {
     final response = await _client
         .get(
-          Uri.parse('$baseUrl/gateways/'),
+          Uri.parse('$effectiveBaseUrl/gateways/'),
           headers: {'Accept': 'application/json'},
         )
         .timeout(_requestTimeout);
@@ -315,7 +494,7 @@ class GatewayApi {
         : 'gateways/$gatewayId/heartbeat/';
     final response = await _client
         .post(
-          Uri.parse('$baseUrl/$suffix'),
+          Uri.parse('$effectiveBaseUrl/$suffix'),
           headers: {'Content-Type': 'application/json', ..._authHeaders},
           body: jsonEncode({
             'status': 'online',
@@ -346,7 +525,7 @@ class GatewayApi {
   }) async {
     final response = await _client
         .post(
-          Uri.parse('$baseUrl/transactions/execute/'),
+          Uri.parse('$effectiveBaseUrl/transactions/execute/'),
           headers: {'Content-Type': 'application/json'},
           body: jsonEncode(request.toJson(ussdResponse: ussdResponse)),
         )
@@ -363,7 +542,9 @@ class GatewayApi {
   ) async {
     final response = await _client
         .get(
-          Uri.parse('$baseUrl/transactions/pending/?gateway_uuid=$gatewayUuid'),
+          Uri.parse(
+            '$effectiveBaseUrl/transactions/pending/?gateway_uuid=$gatewayUuid',
+          ),
           headers: {'Accept': 'application/json', ..._authHeaders},
         )
         .timeout(_requestTimeout);
@@ -388,7 +569,7 @@ class GatewayApi {
   Future<List<SmsPendingTask>> fetchSmsPending() async {
     final response = await _client
         .get(
-          Uri.parse('$baseUrl/sms/pending/'),
+          Uri.parse('$effectiveBaseUrl/sms/pending/'),
           headers: {'Accept': 'application/json', ..._authHeaders},
         )
         .timeout(_requestTimeout);
@@ -413,7 +594,7 @@ class GatewayApi {
   }) async {
     final response = await _client
         .post(
-          Uri.parse('$baseUrl/sms/result/'),
+          Uri.parse('$effectiveBaseUrl/sms/result/'),
           headers: {'Content-Type': 'application/json', ..._authHeaders},
           body: jsonEncode({
             'id': id,
@@ -436,7 +617,7 @@ class GatewayApi {
   }) async {
     final response = await _client
         .post(
-          Uri.parse('$baseUrl/transactions/result/'),
+          Uri.parse('$effectiveBaseUrl/transactions/result/'),
           headers: {'Content-Type': 'application/json', ..._authHeaders},
           body: jsonEncode({
             'transaction_reference': reference,
@@ -472,7 +653,7 @@ class GatewayApi {
   }) async {
     final response = await _client
         .post(
-          Uri.parse('$baseUrl/transactions/step/'),
+          Uri.parse('$effectiveBaseUrl/transactions/step/'),
           headers: {
             'Content-Type': 'application/json',
             'Idempotency-Key': idempotencyKey,

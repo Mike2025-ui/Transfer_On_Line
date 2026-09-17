@@ -1592,3 +1592,123 @@ class NoCrossOperatorGatewayTests(TestCase):
         self.assertEqual(tx.gateway_id, orange_gw.id, 'now recoverable once a matching Gateway/SIM exists')
         self.assertEqual(tx.attempts.count(), 1)
         self.assertIsNone(tx.next_retry_at)
+
+
+class SetupGatewayCommandTests(TestCase):
+    def test_setup_gateway_creates_new_gateway(self):
+        out = StringIO()
+        call_command('setup_gateway', '--name', 'Serveur Test 1', stdout=out)
+        output = out.getvalue()
+        self.assertIn("CONFIG", output)
+        gw = Gateway.objects.get(name='Serveur Test 1')
+        self.assertTrue(gw.is_active)
+        self.assertTrue(gw.api_key_hash)
+        self.assertIn(gw.name, output)
+
+    def test_setup_gateway_reset_generates_new_secret(self):
+        out1 = StringIO()
+        call_command('setup_gateway', '--name', 'Serveur Test 2', stdout=out1)
+        gw = Gateway.objects.get(name='Serveur Test 2')
+        old_hash = gw.api_key_hash
+
+        out2 = StringIO()
+        call_command('setup_gateway', '--name', 'Serveur Test 2', '--reset', stdout=out2)
+        gw.refresh_from_db()
+        self.assertNotEqual(gw.api_key_hash, old_hash)
+
+
+@override_settings(USE_NEW_TRANSACTION_ENGINE=True)
+@patch('apps.payments.services.payment_service.redis_lock', return_value=nullcontext())
+class PaymentToUssdExecutionFlowTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.orange = Operator.objects.create(name='Orange', code='orange')
+        self.service = Service.objects.create(name='Internet', code='subscription')
+        self.ussd = UssdCode.objects.create(
+            operator=self.orange,
+            service=self.service,
+            label='Pass Internet',
+            template='*144*1*1*{montant}*{numero}#',
+        )
+        self.gateway = Gateway.objects.create(
+            name='Orange - gw1',
+            host='gw1',
+            status='online',
+            is_active=True,
+            last_heartbeat=timezone.now(),
+        )
+        self.secret = self.gateway.generate_secret()
+        self.sim = GatewaySim.objects.create(gateway=self.gateway, operator=self.orange, slot=0)
+
+    @patch('apps.payments.providers.jeko.JekoProvider.create_payment')
+    def test_full_payment_to_ussd_execution_and_step_status(self, create_payment, _redis_lock):
+        from apps.payments.providers.base import PaymentInitResult
+        create_payment.return_value = PaymentInitResult(
+            checkout_url='https://pay/tok',
+            provider_transaction_id='tok',
+            raw={},
+        )
+
+        # 1. Client creates transaction
+        exec_response = self.client.post(
+            reverse('api_transaction_execute'),
+            {
+                'operator': 'Orange',
+                'service': 'Internet',
+                'operation': 'subscription',
+                'phone': '0700000001',
+                'amount': 1000,
+            },
+            format='json',
+        )
+        self.assertEqual(exec_response.status_code, 201)
+        ref = exec_response.data['reference']
+        tx = Transaction.objects.get(reference=ref)
+
+        # 2. Check status: awaiting_payment
+        status_response = self.client.get(reverse('api_transaction_status', kwargs={'reference': ref}))
+        self.assertEqual(status_response.status_code, 200)
+        self.assertEqual(status_response.data['step_status'], 'awaiting_payment')
+        self.assertTrue(status_response.data['is_pending'])
+
+        # 3. Payment confirmed (accepted)
+        PaymentService.apply_status(tx.payment, 'accepted')
+        tx.refresh_from_db()
+
+        # 4. Check status: payment_confirmed_processing_ussd
+        status_response2 = self.client.get(reverse('api_transaction_status', kwargs={'reference': ref}))
+        self.assertEqual(status_response2.status_code, 200)
+        self.assertEqual(status_response2.data['step_status'], 'payment_confirmed_processing_ussd')
+        self.assertTrue(status_response2.data['is_pending'])
+
+        # 5. Gateway server fetches pending task
+        gw_client = APIClient()
+        gw_client.credentials(HTTP_X_GATEWAY_SECRET=self.secret)
+        pending_res = gw_client.get(reverse('api_transaction_pending'))
+        self.assertEqual(pending_res.status_code, 200)
+        tasks = pending_res.data
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(str(tasks[0]['reference']), str(ref))
+        self.assertIn('*144*', tasks[0]['ussd_code'])
+        self.assertEqual(tasks[0]['sim_slot'], 0)
+
+        # 6. Gateway executes USSD on server phone and posts result
+        result_res = gw_client.post(
+            reverse('api_transaction_result'),
+            {
+                'reference': str(ref),
+                'success': True,
+                'raw_response': 'Votre forfait internet 1000F a bien ete active',
+            },
+            format='json',
+        )
+        self.assertEqual(result_res.status_code, 200)
+
+        # 7. Final status check: completed
+        status_response3 = self.client.get(reverse('api_transaction_status', kwargs={'reference': ref}))
+        self.assertEqual(status_response3.status_code, 200)
+        self.assertEqual(status_response3.data['step_status'], 'completed')
+        self.assertEqual(status_response3.data['status'], 'success')
+        self.assertTrue(status_response3.data['is_success'])
+        self.assertFalse(status_response3.data['is_pending'])
+

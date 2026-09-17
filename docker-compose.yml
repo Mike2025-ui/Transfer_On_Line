@@ -106,6 +106,8 @@ services:
     networks:
       - transfer_network
     restart: unless-stopped
+    healthcheck:
+      disable: true
 
 
 volumes:
