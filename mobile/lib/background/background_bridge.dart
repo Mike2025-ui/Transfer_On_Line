@@ -72,7 +72,8 @@ class BackgroundBridge {
   // that handler instead of adding to it. See _ussdStepEvents below, fed by
   // gateway_service_entrypoint.dart forwarding into [emitUssdStepEvent].
 
-  final StreamController<UssdStepEvent> _ussdStepEvents = StreamController<UssdStepEvent>.broadcast();
+  final StreamController<UssdStepEvent> _ussdStepEvents =
+      StreamController<UssdStepEvent>.broadcast();
 
   /// Fed by gateway_service_entrypoint.dart's controlChannel handler - never
   /// called directly from native code.
@@ -81,20 +82,53 @@ class BackgroundBridge {
   Stream<UssdStepEvent> get ussdStepEvents => _ussdStepEvents.stream;
 
   Future<bool> isUssdAccessibilityEnabled() async {
-    final result = await _channel.invokeMethod<bool>('isUssdAccessibilityEnabled');
+    final result = await _channel.invokeMethod<bool>(
+      'isUssdAccessibilityEnabled',
+    );
     return result ?? false;
   }
 
-  Future<void> startInteractiveUssdSession({required String code, int? simSlot}) =>
-      _channel.invokeMethod<void>('startInteractiveUssdSession', {
-        'code': code,
-        'simSlot': ?simSlot,
-      });
+  Future<void> startInteractiveUssdSession({
+    required String code,
+    int? simSlot,
+    int? scenarioId,
+    int? scenarioVersion,
+    Map<String, dynamic>? transactionData,
+  }) => _channel.invokeMethod<void>('startInteractiveUssdSession', {
+    'code': code,
+    'simSlot': ?simSlot,
+    'scenarioId': ?scenarioId,
+    'scenarioVersion': ?scenarioVersion,
+    'transactionData': ?transactionData,
+  });
+
+  Future<int> syncScenarios(String scenariosJson) async {
+    final result = await _channel.invokeMethod<int>('syncScenarios', {
+      'scenariosJson': scenariosJson,
+    });
+    return result ?? 0;
+  }
+
+  Future<Map<String, dynamic>> getCachedScenarioVersions() async {
+    final result = await _channel.invokeMethod<Map<dynamic, dynamic>>(
+      'getCachedScenarioVersions',
+    );
+    if (result == null) return const {};
+    return Map<String, dynamic>.from(result);
+  }
+
+  Future<bool> hasDistributorCode(int simSlot) async {
+    final result = await _channel.invokeMethod<bool>('hasDistributorCode', {
+      'simSlot': simSlot,
+    });
+    return result ?? false;
+  }
 
   Future<void> sendUssdBackendInput(List<String> values) =>
       _channel.invokeMethod<void>('ussdOnBackendInput', {'values': values});
 
-  Future<void> sendUssdBackendDone() => _channel.invokeMethod<void>('ussdOnBackendDone');
+  Future<void> sendUssdBackendDone() =>
+      _channel.invokeMethod<void>('ussdOnBackendDone');
 
   Future<void> cancelInteractiveUssdSession() =>
       _channel.invokeMethod<void>('cancelInteractiveUssdSession');

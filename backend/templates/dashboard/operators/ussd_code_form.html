@@ -156,9 +156,14 @@ function renderSteps() {
         const card = document.createElement('div');
         card.className = 'card border-0 shadow-sm mb-3';
         const isFinal = step.step_type === 'FINAL_FIELD';
+        const isAuth = step.step_type === 'AGENT_AUTH';
 
         let fieldsHtml = '';
-        if (!isFinal) {
+        if (isAuth) {
+            fieldsHtml = '<div class="alert alert-info py-2 px-3 small mb-0"><i class="fas fa-shield-alt me-1"></i> <strong>Authentification Agent :</strong> La Gateway injectera automatiquement le <code>CODE_DISTRIBUTEUR</code> local sécurisé de la SIM active. Aucune valeur à configurer ici.</div>';
+        } else if (isFinal) {
+            fieldsHtml = '<p class="text-muted small mb-0">Fin du scénario - le système attend le résultat renvoyé par l\'opérateur.</p>';
+        } else {
             const rows = (step.fields || []).map(function (field, fieldIndex) {
                 const isFixed = field.field_type === 'FIXED';
                 const options = VALUE_TYPES.map(function (vt) {
@@ -200,8 +205,6 @@ function renderSteps() {
                 <button type="button" class="btn btn-outline-secondary btn-sm add-field-btn" data-step="${stepIndex}">
                     <i class="fas fa-plus me-1"></i> Ajouter une valeur
                 </button>`;
-        } else {
-            fieldsHtml = '<p class="text-muted small mb-0">Fin du scénario - le système attend le résultat renvoyé par l\'opérateur.</p>';
         }
 
         card.innerHTML = `
@@ -220,10 +223,11 @@ function renderSteps() {
                         </button>
                     </div>
                 </div>
-                <div class="mb-3" style="max-width: 320px;">
+                <div class="mb-3" style="max-width: 380px;">
                     <label class="form-label small">Type d'étape</label>
                     <select class="form-select form-select-sm step-type-select" data-step="${stepIndex}">
-                        <option value="INPUT" ${!isFinal ? 'selected' : ''}>Saisie</option>
+                        <option value="INPUT" ${step.step_type === 'INPUT' ? 'selected' : ''}>Saisie classique</option>
+                        <option value="AGENT_AUTH" ${isAuth ? 'selected' : ''}>Authentification Code Distributeur (secret local Gateway)</option>
                         <option value="FINAL_FIELD" ${isFinal ? 'selected' : ''}>Fin de saisie (attendre le résultat)</option>
                     </select>
                 </div>
@@ -282,7 +286,7 @@ document.getElementById('steps-container').addEventListener('change', function (
 
     if (event.target.classList.contains('step-type-select')) {
         scenarioSteps[stepIndex].step_type = event.target.value;
-        if (event.target.value === 'FINAL_FIELD') {
+        if (event.target.value === 'FINAL_FIELD' || event.target.value === 'AGENT_AUTH') {
             scenarioSteps[stepIndex].fields = [];
         }
         renderSteps();

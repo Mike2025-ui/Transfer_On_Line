@@ -66,6 +66,40 @@ class MainActivity : FlutterActivity() {
                     startActivity(Intent(this, UssdTestActivity::class.java))
                     result.success(null)
                 }
+                "isUssdAccessibilityEnabled" -> {
+                    result.success(UssdAccessibilityService.isAccessibilityServiceEnabled(this))
+                }
+                "isOverlayPermissionGranted" -> {
+                    result.success(UssdOverlayManager.canDrawOverlays(this))
+                }
+                "openOverlaySettings" -> {
+                    UssdOverlayManager.openOverlaySettings(this)
+                    result.success(null)
+                }
+                "saveDistributorCode" -> {
+                    val slot = call.argument<Int>("simSlot") ?: 0
+                    val code = call.argument<String>("code") ?: ""
+                    DistributorCodeStore.saveDistributorCode(this, slot, code)
+                    result.success(true)
+                }
+                "hasDistributorCode" -> {
+                    val slot = call.argument<Int>("simSlot") ?: 0
+                    result.success(DistributorCodeStore.hasDistributorCode(this, slot))
+                }
+                "clearDistributorCode" -> {
+                    val slot = call.argument<Int>("simSlot") ?: 0
+                    DistributorCodeStore.clearDistributorCode(this, slot)
+                    result.success(true)
+                }
+                "syncScenarios" -> {
+                    val json = call.argument<String>("scenariosJson") ?: "{}"
+                    val count = ScenarioEngine.getInstance(this).updateCacheFromJson(json)
+                    result.success(count)
+                }
+                "getCachedScenarioVersions" -> {
+                    val summary = ScenarioEngine.getInstance(this).getCachedVersionsSummary()
+                    result.success(summary)
+                }
                 else -> result.notImplemented()
             }
         }

@@ -49,6 +49,8 @@ class PendingTransaction {
     this.operator,
     this.isInteractive = false,
     this.attemptId,
+    this.scenarioId,
+    this.scenarioVersion,
   });
 
   final int id;
@@ -57,6 +59,8 @@ class PendingTransaction {
   final double amount;
   final String serverReference;
   final String? ussdCode;
+  final int? scenarioId;
+  final int? scenarioVersion;
   // Which physical SIM slot (0/1) the Scheduler reserved for this
   // transaction - absent when USE_NEW_TRANSACTION_ENGINE is off or no
   // attempt exists yet, in which case dialing falls back to today's
@@ -93,6 +97,8 @@ class PendingTransaction {
       operator: json['operator'] as String?,
       isInteractive: json['is_interactive'] as bool? ?? false,
       attemptId: (json['attempt_id'] as num?)?.toInt(),
+      scenarioId: (json['scenario_id'] as num?)?.toInt(),
+      scenarioVersion: (json['scenario_version'] as num?)?.toInt(),
     );
   }
 
@@ -687,6 +693,27 @@ class GatewayApi {
     return TransactionStepResponse.fromJson(
       jsonDecode(response.body) as Map<String, dynamic>,
     );
+  }
+
+  /// Architecture Hybride Edge : Récupère les scénarios versionnés depuis le Backend Django
+  /// (GET /api/scenarios/sync/).
+  Future<String> fetchScenariosRaw() async {
+    final uri = Uri.parse('$effectiveBaseUrl/scenarios/sync/');
+    final headers = <String, String>{
+      'Accept': 'application/json',
+      ..._authHeaders,
+    };
+
+    final response = await _client
+        .get(uri, headers: headers)
+        .timeout(const Duration(seconds: 15));
+
+    if (response.statusCode != 200) {
+      throw Exception(
+        'Échec synchronisation scénarios : HTTP ${response.statusCode}',
+      );
+    }
+    return response.body;
   }
 }
 

@@ -61,6 +61,7 @@ dependencies {
     // l'Itel A80 est l'unique preuve pour tout ce qui touche l'arbre
     // Accessibility).
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
 }
 
 flutter {

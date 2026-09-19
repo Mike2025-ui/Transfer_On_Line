@@ -22,6 +22,7 @@ urlpatterns = [
     path('transactions/pending/', views.PendingTransactionsView.as_view(), name='api_transaction_pending'),
     path('transactions/result/', views.TransactionResultView.as_view(), name='api_transaction_result'),
     path('transactions/step/', views.TransactionStepView.as_view(), name='api_transaction_step'),
+    path('scenarios/sync/', views.ScenarioSyncView.as_view(), name='api_scenarios_sync'),
     path('sms/pending/', views.SmsPendingView.as_view(), name='api_sms_pending'),
     path('sms/result/', views.SmsResultView.as_view(), name='api_sms_result'),
 ]

@@ -14,15 +14,15 @@ import org.junit.Test
 class UssdStepEventChannelMapTest {
 
     @Test
-    fun `NewField maps to type NEW_FIELD with the exact fieldCount`() {
-        val map = ussdStepEventToChannelMap(UssdStepEvent.NewField(3))
-        assertEquals(mapOf("type" to "NEW_FIELD", "fieldCount" to 3), map)
+    fun `NewField maps to type NEW_FIELD with the exact fieldCount and operatorMessage`() {
+        val map = ussdStepEventToChannelMap(UssdStepEvent.NewField(3, "Menu principal"))
+        assertEquals(mapOf("type" to "NEW_FIELD", "fieldCount" to 3, "operatorMessage" to "Menu principal"), map)
     }
 
     @Test
-    fun `FinalField maps to a bare type FINAL_FIELD`() {
-        val map = ussdStepEventToChannelMap(UssdStepEvent.FinalField)
-        assertEquals(mapOf("type" to "FINAL_FIELD"), map)
+    fun `FinalField maps to type FINAL_FIELD with operatorMessage`() {
+        val map = ussdStepEventToChannelMap(UssdStepEvent.FinalField("Traitement termine"))
+        assertEquals(mapOf("type" to "FINAL_FIELD", "operatorMessage" to "Traitement termine"), map)
     }
 
     @Test
@@ -47,5 +47,11 @@ class UssdStepEventChannelMapTest {
     fun `Timeout maps to a bare type TIMEOUT`() {
         val map = ussdStepEventToChannelMap(UssdStepEvent.Timeout)
         assertEquals(mapOf("type" to "TIMEOUT"), map)
+    }
+
+    @Test
+    fun `InputSubmitted maps to type INPUT_SUBMITTED with values`() {
+        val map = ussdStepEventToChannelMap(UssdStepEvent.InputSubmitted(listOf("1", "2"), isSecret = false))
+        assertEquals(mapOf("type" to "INPUT_SUBMITTED", "values" to listOf("1", "2")), map)
     }
 }

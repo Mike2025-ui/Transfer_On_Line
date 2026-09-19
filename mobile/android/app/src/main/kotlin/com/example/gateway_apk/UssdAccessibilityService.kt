@@ -74,6 +74,9 @@ object UssdTimeouts {
  */
 data class UssdSessionConfig(
     val simSlot: Int?,
+    val scenarioId: Int? = null,
+    val scenarioVersion: Int? = null,
+    val transactionData: Map<String, Any?> = emptyMap(),
 )
 
 /**
@@ -81,20 +84,21 @@ data class UssdSessionConfig(
  * signalisation locale, aucun appel HTTP, aucune connaissance du Backend ici.
  */
 sealed class UssdStepEvent {
-    data class NewField(val fieldCount: Int) : UssdStepEvent()
-    object FinalField : UssdStepEvent()
+    data class NewField(val fieldCount: Int, val operatorMessage: String = "") : UssdStepEvent()
+    data class FinalField(val operatorMessage: String = "") : UssdStepEvent()
     data class Result(val status: String, val operatorMessage: String) : UssdStepEvent()
     data class Failed(val errorCode: String, val detail: String) : UssdStepEvent()
     object Timeout : UssdStepEvent()
+    data class InputSubmitted(val values: List<String>, val isSecret: Boolean = false) : UssdStepEvent()
 }
 
 /** Pure, sans dépendance Android (Phase D3, correction stabilisation) :
  * décide l'événement à produire une fois - et seulement une fois - qu'un
- * écran a été confirmé stable. Au moins un champ -> NewField(fieldCount),
- * aucun champ -> FinalField. Testable en JUnit sans simuler
+ * écran a été confirmé stable. Au moins un champ -> NewField(fieldCount, operatorMessage),
+ * aucun champ -> FinalField(operatorMessage). Testable en JUnit sans simuler
  * AccessibilityNodeInfo - voir UssdScreenDecisionTest.kt. */
-internal fun decideScreenEvent(fieldCount: Int): UssdStepEvent {
-    return if (fieldCount > 0) UssdStepEvent.NewField(fieldCount) else UssdStepEvent.FinalField
+internal fun decideScreenEvent(fieldCount: Int, operatorMessage: String = ""): UssdStepEvent {
+    return if (fieldCount > 0) UssdStepEvent.NewField(fieldCount, operatorMessage) else UssdStepEvent.FinalField(operatorMessage)
 }
 
 /** Pure, sans dépendance Android : un écran est considéré stable si son
@@ -194,6 +198,30 @@ class UssdAccessibilityService : AccessibilityService() {
      * - tant que c'est `false`, aucun changement d'écran en
      * WAITING_FOR_RESULT n'est classifié. */
     private var backendConfirmedDone = false
+    private var lastCandidateRoot: AccessibilityNodeInfo? = null
+
+    private fun resolveCandidateRoot(): AccessibilityNodeInfo? {
+        val active = rootInActiveWindow
+        if (active != null && active.packageName?.toString() != applicationContext.packageName) {
+            return active
+        }
+        val last = lastCandidateRoot
+        if (last != null) {
+            try {
+                last.refresh()
+                return last
+            } catch (_: Exception) {}
+        }
+        try {
+            for (window in windows) {
+                val winRoot = window.root ?: continue
+                if (winRoot.packageName?.toString() != applicationContext.packageName && looksLikeUssdCandidate(winRoot)) {
+                    return winRoot
+                }
+            }
+        } catch (_: Exception) {}
+        return active
+    }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -225,11 +253,11 @@ class UssdAccessibilityService : AccessibilityService() {
         ) {
             return
         }
-        // Jamais notre propre UI de debug : UssdTestActivity n'est pas une
-        // candidate USSD, même si elle est visible pendant le test.
+        // Jamais notre propre UI
         if (event.packageName?.toString() == applicationContext.packageName) return
 
-        val root = rootInActiveWindow ?: return
+        val root = event.source ?: resolveCandidateRoot() ?: return
+        lastCandidateRoot = root
         Log.d(
             TAG,
             "[USSD] event type=${AccessibilityEvent.eventTypeToString(event.eventType)} " +
@@ -261,26 +289,57 @@ class UssdAccessibilityService : AccessibilityService() {
         stabilizingFingerprint = null
         backendConfirmedDone = false
         transitionTo(UssdSessionState.STARTING)
+        UssdOverlayManager.show(applicationContext, slot = newConfig.simSlot)
         sessionTimeoutRunnable = Runnable { onSessionTimeout() }.also {
             timeoutHandler.postDelayed(it, UssdTimeouts.SESSION_MAX_MS)
         }
         Log.i(
             TAG,
-            "[USSD] STARTING - session armée (slot=${newConfig.simSlot ?: "défaut"}), " +
+            "[USSD] STARTING - session armée (slot=${newConfig.simSlot ?: "défaut"}, scenario=${newConfig.scenarioId} v${newConfig.scenarioVersion}), " +
                 "en attente de l'écran USSD",
         )
+
+        // Initialisation du moteur de scénario local si un scénario est configuré
+        if (newConfig.scenarioId != null && newConfig.scenarioVersion != null) {
+            val scenarioEngine = ScenarioEngine.getInstance(applicationContext)
+            when (val initRes = scenarioEngine.startSession(
+                newConfig.scenarioId,
+                newConfig.scenarioVersion,
+                newConfig.transactionData,
+                newConfig.simSlot ?: 0
+            )) {
+                is SessionInitResult.Ready -> {
+                    Log.i(TAG, "[USSD] ScenarioEngine initialisé pour scénario #${newConfig.scenarioId} v${newConfig.scenarioVersion}")
+                }
+                is SessionInitResult.MissingScenario -> {
+                    fail("SCENARIO_MISSING", "Scénario #${initRes.scenarioId} (v${initRes.expectedVersion}) non présent en cache local")
+                    return
+                }
+                is SessionInitResult.VersionMismatch -> {
+                    fail("SCENARIO_VERSION_MISMATCH", "Scénario #${initRes.scenarioId} version obsolète en cache (attendue=${initRes.expectedVersion}, locale=${initRes.cachedVersion})")
+                    return
+                }
+                is SessionInitResult.InactiveScenario -> {
+                    fail("SCENARIO_INACTIVE", "Scénario #${newConfig.scenarioId} inactif")
+                    return
+                }
+            }
+        }
+
         transitionTo(UssdSessionState.WAITING_FOR_USSD)
     }
 
     fun cancelSession() {
         cancelStateTimeout()
         cancelStabilization()
+        UssdOverlayManager.hide()
         sessionTimeoutRunnable?.let { timeoutHandler.removeCallbacks(it) }
         sessionTimeoutRunnable = null
         config = null
         lastScreenFingerprint = null
         stabilizingFingerprint = null
         backendConfirmedDone = false
+        ScenarioEngine.getInstance(applicationContext).resetSession()
         state = UssdSessionState.IDLE
         Log.i(TAG, "[USSD] session annulée manuellement")
     }
@@ -328,9 +387,9 @@ class UssdAccessibilityService : AccessibilityService() {
     private fun confirmScreenStable() {
         stabilizationRunnable = null
         if (state != UssdSessionState.READING_SCREEN) return // état déjà changé entre-temps
-        val root = rootInActiveWindow
+        val root = resolveCandidateRoot()
         if (root == null) {
-            fail("ACCESSIBILITY_ERROR", "rootInActiveWindow indisponible pendant la stabilisation")
+            fail("ACCESSIBILITY_ERROR", "root node indisponible pendant la stabilisation")
             return
         }
         val fingerprint = computeFingerprint(root)
@@ -357,16 +416,59 @@ class UssdAccessibilityService : AccessibilityService() {
             return
         }
 
+        val message = extractScreenText(root)
         val fields = mutableListOf<AccessibilityNodeInfo>()
         findAllInputNodes(root, fields)
-        when (val decision = decideScreenEvent(fields.size)) {
+
+        // Si une exécution locale pilotée par ScenarioEngine est active :
+        if (config?.scenarioId != null) {
+            val scenarioEngine = ScenarioEngine.getInstance(applicationContext)
+            when (val decision = scenarioEngine.resolveNextAction(message)) {
+                is StepDecision.TypeInput -> {
+                    Log.i(TAG, "[USSD] ScenarioEngine: étape ${decision.stepOrder} (${decision.stepName}) -> saisie locale immédiate")
+                    enterValuesAndSubmit(root, fields, decision.values, isSecret = false)
+                }
+                is StepDecision.TypeAgentAuth -> {
+                    Log.i(TAG, "[USSD] ScenarioEngine: étape ${decision.stepOrder} (${decision.stepName}) -> injection CODE_DISTRIBUTEUR local")
+                    enterValuesAndSubmit(root, fields, listOf(decision.code), isSecret = true)
+                }
+                is StepDecision.AwaitFinal -> {
+                    Log.i(TAG, "[USSD] ScenarioEngine: étape ${decision.stepOrder} (${decision.stepName}) -> AwaitFinal")
+                    transitionTo(UssdSessionState.WAITING_FOR_RESULT)
+                    backendConfirmedDone = true
+                    emit(UssdStepEvent.FinalField(message))
+                }
+                is StepDecision.Complete -> {
+                    Log.i(TAG, "[USSD] ScenarioEngine: séquence locale terminée")
+                    val classification = classifyResult(decision.rawResponse)
+                    transitionTo(UssdSessionState.FINISHED)
+                    when (classification) {
+                        is ResultClassification.Recognized -> {
+                            emit(UssdStepEvent.Result(classification.status, decision.rawResponse))
+                        }
+                        is ResultClassification.Unrecognized -> {
+                            emit(UssdStepEvent.Result(if (decision.isSuccess) "SUCCESS" else "FAILED", decision.rawResponse))
+                        }
+                    }
+                    cleanupAfterTerminal()
+                }
+                is StepDecision.Error -> {
+                    Log.e(TAG, "[USSD] ScenarioEngine erreur : ${decision.message}")
+                    fail("SCENARIO_ERROR", decision.message)
+                }
+            }
+            return
+        }
+
+        // Mode repli / legacy (ex: UssdTestActivity sans scenarioId)
+        when (val decision = decideScreenEvent(fields.size, message)) {
             is UssdStepEvent.NewField -> {
-                Log.i(TAG, "[USSD] fieldCount=${decision.fieldCount}")
+                Log.i(TAG, "[USSD] fieldCount=${decision.fieldCount} msgLength=${message.length}")
                 transitionTo(UssdSessionState.WAITING_FOR_INPUT)
                 emit(decision)
             }
-            UssdStepEvent.FinalField -> {
-                Log.i(TAG, "[USSD] écran stable sans champ - FINAL_FIELD")
+            is UssdStepEvent.FinalField -> {
+                Log.i(TAG, "[USSD] écran stable sans champ - FINAL_FIELD msgLength=${message.length}")
                 transitionTo(UssdSessionState.WAITING_FOR_RESULT)
                 // FinalField signifie uniquement "plus rien à saisir" - jamais
                 // "réussi", jamais "résultat arrivé" (voir doc de classe).
@@ -389,9 +491,9 @@ class UssdAccessibilityService : AccessibilityService() {
             Log.w(TAG, "[USSD] onBackendInput() ignoré - état inattendu ($state)")
             return
         }
-        val root = rootInActiveWindow
+        val root = resolveCandidateRoot()
         if (root == null) {
-            fail("ACCESSIBILITY_ERROR", "rootInActiveWindow indisponible pour la saisie")
+            fail("ACCESSIBILITY_ERROR", "root node indisponible pour la saisie")
             return
         }
         val fields = mutableListOf<AccessibilityNodeInfo>()
@@ -400,20 +502,22 @@ class UssdAccessibilityService : AccessibilityService() {
             fail("INPUT_ERROR", "fieldCount=${fields.size} valuesCount=${values.size}")
             return
         }
-        enterValuesAndSubmit(root, fields, values)
+        enterValuesAndSubmit(root, fields, values, isSecret = false)
     }
 
     private fun enterValuesAndSubmit(
         root: AccessibilityNodeInfo,
         fields: List<AccessibilityNodeInfo>,
         values: List<String>,
+        isSecret: Boolean = false,
     ) {
         transitionTo(UssdSessionState.ENTERING_VALUES)
+        emit(UssdStepEvent.InputSubmitted(values, isSecret))
         for (i in fields.indices) {
-            val value = values[i]
+            val value = values.getOrNull(i) ?: ""
             // Jamais la valeur en clair dans les logs (point 9) - seule sa
             // longueur est utile au diagnostic.
-            Log.d(TAG, "[USSD] ENTERING_VALUES - fieldIndex=$i valueLength=${value.length}")
+            Log.d(TAG, "[USSD] ENTERING_VALUES - fieldIndex=$i valueLength=${value.length} isSecret=$isSecret")
             val args = Bundle().apply {
                 putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, value)
             }
@@ -455,7 +559,7 @@ class UssdAccessibilityService : AccessibilityService() {
         }
         backendConfirmedDone = true
         Log.i(TAG, "[USSD] onBackendDone() confirmé - vérification de l'écran actuel")
-        val root = rootInActiveWindow ?: return
+        val root = resolveCandidateRoot() ?: return
         val fingerprint = computeFingerprint(root)
         if (!isScreenStable(lastScreenFingerprint, fingerprint) && hasNonEmptyText(root)) {
             stabilizingFingerprint = fingerprint
@@ -481,9 +585,9 @@ class UssdAccessibilityService : AccessibilityService() {
     private fun confirmResultScreen() {
         stabilizationRunnable = null
         if (state != UssdSessionState.WAITING_FOR_RESULT) return
-        val root = rootInActiveWindow
+        val root = resolveCandidateRoot()
         if (root == null) {
-            fail("ACCESSIBILITY_ERROR", "rootInActiveWindow indisponible pendant stabilisation du résultat")
+            fail("ACCESSIBILITY_ERROR", "root node indisponible pendant stabilisation du résultat")
             return
         }
         val fingerprint = computeFingerprint(root)
@@ -537,6 +641,7 @@ class UssdAccessibilityService : AccessibilityService() {
         val handler = Handler(Looper.getMainLooper())
         stepEventListener?.let { listener -> handler.post { listener(event) } }
         productionStepEventListener?.let { listener -> handler.post { listener(event) } }
+        UssdOverlayManager.update(event)
     }
 
     private fun cleanupAfterTerminal() {
@@ -548,6 +653,13 @@ class UssdAccessibilityService : AccessibilityService() {
         lastScreenFingerprint = null
         stabilizingFingerprint = null
         backendConfirmedDone = false
+        try {
+            val root = resolveCandidateRoot()
+            if (root != null) {
+                findDismissButton(root)?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            }
+        } catch (_: Exception) {}
+        lastCandidateRoot = null
     }
 
     // ---------------------------------------------------------------------
@@ -729,6 +841,13 @@ class UssdAccessibilityService : AccessibilityService() {
         // Dernier recours : position (dernier nœud cliquable non-négatif
         // rencontré en parcours DFS) - non fiable, à confirmer sur device réel.
         return nonNegative.lastOrNull() ?: candidates.lastOrNull()
+    }
+
+    private fun findDismissButton(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        val candidates = mutableListOf<AccessibilityNodeInfo>()
+        collectClickable(root, candidates)
+        return candidates.firstOrNull { matchesKeyword(it, NEGATIVE_KEYWORDS) }
+            ?: candidates.firstOrNull { matchesKeyword(it, POSITIVE_KEYWORDS) }
     }
 
     private fun collectClickable(node: AccessibilityNodeInfo, out: MutableList<AccessibilityNodeInfo>) {

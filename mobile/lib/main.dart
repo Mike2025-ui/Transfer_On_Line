@@ -60,6 +60,11 @@ class _GatewayHomePageState extends State<GatewayHomePage> {
   DeviceInfo? _deviceInfo;
   String _configuredUrl = GatewayApi.baseUrl;
   bool _hasConfiguredSecret = false;
+  bool _isAccessibilityEnabled = false;
+  bool _isOverlayEnabled = false;
+  bool _hasSim0DistributorCode = false;
+  bool _hasSim1DistributorCode = false;
+  Map<String, dynamic> _cachedScenarioVersions = {};
 
   @override
   void initState() {
@@ -67,11 +72,25 @@ class _GatewayHomePageState extends State<GatewayHomePage> {
     _loadConfig();
     _loadDeviceInfo();
     _refreshStatus();
+    _checkAccessibility();
+    _loadDistributorCodeStatus();
     _connectivityMonitor.start();
     _connectivityMonitor.onReconnected.listen((_) => _drainOnReconnect());
     // Post-frame: pushing a route requires the first frame (and this
     // widget's Navigator ancestor) to already be built.
     WidgetsBinding.instance.addPostFrameCallback((_) => _maybeShowOnboarding());
+  }
+
+  Future<void> _checkAccessibility() async {
+    try {
+      final accessEnabled = await _ussdService.isUssdAccessibilityEnabled();
+      final overlayEnabled = await _ussdService.isOverlayPermissionGranted();
+      if (!mounted) return;
+      setState(() {
+        _isAccessibilityEnabled = accessEnabled;
+        _isOverlayEnabled = overlayEnabled;
+      });
+    } catch (_) {}
   }
 
   Future<void> _loadConfig() async {
@@ -204,14 +223,6 @@ class _GatewayHomePageState extends State<GatewayHomePage> {
     }
   }
 
-  String _buildUssdCode(TransactionRequest request) {
-    if (request.type.toLowerCase().contains('transfer') ||
-        request.type.toLowerCase().contains('transfert')) {
-      return '*123*${request.recipientPhone}*${request.amount.toInt()}#';
-    }
-    return '*456*${request.amount.toInt()}#';
-  }
-
   Future<void> _processPendingTransactions() async {
     setState(() {
       _isLoading = true;
@@ -267,41 +278,209 @@ class _GatewayHomePageState extends State<GatewayHomePage> {
     }
   }
 
-  Future<void> _executeTransaction(String type) async {
-    final request = await showDialog<TransactionRequest>(
-      context: context,
-      builder: (context) => TransactionDialog(type: type),
-    );
-    if (request == null) return;
+  void _showSnack(String text) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+  }
 
-    setState(() {
-      _isLoading = true;
-      _message = 'Exécution de $type...';
-    });
-
-    final code = _buildUssdCode(request);
+  Future<void> _loadDistributorCodeStatus() async {
     try {
-      // No sim_slot/operator here - this is the manual "test transaction"
-      // button, not a server-assigned task, so it dials on the default SIM
-      // with no operator cross-check.
-      final ussdResult = await _ussdService.sendUssdCode(code, null, null);
-      final result = await _api.executeTransaction(
-        request,
-        ussdResponse: ussdResult,
-      );
-      setState(
-        () => _message = 'Transaction envoyée: ${result['reference'] ?? 'OK'}',
-      );
-      _showSnack('USSD envoyé, réponse reçue');
-    } catch (error) {
-      _showSnack('Erreur transaction: $error');
+      final sim0 = await _ussdService.hasDistributorCode(0);
+      final sim1 = await _ussdService.hasDistributorCode(1);
+      final scenarios = await _ussdService.getCachedScenarioVersions();
+      if (!mounted) return;
+      setState(() {
+        _hasSim0DistributorCode = sim0;
+        _hasSim1DistributorCode = sim1;
+        _cachedScenarioVersions = scenarios;
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _syncScenarios() async {
+    setState(() => _isLoading = true);
+    try {
+      final rawJson = await _api.fetchScenariosRaw();
+      final count = await _ussdService.syncScenarios(rawJson);
+      await _loadDistributorCodeStatus();
+      _showSnack('Synchronisation réussie : $count scénario(s) mis à jour');
+    } catch (e) {
+      _showSnack('Erreur synchronisation scénarios : $e');
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  void _showSnack(String text) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+  Future<void> _openDistributorCodeDialog(int slot) async {
+    final codeController = TextEditingController();
+    bool obscure = true;
+    await showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) => AlertDialog(
+          title: Row(
+            children: [
+              const Icon(Icons.shield_outlined, color: Colors.indigo),
+              const SizedBox(width: 8),
+              Text('Code Distributeur — SIM ${slot + 1}'),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Ce secret est chiffré dans l\'Android KeyStore matériel (AES-256 GCM). '
+                'Il n\'est JAMAIS transmis au serveur ni exposé dans les logs.',
+                style: TextStyle(fontSize: 12, color: Colors.black87),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: codeController,
+                obscureText: obscure,
+                keyboardType: TextInputType.number,
+                decoration: InputDecoration(
+                  labelText: 'Code Distributeur SIM ${slot + 1}',
+                  hintText: 'Saisir le code secret',
+                  border: const OutlineInputBorder(),
+                  prefixIcon: const Icon(Icons.password),
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      obscure ? Icons.visibility : Icons.visibility_off,
+                    ),
+                    onPressed: () => setDlgState(() => obscure = !obscure),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            if (slot == 0 ? _hasSim0DistributorCode : _hasSim1DistributorCode)
+              TextButton(
+                style: TextButton.styleFrom(foregroundColor: Colors.red),
+                child: const Text('Effacer'),
+                onPressed: () async {
+                  await _ussdService.clearDistributorCode(slot);
+                  await _loadDistributorCodeStatus();
+                  if (ctx.mounted) Navigator.pop(ctx);
+                  _showSnack('Code distributeur SIM ${slot + 1} effacé');
+                },
+              ),
+            TextButton(
+              child: const Text('Annuler'),
+              onPressed: () => Navigator.pop(ctx),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.indigo,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Enregistrer'),
+              onPressed: () async {
+                final code = codeController.text.trim();
+                if (code.isNotEmpty) {
+                  await _ussdService.saveDistributorCode(slot, code);
+                  await _loadDistributorCodeStatus();
+                  if (ctx.mounted) Navigator.pop(ctx);
+                  _showSnack(
+                    'Code distributeur SIM ${slot + 1} chiffré dans KeyStore',
+                  );
+                }
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _distributorCodeCard() {
+    return Card(
+      elevation: 2,
+      margin: const EdgeInsets.only(bottom: 16),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: Colors.blueGrey.shade200),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.security, color: Colors.indigo),
+                const SizedBox(width: 8),
+                const Text(
+                  'Sécurité Edge & Codes Distributeur',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                ),
+                const Spacer(),
+                IconButton(
+                  icon: const Icon(Icons.sync, color: Colors.indigo),
+                  tooltip: 'Synchroniser scénarios',
+                  onPressed: _isLoading ? null : _syncScenarios,
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Scénarios en cache : ${_cachedScenarioVersions.length} actif(s)',
+              style: const TextStyle(fontSize: 12, color: Colors.black54),
+            ),
+            const Divider(height: 20),
+            _simCodeRow(slot: 0, isConfigured: _hasSim0DistributorCode),
+            const SizedBox(height: 10),
+            _simCodeRow(slot: 1, isConfigured: _hasSim1DistributorCode),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _simCodeRow({required int slot, required bool isConfigured}) {
+    return Row(
+      children: [
+        Icon(
+          isConfigured ? Icons.lock : Icons.lock_open,
+          color: isConfigured ? Colors.green : Colors.orange,
+          size: 20,
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'SIM ${slot + 1} — Code Distributeur',
+                style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                ),
+              ),
+              Text(
+                isConfigured
+                    ? 'Chiffré dans Android KeyStore'
+                    : 'Non configuré (requis pour AGENT_AUTH)',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: isConfigured
+                      ? Colors.green.shade800
+                      : Colors.orange.shade900,
+                ),
+              ),
+            ],
+          ),
+        ),
+        OutlinedButton(
+          style: OutlinedButton.styleFrom(
+            visualDensity: VisualDensity.compact,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+          ),
+          onPressed: () => _openDistributorCodeDialog(slot),
+          child: Text(isConfigured ? 'Modifier' : 'Configurer'),
+        ),
+      ],
+    );
   }
 
   Future<void> _openSettingsDialog() async {
@@ -594,6 +773,7 @@ class _GatewayHomePageState extends State<GatewayHomePage> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               _statusCard(),
+              _distributorCodeCard(),
               ElevatedButton.icon(
                 icon: Icon(
                   _serviceActive ? Icons.stop_circle : Icons.play_circle,
@@ -622,27 +802,125 @@ class _GatewayHomePageState extends State<GatewayHomePage> {
                 label: const Text('Traiter transactions en attente'),
                 onPressed: _isLoading ? null : _processPendingTransactions,
               ),
-              const SizedBox(height: 12),
-              ElevatedButton.icon(
-                icon: const Icon(Icons.send),
-                label: const Text('Test transfert de crédit'),
-                onPressed: _isLoading
-                    ? null
-                    : () => _executeTransaction('transfer'),
-              ),
-              const SizedBox(height: 12),
-              ElevatedButton.icon(
-                icon: const Icon(Icons.wifi),
-                label: const Text('Test souscription'),
-                onPressed: _isLoading
-                    ? null
-                    : () => _executeTransaction('subscription'),
-              ),
-              const SizedBox(height: 12),
-              ElevatedButton.icon(
-                icon: const Icon(Icons.accessibility_new),
-                label: const Text('TEST ACCESSIBILITY USSD'),
-                onPressed: _openUssdTestActivity,
+              const SizedBox(height: 16),
+              Card(
+                elevation: 2,
+                color: Colors.indigo.shade50,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  side: BorderSide(color: Colors.indigo.shade200),
+                ),
+                child: InkWell(
+                  onTap: () async {
+                    await _openUssdTestActivity();
+                    _checkAccessibility();
+                  },
+                  borderRadius: BorderRadius.circular(12),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 14,
+                      horizontal: 16,
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: Colors.indigo.shade700,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.terminal,
+                            color: Colors.white,
+                            size: 24,
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                "Console d'Exécution USSD — En direct",
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                  color: Color(0xFF0F172A),
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Wrap(
+                                spacing: 12,
+                                runSpacing: 4,
+                                children: [
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        _isAccessibilityEnabled
+                                            ? Icons.check_circle
+                                            : Icons.warning_amber_rounded,
+                                        size: 13,
+                                        color: _isAccessibilityEnabled
+                                            ? Colors.green.shade700
+                                            : Colors.amber.shade900,
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        _isAccessibilityEnabled
+                                            ? "Accessibilité : Activée"
+                                            : "Accessibilité : Requise",
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w600,
+                                          color: _isAccessibilityEnabled
+                                              ? Colors.green.shade800
+                                              : Colors.amber.shade900,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        _isOverlayEnabled
+                                            ? Icons.check_circle
+                                            : Icons.warning_amber_rounded,
+                                        size: 13,
+                                        color: _isOverlayEnabled
+                                            ? Colors.green.shade700
+                                            : Colors.amber.shade900,
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        _isOverlayEnabled
+                                            ? "Superposition : Activée"
+                                            : "Superposition : Requise",
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w600,
+                                          color: _isOverlayEnabled
+                                              ? Colors.green.shade800
+                                              : Colors.amber.shade900,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                        const Icon(
+                          Icons.arrow_forward_ios,
+                          size: 16,
+                          color: Colors.indigo,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               ),
               const SizedBox(height: 16),
               if (_isLoading) const LinearProgressIndicator(),
@@ -652,81 +930,6 @@ class _GatewayHomePageState extends State<GatewayHomePage> {
           ),
         ),
       ),
-    );
-  }
-}
-
-class TransactionDialog extends StatefulWidget {
-  const TransactionDialog({super.key, required this.type});
-  final String type;
-
-  @override
-  State<TransactionDialog> createState() => _TransactionDialogState();
-}
-
-class _TransactionDialogState extends State<TransactionDialog> {
-  final _formKey = GlobalKey<FormState>();
-  final _phoneController = TextEditingController();
-  final _amountController = TextEditingController();
-
-  @override
-  void dispose() {
-    _phoneController.dispose();
-    _amountController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text(
-        widget.type == 'transfer' ? 'Transfert crédit' : 'Souscription',
-      ),
-      content: Form(
-        key: _formKey,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextFormField(
-              controller: _phoneController,
-              decoration: const InputDecoration(
-                labelText: 'Numéro destinataire',
-              ),
-              keyboardType: TextInputType.phone,
-              validator: (value) =>
-                  value == null || value.isEmpty ? 'Numéro requis' : null,
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _amountController,
-              decoration: const InputDecoration(labelText: 'Montant'),
-              keyboardType: TextInputType.number,
-              validator: (value) =>
-                  value == null || value.isEmpty ? 'Montant requis' : null,
-            ),
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Annuler'),
-        ),
-        ElevatedButton(
-          onPressed: () {
-            if (_formKey.currentState?.validate() ?? false) {
-              Navigator.of(context).pop(
-                TransactionRequest(
-                  type: widget.type,
-                  recipientPhone: _phoneController.text.trim(),
-                  amount: double.tryParse(_amountController.text.trim()) ?? 0,
-                ),
-              );
-            }
-          },
-          child: const Text('Envoyer'),
-        ),
-      ],
     );
   }
 }

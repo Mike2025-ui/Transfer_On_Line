@@ -139,6 +139,8 @@ def gateway_task_payload(tx, ussd_code=None):
         # simply never reads this key, exactly like it already ignores
         # sim_slot today.
         'is_interactive': False,
+        'scenario_id': tx.ussd_code_used_id,
+        'scenario_version': tx.ussd_code_used.version if tx.ussd_code_used else None,
     }
     # Additive, backward-compatible: an older Gateway app build simply never
     # reads this key and keeps dialing on its default/no-preference SIM,
@@ -174,3 +176,39 @@ def gateway_task_payload(tx, ussd_code=None):
             # design notes).
             payload['is_interactive'] = bool(tx.ussd_code_used_id and tx.ussd_code_used.steps.exists())
     return payload
+
+
+def serialize_scenario_for_sync(code):
+    """Serializes a UssdCode and all its steps for local caching and offline
+    execution by the Android Gateway. Zero-knowledge on credentials: no PIN
+    or secret ever exists here; AGENT_AUTH marks steps where the Gateway must
+    inject its own local CODE_DISTRIBUTEUR."""
+    steps = []
+    for step in code.steps.order_by('order'):
+        steps.append({
+            'order': step.order,
+            'step_type': step.step_type,
+            'name': step.name,
+            'fields': [
+                {
+                    'order': f.order,
+                    'field_type': f.field_type,
+                    'value': f.value,
+                }
+                for f in step.fields.order_by('order')
+            ],
+        })
+
+    return {
+        'id': code.id,
+        'version': code.version,
+        'operator': code.operator.name,
+        'operator_code': code.operator.code,
+        'service': code.service.name if code.service else None,
+        'service_code': code.service.code if code.service else None,
+        'amount': float(code.amount) if code.amount is not None else None,
+        'label': code.label,
+        'template': code.template,
+        'is_active': code.is_active,
+        'steps': steps,
+    }

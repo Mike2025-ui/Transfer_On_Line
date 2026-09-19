@@ -34,6 +34,8 @@ class TransactionTask {
     this.lastReportError,
     this.isInteractive = false,
     this.attemptId,
+    this.scenarioId,
+    this.scenarioVersion,
   });
 
   final int id;
@@ -56,6 +58,8 @@ class TransactionTask {
   // of _drainDial()/dialUssd() - see PendingTransaction.isInteractive.
   final bool isInteractive;
   final int? attemptId;
+  final int? scenarioId;
+  final int? scenarioVersion;
 
   factory TransactionTask.fromRow(Map<String, Object?> row) {
     return TransactionTask(
@@ -76,6 +80,8 @@ class TransactionTask {
       lastReportError: row['last_report_error'] as String?,
       isInteractive: (row['is_interactive'] as int?) == 1,
       attemptId: row['attempt_id'] as int?,
+      scenarioId: row['scenario_id'] as int?,
+      scenarioVersion: row['scenario_version'] as int?,
     );
   }
 }
@@ -199,11 +205,15 @@ class LocalQueueRepository {
     final existing = _db;
     if (existing != null) return existing;
     final factory = _databaseFactory ?? databaseFactory;
-    final dbPath = _path ?? p.join(await factory.getDatabasesPath(), 'gateway_queue.db');
+    final dbPath =
+        _path ?? p.join(await factory.getDatabasesPath(), 'gateway_queue.db');
     final opened = await factory.openDatabase(
       dbPath,
       options: OpenDatabaseOptions(
-        version: 4, onConfigure: _onConfigure, onCreate: _onCreate, onUpgrade: _onUpgrade,
+        version: 5,
+        onConfigure: _onConfigure,
+        onCreate: _onCreate,
+        onUpgrade: _onUpgrade,
       ),
     );
     _db = opened;
@@ -250,10 +260,14 @@ class LocalQueueRepository {
         dialed_at TEXT,
         reported_at TEXT,
         is_interactive INTEGER NOT NULL DEFAULT 0,
-        attempt_id INTEGER
+        attempt_id INTEGER,
+        scenario_id INTEGER,
+        scenario_version INTEGER
       )
     ''');
-    await db.execute('CREATE INDEX idx_transaction_tasks_state ON transaction_tasks(state)');
+    await db.execute(
+      'CREATE INDEX idx_transaction_tasks_state ON transaction_tasks(state)',
+    );
 
     await db.execute('''
       CREATE TABLE sms_tasks (
@@ -310,7 +324,9 @@ class LocalQueueRepository {
   /// that never sent one).
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
-      await db.execute('ALTER TABLE transaction_tasks ADD COLUMN operator TEXT');
+      await db.execute(
+        'ALTER TABLE transaction_tasks ADD COLUMN operator TEXT',
+      );
     }
     if (oldVersion < 3) {
       await _createInteractiveSessionTable(db);
@@ -320,8 +336,22 @@ class LocalQueueRepository {
     // loss; in-flight rows just default to is_interactive=0/attempt_id=NULL
     // until their next enqueue, which behaves exactly like today for them.
     if (oldVersion < 4) {
-      await db.execute('ALTER TABLE transaction_tasks ADD COLUMN is_interactive INTEGER NOT NULL DEFAULT 0');
-      await db.execute('ALTER TABLE transaction_tasks ADD COLUMN attempt_id INTEGER');
+      await db.execute(
+        'ALTER TABLE transaction_tasks ADD COLUMN is_interactive INTEGER NOT NULL DEFAULT 0',
+      );
+      await db.execute(
+        'ALTER TABLE transaction_tasks ADD COLUMN attempt_id INTEGER',
+      );
+    }
+    // Architecture Hybride Edge (v5) : rattachement du scenario_id et de sa version
+    // pour garantir l'adéquation stricte de version locale.
+    if (oldVersion < 5) {
+      await db.execute(
+        'ALTER TABLE transaction_tasks ADD COLUMN scenario_id INTEGER',
+      );
+      await db.execute(
+        'ALTER TABLE transaction_tasks ADD COLUMN scenario_version INTEGER',
+      );
     }
   }
 
@@ -339,15 +369,22 @@ class LocalQueueRepository {
       // of one SELECT per task - the backend caps a single poll at 10 tasks
       // (see PendingTransactionsView), so this halves the round-trips on a
       // full page rather than doing SELECT+INSERT/UPDATE per task in turn.
-      final references = tasks.map((t) => t.serverReference).where((r) => r.isNotEmpty).toSet().toList();
+      final references = tasks
+          .map((t) => t.serverReference)
+          .where((r) => r.isNotEmpty)
+          .toSet()
+          .toList();
       final existingRows = references.isEmpty
           ? const <Map<String, Object?>>[]
           : await txn.query(
               'transaction_tasks',
-              where: 'reference IN (${List.filled(references.length, '?').join(', ')})',
+              where:
+                  'reference IN (${List.filled(references.length, '?').join(', ')})',
               whereArgs: references,
             );
-      final existingByReference = {for (final row in existingRows) row['reference'] as String: row};
+      final existingByReference = {
+        for (final row in existingRows) row['reference'] as String: row,
+      };
 
       for (final task in tasks) {
         if (task.serverReference.isEmpty) continue;
@@ -367,6 +404,8 @@ class LocalQueueRepository {
             'created_at': now,
             'is_interactive': task.isInteractive ? 1 : 0,
             'attempt_id': task.attemptId,
+            'scenario_id': task.scenarioId,
+            'scenario_version': task.scenarioVersion,
           });
           continue;
         }
@@ -388,6 +427,8 @@ class LocalQueueRepository {
               'reported_at': null,
               'is_interactive': task.isInteractive ? 1 : 0,
               'attempt_id': task.attemptId,
+              'scenario_id': task.scenarioId,
+              'scenario_version': task.scenarioVersion,
             },
             where: 'id = ?',
             whereArgs: [existingRow['id']],
@@ -439,7 +480,10 @@ class LocalQueueRepository {
     final db = await _database;
     final updated = await db.update(
       'transaction_tasks',
-      {'state': TaskState.done, 'reported_at': DateTime.now().toIso8601String()},
+      {
+        'state': TaskState.done,
+        'reported_at': DateTime.now().toIso8601String(),
+      },
       where: 'id = ? AND state = ?',
       whereArgs: [id, TaskState.pendingDial],
     );
@@ -455,14 +499,21 @@ class LocalQueueRepository {
     final db = await _database;
     final updated = await db.update(
       'transaction_tasks',
-      {'state': TaskState.dialing, 'dialing_at': DateTime.now().toIso8601String()},
+      {
+        'state': TaskState.dialing,
+        'dialing_at': DateTime.now().toIso8601String(),
+      },
       where: 'id = ? AND state = ?',
       whereArgs: [id, TaskState.pendingDial],
     );
     return updated > 0;
   }
 
-  Future<void> markDialed(int id, {required bool? success, required String result}) async {
+  Future<void> markDialed(
+    int id, {
+    required bool? success,
+    required String result,
+  }) async {
     final db = await _database;
     await db.update(
       'transaction_tasks',
@@ -494,7 +545,10 @@ class LocalQueueRepository {
     final db = await _database;
     await db.update(
       'transaction_tasks',
-      {'state': TaskState.done, 'reported_at': DateTime.now().toIso8601String()},
+      {
+        'state': TaskState.done,
+        'reported_at': DateTime.now().toIso8601String(),
+      },
       where: 'id = ?',
       whereArgs: [id],
     );
@@ -516,7 +570,9 @@ class LocalQueueRepository {
   /// doc. [grace] should stay comfortably under the server's
   /// TRANSACTION_ENGINE.TIMEOUT_SECONDS (90s) so this never races a dial that
   /// is still genuinely in progress.
-  Future<int> recoverInterruptedDials({Duration grace = const Duration(seconds: 60)}) async {
+  Future<int> recoverInterruptedDials({
+    Duration grace = const Duration(seconds: 60),
+  }) async {
     final db = await _database;
     final cutoff = DateTime.now().subtract(grace).toIso8601String();
     return db.update(
@@ -578,10 +634,13 @@ class LocalQueueRepository {
           ? const <Map<String, Object?>>[]
           : await txn.query(
               'sms_tasks',
-              where: 'server_id IN (${List.filled(serverIds.length, '?').join(', ')})',
+              where:
+                  'server_id IN (${List.filled(serverIds.length, '?').join(', ')})',
               whereArgs: serverIds,
             );
-      final existingByServerId = {for (final row in existingRows) row['server_id'] as int: row};
+      final existingByServerId = {
+        for (final row in existingRows) row['server_id'] as int: row,
+      };
 
       for (final task in tasks) {
         final existingRow = existingByServerId[task.id];
@@ -641,7 +700,10 @@ class LocalQueueRepository {
     final db = await _database;
     final updated = await db.update(
       'sms_tasks',
-      {'state': SmsTaskState.sending, 'sending_at': DateTime.now().toIso8601String()},
+      {
+        'state': SmsTaskState.sending,
+        'sending_at': DateTime.now().toIso8601String(),
+      },
       where: 'id = ? AND state = ?',
       whereArgs: [id, SmsTaskState.pendingSend],
     );
@@ -652,7 +714,11 @@ class LocalQueueRepository {
   /// row still in `sending` (see [reconcileSmsOutcomes]) - never called
   /// directly from the dial step, since `sendSms` itself only confirms the
   /// OS accepted the request, not the actual delivery outcome.
-  Future<void> markSmsResultKnown(int id, {required bool? success, required String result}) async {
+  Future<void> markSmsResultKnown(
+    int id, {
+    required bool? success,
+    required String result,
+  }) async {
     final db = await _database;
     await db.update(
       'sms_tasks',
@@ -672,13 +738,19 @@ class LocalQueueRepository {
   /// `id`) into [markSmsResultKnown] calls - only for rows still `sending`,
   /// so a stray/duplicate outbox entry can never resurrect an already-
   /// reported task.
-  Future<void> reconcileSmsOutcomes(List<Map<dynamic, dynamic>> outcomes) async {
+  Future<void> reconcileSmsOutcomes(
+    List<Map<dynamic, dynamic>> outcomes,
+  ) async {
     for (final entry in outcomes) {
       final id = entry['taskId'] as int?;
       final sent = entry['sent'] as String?;
       if (id == null || sent == null) continue;
       final db = await _database;
-      final rows = await db.query('sms_tasks', where: 'id = ? AND state = ?', whereArgs: [id, SmsTaskState.sending]);
+      final rows = await db.query(
+        'sms_tasks',
+        where: 'id = ? AND state = ?',
+        whereArgs: [id, SmsTaskState.sending],
+      );
       if (rows.isEmpty) {
         // Stabilisation RC1 (priorité moyenne n°11): most commonly this
         // means [recoverInterruptedSmsSends] already moved the row past
@@ -715,7 +787,10 @@ class LocalQueueRepository {
     final db = await _database;
     await db.update(
       'sms_tasks',
-      {'state': SmsTaskState.done, 'reported_at': DateTime.now().toIso8601String()},
+      {
+        'state': SmsTaskState.done,
+        'reported_at': DateTime.now().toIso8601String(),
+      },
       where: 'id = ?',
       whereArgs: [id],
     );
@@ -733,7 +808,9 @@ class LocalQueueRepository {
   /// sent/delivered receipt can legitimately take longer than a USSD
   /// response, and some OEMs delay or drop broadcast receivers under
   /// aggressive battery management.
-  Future<int> recoverInterruptedSmsSends({Duration grace = const Duration(minutes: 2)}) async {
+  Future<int> recoverInterruptedSmsSends({
+    Duration grace = const Duration(minutes: 2),
+  }) async {
     final db = await _database;
     final cutoff = DateTime.now().subtract(grace).toIso8601String();
     return db.update(
@@ -776,7 +853,9 @@ class LocalQueueRepository {
       });
       return true;
     } on DatabaseException catch (e) {
-      if (e.isUniqueConstraintError() || e.isNotNullConstraintError() || e.toString().contains('CHECK')) {
+      if (e.isUniqueConstraintError() ||
+          e.isNotNullConstraintError() ||
+          e.toString().contains('CHECK')) {
         return false;
       }
       rethrow;
@@ -785,7 +864,11 @@ class LocalQueueRepository {
 
   Future<InteractiveSession?> currentInteractiveSession() async {
     final db = await _database;
-    final rows = await db.query('interactive_session', where: 'singleton = 1', limit: 1);
+    final rows = await db.query(
+      'interactive_session',
+      where: 'singleton = 1',
+      limit: 1,
+    );
     return rows.isEmpty ? null : InteractiveSession.fromRow(rows.first);
   }
 
@@ -799,16 +882,12 @@ class LocalQueueRepository {
     required String payload,
   }) async {
     final db = await _database;
-    await db.update(
-      'interactive_session',
-      {
-        'pending_event': event,
-        'pending_idempotency_key': idempotencyKey,
-        'pending_payload': payload,
-        'updated_at': DateTime.now().toIso8601String(),
-      },
-      where: 'singleton = 1',
-    );
+    await db.update('interactive_session', {
+      'pending_event': event,
+      'pending_idempotency_key': idempotencyKey,
+      'pending_payload': payload,
+      'updated_at': DateTime.now().toIso8601String(),
+    }, where: 'singleton = 1');
   }
 
   /// Step 5: only called after a successful HTTP response - a network
@@ -816,11 +895,10 @@ class LocalQueueRepository {
   /// the ones a retry will resend.
   Future<void> recordStepResponse(String response) async {
     final db = await _database;
-    await db.update(
-      'interactive_session',
-      {'last_response': response, 'updated_at': DateTime.now().toIso8601String()},
-      where: 'singleton = 1',
-    );
+    await db.update('interactive_session', {
+      'last_response': response,
+      'updated_at': DateTime.now().toIso8601String(),
+    }, where: 'singleton = 1');
   }
 
   /// One generic cleanup regardless of why the session ended (SUCCESS/

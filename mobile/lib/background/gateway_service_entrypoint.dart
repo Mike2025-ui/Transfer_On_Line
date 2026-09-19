@@ -7,7 +7,8 @@ import 'package:flutter/widgets.dart';
 import '../services/connectivity_monitor.dart';
 import '../services/gateway_api.dart';
 import '../services/local_queue_repository.dart';
-import 'background_bridge.dart' show BackgroundBridge, backgroundServiceChannelName;
+import 'background_bridge.dart'
+    show BackgroundBridge, backgroundServiceChannelName;
 import 'gateway_loop.dart';
 import 'interactive_ussd_runner.dart';
 import 'sms_service.dart';
@@ -67,7 +68,11 @@ void gatewayServiceMain() {
   // reentrancy guard, so a long interactive USSD session never delays a
   // single heartbeat (see the D4 design report on why this must not be
   // `await interactiveSession()` inside the tick chain).
-  final interactiveRunner = InteractiveUssdRunner(api: api, queue: queue, bridge: bridge);
+  final interactiveRunner = InteractiveUssdRunner(
+    api: api,
+    queue: queue,
+    bridge: bridge,
+  );
   // Phase D4 (reprise après redémarrage/reboot) : si le processus précédent
   // est mort au milieu d'une session interactive (crash, reboot, "Forcer
   // l'arrêt"), UssdAccessibilityService (même processus) est mort avec lui -
@@ -110,7 +115,10 @@ void gatewayServiceMain() {
 
   Duration backoffFor(int failures) {
     final multiplier = 1 << failures.clamp(0, 10);
-    final seconds = (_tickInterval.inSeconds * multiplier).clamp(0, _maxBackoff.inSeconds);
+    final seconds = (_tickInterval.inSeconds * multiplier).clamp(
+      0,
+      _maxBackoff.inSeconds,
+    );
     return Duration(seconds: seconds);
   }
 
@@ -132,13 +140,45 @@ void gatewayServiceMain() {
       await queue.markInteractiveHandedOff(task.id);
       return;
     }
+
+    // Architecture Hybride Edge : vérification stricte de version
+    // Si le scénario demandé est manquant ou obsolète localement, synchroniser
+    if (task.scenarioId != null && task.scenarioVersion != null) {
+      try {
+        final cachedVersions = await bridge.getCachedScenarioVersions();
+        final cachedVer =
+            cachedVersions[task.scenarioId.toString()] as int? ?? 0;
+        if (cachedVer < task.scenarioVersion!) {
+          final scenariosJson = await api.fetchScenariosRaw();
+          await bridge.syncScenarios(scenariosJson);
+        }
+      } catch (e) {
+        developer.log(
+          'Échec synchronisation scénario: $e',
+          name: 'gatewayServiceMain',
+        );
+      }
+    }
+
     final claimed = await queue.markInteractiveHandedOff(task.id);
     if (!claimed) return; // a concurrent check already took it
+
+    final txData = <String, dynamic>{
+      'amount': task.amount,
+      'recipient_phone': task.recipientPhone,
+      'phone': task.recipientPhone,
+      'reference': task.reference,
+      'transaction_type': task.transactionType,
+    };
+
     await interactiveRunner.start(
       transactionReference: task.reference,
       attemptId: attemptId,
       ussdCode: task.ussdCode,
       simSlot: task.simSlot,
+      scenarioId: task.scenarioId,
+      scenarioVersion: task.scenarioVersion,
+      transactionData: txData,
     );
   }
 
@@ -172,7 +212,9 @@ void gatewayServiceMain() {
         final backoff = backoffFor(consecutiveFailures);
         nextAttemptAt = DateTime.now().add(backoff);
         try {
-          await bridge.updateNotification('Backend injoignable - nouvel essai dans ${backoff.inSeconds}s');
+          await bridge.updateNotification(
+            'Backend injoignable - nouvel essai dans ${backoff.inSeconds}s',
+          );
         } catch (_) {}
       }
     }
@@ -235,7 +277,9 @@ void gatewayServiceMain() {
 /// See the call site's comment in [gatewayServiceMain]. Top-level (not a
 /// local closure) so it can be unit-tested directly against a real in-memory
 /// [LocalQueueRepository] without spinning up the whole entrypoint.
-Future<void> _recoverOrphanedInteractiveSession(LocalQueueRepository queue) async {
+Future<void> _recoverOrphanedInteractiveSession(
+  LocalQueueRepository queue,
+) async {
   final orphaned = await queue.currentInteractiveSession();
   if (orphaned == null) return;
   developer.log(

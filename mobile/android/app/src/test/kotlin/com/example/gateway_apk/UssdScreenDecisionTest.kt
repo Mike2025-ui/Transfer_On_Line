@@ -38,7 +38,7 @@ class UssdScreenDecisionTest {
     @Test
     fun `zero fields produces FinalField, never NewField`() {
         val event = decideScreenEvent(0)
-        assertEquals(UssdStepEvent.FinalField, event)
+        assertEquals(UssdStepEvent.FinalField(), event)
     }
 
     @Test

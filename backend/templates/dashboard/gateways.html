@@ -66,9 +66,14 @@
                                 </span>
                             </td>
                             <td>
-                                <button type="button" class="btn btn-sm btn-outline-secondary toggle-btn" data-gateway-id="{{ gw.id }}" title="Activer/désactiver">
-                                    <i class="fas fa-power-off"></i>
-                                </button>
+                                <div class="btn-group btn-group-sm">
+                                    <button type="button" class="btn btn-sm btn-outline-secondary toggle-btn" data-gateway-id="{{ gw.id }}" title="Activer/désactiver">
+                                        <i class="fas fa-power-off"></i>
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-outline-danger delete-btn" data-gateway-id="{{ gw.id }}" data-gateway-name="{{ gw.name }}" title="Supprimer la gateway">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </div>
                             </td>
                         </tr>
                         {% empty %}
@@ -99,6 +104,33 @@ document.querySelectorAll('.toggle-btn').forEach(function (btn) {
                 badge.textContent = result.is_active ? 'Active' : 'Inactive';
                 badge.classList.toggle('bg-success', result.is_active);
                 badge.classList.toggle('bg-secondary', !result.is_active);
+            })
+            .catch(function () { alert('Erreur réseau'); });
+    });
+});
+
+document.querySelectorAll('.delete-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+        const gatewayId = btn.dataset.gatewayId;
+        const gatewayName = btn.dataset.gatewayName;
+        if (!confirm(`Confirmez-vous la suppression de la gateway "${gatewayName}" ?`)) {
+            return;
+        }
+        fetch(`/dashboard/gateways/${gatewayId}/delete/`, {
+            method: 'POST',
+            headers: { 'X-CSRFToken': '{{ csrf_token }}' },
+        })
+            .then(function (response) { return response.json(); })
+            .then(function (result) {
+                if (result.error) { alert(result.error); return; }
+                const row = document.querySelector(`[data-gateway-row="${gatewayId}"]`);
+                if (row) {
+                    row.remove();
+                }
+                const tbody = document.querySelector('tbody');
+                if (tbody && tbody.querySelectorAll('tr[data-gateway-row]').length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="16" class="text-center text-muted py-4">Aucune gateway enregistrée</td></tr>';
+                }
             })
             .catch(function () { alert('Erreur réseau'); });
     });

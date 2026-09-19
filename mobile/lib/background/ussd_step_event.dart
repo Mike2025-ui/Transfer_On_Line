@@ -29,9 +29,13 @@ class UssdStepEvent {
         return UssdStepEvent._(
           type: UssdStepEventType.newField,
           fieldCount: (map['fieldCount'] as num?)?.toInt() ?? 0,
+          operatorMessage: map['operatorMessage'] as String?,
         );
       case 'FINAL_FIELD':
-        return const UssdStepEvent._(type: UssdStepEventType.finalField);
+        return UssdStepEvent._(
+          type: UssdStepEventType.finalField,
+          operatorMessage: map['operatorMessage'] as String?,
+        );
       case 'RESULT':
         return UssdStepEvent._(
           type: UssdStepEventType.result,
@@ -46,6 +50,8 @@ class UssdStepEvent {
         );
       case 'TIMEOUT':
         return const UssdStepEvent._(type: UssdStepEventType.timeout);
+      case 'INPUT_SUBMITTED':
+        return const UssdStepEvent._(type: UssdStepEventType.inputSubmitted);
       default:
         // Never silently misclassify an unrecognized wire event as
         // something actionable - surfaced as Failed so the runner reports
@@ -59,4 +65,11 @@ class UssdStepEvent {
   }
 }
 
-enum UssdStepEventType { newField, finalField, result, failed, timeout }
+enum UssdStepEventType {
+  newField,
+  finalField,
+  result,
+  failed,
+  timeout,
+  inputSubmitted,
+}

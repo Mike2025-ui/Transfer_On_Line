@@ -20,6 +20,8 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- SMS delivery (Phase C, Étape 7) - see apps.devices.models.SmsTask. -->
     <uses-permission android:name="android.permission.SEND_SMS" />
+    <!-- USSD execution overlay (TYPE_APPLICATION_OVERLAY) to keep Transfer On Line console in foreground -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <application
         android:label="gateway_apk"
         android:name="${applicationName}"
@@ -101,7 +103,7 @@
         <activity
             android:name=".UssdTestActivity"
             android:exported="false"
-            android:label="USSD Test (Debug)" />
+            android:label="Console d'Exécution USSD — Transfer On Line" />
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

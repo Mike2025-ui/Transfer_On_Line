@@ -209,12 +209,33 @@ class UssdService {
   Future<void> openUssdTestActivity() =>
       _channel.invokeMethod<void>('openUssdTestActivity');
 
+  Future<bool> isUssdAccessibilityEnabled() async {
+    final result = await _channel.invokeMethod<bool>(
+      'isUssdAccessibilityEnabled',
+    );
+    return result ?? false;
+  }
+
+  Future<bool> isOverlayPermissionGranted() async {
+    final result = await _channel.invokeMethod<bool>(
+      'isOverlayPermissionGranted',
+    );
+    return result ?? false;
+  }
+
+  Future<void> openOverlaySettings() =>
+      _channel.invokeMethod<void>('openOverlaySettings');
+
   /// [simSlot]: the physical SIM slot (0/1) the Scheduler reserved for this
   /// task (see `PendingTransaction.simSlot`) - null dials on the phone's
   /// default SIM, exactly as before multi-SIM targeting existed.
   /// [operator]: the operator this task requires (Phase D audit, Critique) -
   /// null skips the native SIM/operator cross-check entirely.
-  Future<String> sendUssdCode(String code, int? simSlot, String? operator) async {
+  Future<String> sendUssdCode(
+    String code,
+    int? simSlot,
+    String? operator,
+  ) async {
     final result = await _channel.invokeMethod<String>('sendUssd', {
       'code': code,
       'simSlot': ?simSlot,
@@ -227,5 +248,48 @@ class UssdService {
       );
     }
     return result;
+  }
+
+  /// Architecture Hybride Edge : Enregistre le code distributeur chiffré dans
+  /// l'Android KeyStore pour le slot SIM spécifié (0 ou 1).
+  Future<bool> saveDistributorCode(int simSlot, String code) async {
+    final result = await _channel.invokeMethod<bool>('saveDistributorCode', {
+      'simSlot': simSlot,
+      'code': code,
+    });
+    return result ?? false;
+  }
+
+  /// Vérifie si un code distributeur est configuré pour le slot donné.
+  Future<bool> hasDistributorCode(int simSlot) async {
+    final result = await _channel.invokeMethod<bool>('hasDistributorCode', {
+      'simSlot': simSlot,
+    });
+    return result ?? false;
+  }
+
+  /// Supprime le code distributeur configuré pour le slot donné.
+  Future<bool> clearDistributorCode(int simSlot) async {
+    final result = await _channel.invokeMethod<bool>('clearDistributorCode', {
+      'simSlot': simSlot,
+    });
+    return result ?? false;
+  }
+
+  /// Met à jour le cache local des scénarios.
+  Future<int> syncScenarios(String scenariosJson) async {
+    final result = await _channel.invokeMethod<int>('syncScenarios', {
+      'scenariosJson': scenariosJson,
+    });
+    return result ?? 0;
+  }
+
+  /// Retourne un dictionnaire des versions des scénarios en cache local.
+  Future<Map<String, dynamic>> getCachedScenarioVersions() async {
+    final result = await _channel.invokeMethod<Map<dynamic, dynamic>>(
+      'getCachedScenarioVersions',
+    );
+    if (result == null) return const {};
+    return Map<String, dynamic>.from(result);
   }
 }

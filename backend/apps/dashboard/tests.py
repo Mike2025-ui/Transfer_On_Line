@@ -359,6 +359,37 @@ class UssdScenarioStepsTests(TestCase):
         self.assertTrue(reverse('ussd_code_create', kwargs={'pk': self.orange.pk}).startswith('/dashboard/'))
         self.assertTrue(True)  # ussd_code_edit's URL is exercised by the tests above
 
+    def test_edit_increments_version_and_saves_agent_auth(self):
+        code = UssdCode.objects.create(
+            operator=self.orange, service=self.internet, label='Test_Ver', template='*133#', version=1,
+        )
+        payload = json.dumps([
+            {'order': 1, 'step_type': 'INPUT', 'name': 'Menu', 'fields': [{'order': 1, 'field_type': 'FIXED', 'value': '1'}]},
+            {'order': 2, 'step_type': 'AGENT_AUTH', 'name': 'Code Distributeur', 'fields': []},
+            {'order': 3, 'step_type': 'FINAL_FIELD', 'name': 'Fin', 'fields': []},
+        ])
+        response = self.client.post(
+            reverse('ussd_code_edit', kwargs={'pk': code.pk}),
+            {'service': self.internet.pk, 'label': 'Test_Ver', 'template': '*133#', 'is_active': 'on', 'steps_json': payload},
+        )
+        self.assertRedirects(response, reverse('ussd_codes', kwargs={'pk': self.orange.pk}))
+        code.refresh_from_db()
+        self.assertEqual(code.version, 2)
+        self.assertEqual(code.steps.count(), 3)
+        self.assertEqual(code.steps.get(order=2).step_type, 'AGENT_AUTH')
+
+    def test_agent_auth_with_field_is_rejected(self):
+        payload = json.dumps([
+            {'order': 1, 'step_type': 'AGENT_AUTH', 'name': 'Bad Auth', 'fields': [{'order': 1, 'field_type': 'FIXED', 'value': 'secret'}]},
+        ])
+        response = self.client.post(
+            reverse('ussd_code_create', kwargs={'pk': self.orange.pk}),
+            {'service': self.internet.pk, 'label': 'Bad', 'template': '*133#', 'is_active': 'on', 'steps_json': payload},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(UssdCode.objects.filter(label='Bad').exists())
+        self.assertContains(response, 'AGENT_AUTH')
+
 
 class UssdCodePreviewTests(TestCase):
     def setUp(self):
@@ -766,6 +797,36 @@ class GatewayAndSimToggleTests(TestCase):
     def test_toggle_rejects_get(self):
         response = self.client.get(reverse('gateway_toggle', kwargs={'pk': self.gateway.pk}))
         self.assertEqual(response.status_code, 405)
+
+    def test_gateway_delete_success_and_logs(self):
+        response = self.client.post(reverse('gateway_delete', kwargs={'pk': self.gateway.pk}))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {'success': True, 'id': self.gateway.pk})
+        self.assertFalse(Gateway.objects.filter(pk=self.gateway.pk).exists())
+        self.assertTrue(AuditLog.objects.filter(action='gateway.delete').exists())
+
+    def test_gateway_delete_blocked_when_in_flight(self):
+        service = Service.objects.create(name='Internet', code='sub')
+        tx = _make_transaction(self.orange, service)
+        TransactionAttempt.objects.create(
+            transaction=tx, attempt_number=1, gateway_sim=self.sim, status='executing',
+        )
+        response = self.client.post(reverse('gateway_delete', kwargs={'pk': self.gateway.pk}))
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('error', response.json())
+        self.assertTrue(Gateway.objects.filter(pk=self.gateway.pk).exists())
+
+    def test_gateway_delete_rejects_get(self):
+        response = self.client.get(reverse('gateway_delete', kwargs={'pk': self.gateway.pk}))
+        self.assertEqual(response.status_code, 405)
+
+    def test_gateways_list_renders_both_active_and_inactive(self):
+        Gateway.objects.create(name='GW_Inactive', status='offline', is_active=False)
+        response = self.client.get(reverse('gateways'))
+        self.assertEqual(response.status_code, 200)
+        gateway_names = [g['name'] for g in response.context['gateways']]
+        self.assertIn('GW1', gateway_names)
+        self.assertIn('GW_Inactive', gateway_names)
 
 
 class DashboardNavigationSmokeTests(TestCase):

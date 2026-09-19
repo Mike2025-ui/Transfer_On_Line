@@ -193,8 +193,15 @@ class GatewayForegroundService : Service() {
                         result.error("PERMISSION_DENIED", "CALL_PHONE permission not granted", null)
                         return@setMethodCallHandler
                     }
+                    @Suppress("UNCHECKED_CAST")
+                    val txData = call.argument<Map<String, Any?>>("transactionData") ?: emptyMap()
                     val armed = UssdAccessibilityService.armSession(
-                        UssdSessionConfig(simSlot = call.argument<Int>("simSlot")),
+                        UssdSessionConfig(
+                            simSlot = call.argument<Int>("simSlot"),
+                            scenarioId = call.argument<Int>("scenarioId"),
+                            scenarioVersion = call.argument<Int>("scenarioVersion"),
+                            transactionData = txData,
+                        ),
                     )
                     if (!armed) {
                         result.error("ACCESSIBILITY_NOT_ACTIVE", "UssdAccessibilityService is not bound", null)
@@ -210,6 +217,19 @@ class GatewayForegroundService : Service() {
                         UssdAccessibilityService.cancelActiveSession()
                         result.error("ACTION_CALL_FAILED", e.message, null)
                     }
+                }
+                "syncScenarios" -> {
+                    val json = call.argument<String>("scenariosJson") ?: "{}"
+                    val count = ScenarioEngine.getInstance(applicationContext).updateCacheFromJson(json)
+                    result.success(count)
+                }
+                "getCachedScenarioVersions" -> {
+                    val summary = ScenarioEngine.getInstance(applicationContext).getCachedVersionsSummary()
+                    result.success(summary)
+                }
+                "hasDistributorCode" -> {
+                    val slot = call.argument<Int>("simSlot") ?: 0
+                    result.success(DistributorCodeStore.hasDistributorCode(applicationContext, slot))
                 }
                 "ussdOnBackendInput" -> {
                     @Suppress("UNCHECKED_CAST")
@@ -338,11 +358,28 @@ class GatewayForegroundService : Service() {
  * round-trip (native -> Dart -> UssdStepEvent.fromChannelMap) is exercised
  * for real only on the Itel A80, never claimed proven by this function alone. */
 fun ussdStepEventToChannelMap(event: UssdStepEvent): Map<String, Any?> = when (event) {
-    is UssdStepEvent.NewField -> mapOf("type" to "NEW_FIELD", "fieldCount" to event.fieldCount)
-    UssdStepEvent.FinalField -> mapOf("type" to "FINAL_FIELD")
-    is UssdStepEvent.Result -> mapOf(
-        "type" to "RESULT", "status" to event.status, "operatorMessage" to event.operatorMessage,
+    is UssdStepEvent.NewField -> mapOf(
+        "type" to "NEW_FIELD",
+        "fieldCount" to event.fieldCount,
+        "operatorMessage" to event.operatorMessage,
     )
-    is UssdStepEvent.Failed -> mapOf("type" to "FAILED", "errorCode" to event.errorCode, "detail" to event.detail)
+    is UssdStepEvent.FinalField -> mapOf(
+        "type" to "FINAL_FIELD",
+        "operatorMessage" to event.operatorMessage,
+    )
+    is UssdStepEvent.Result -> mapOf(
+        "type" to "RESULT",
+        "status" to event.status,
+        "operatorMessage" to event.operatorMessage,
+    )
+    is UssdStepEvent.Failed -> mapOf(
+        "type" to "FAILED",
+        "errorCode" to event.errorCode,
+        "detail" to event.detail,
+    )
     UssdStepEvent.Timeout -> mapOf("type" to "TIMEOUT")
+    is UssdStepEvent.InputSubmitted -> mapOf(
+        "type" to "INPUT_SUBMITTED",
+        "values" to event.values,
+    )
 }

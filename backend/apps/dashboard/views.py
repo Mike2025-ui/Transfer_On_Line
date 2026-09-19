@@ -295,7 +295,7 @@ def payments_list(request):
 
 @staff_member_required
 def gateways_list(request):
-    gateways = [GatewayManager.gateway_state(gw) for gw in Gateway.objects.filter(is_active=True).order_by('name')]
+    gateways = [GatewayManager.gateway_state(gw) for gw in Gateway.objects.all().order_by('name')]
     return render(request, 'dashboard/gateways.html', {
         'title': 'Gateways', 'gateways': gateways, 'stats': GatewayManager.pool_stats(),
     })
@@ -315,6 +315,30 @@ def gateway_toggle(request, pk):
         f'Gateway {"activée" if gateway.is_active else "désactivée"}: {gateway.name}',
     )
     return JsonResponse({'id': gateway.id, 'is_active': gateway.is_active})
+
+
+@staff_member_required
+def gateway_delete(request, pk):
+    """Supprimer une Gateway depuis le dashboard.
+    Si des transactions sont en cours d’exécution sur cette gateway, refuser la suppression.
+    Journalisé dans AuditLog."""
+    if request.method != 'POST':
+        return JsonResponse({'error': 'POST required'}, status=405)
+    gateway = get_object_or_404(Gateway, pk=pk)
+    in_flight = TransactionAttempt.objects.filter(
+        gateway_sim__gateway=gateway, status__in=IN_FLIGHT_STATUSES,
+    ).exists()
+    if in_flight:
+        return JsonResponse({
+            'error': 'Impossible de supprimer cette gateway : des transactions sont actuellement en cours d’exécution.',
+        }, status=400)
+    name = gateway.name
+    gateway.delete()
+    write_audit_log(
+        request, 'gateway.delete',
+        f'Gateway supprimée: {name}',
+    )
+    return JsonResponse({'success': True, 'id': pk})
 
 
 # --- SIM -------------------------------------------------------------------
@@ -750,8 +774,8 @@ def _parse_steps_json(raw):
             seen_step_orders.add(order)
 
         fields = step.get('fields') or []
-        if step_type == 'FINAL_FIELD' and fields:
-            errors.append(f'Étape {step_index} : une étape "Fin de saisie" ne peut contenir aucune valeur.')
+        if step_type in ('FINAL_FIELD', 'AGENT_AUTH') and fields:
+            errors.append(f'Étape {step_index} : une étape "{step_type}" ne peut contenir aucune valeur.')
         seen_field_orders = set()
         for field_index, field in enumerate(fields, start=1):
             field_type = field.get('field_type')
@@ -864,7 +888,10 @@ def ussd_code_edit(request, pk):
             changes = _form_changes_description(form)
             try:
                 with db_transaction.atomic():
-                    form.save()
+                    code = form.save(commit=False)
+                    code.version = (code.version or 1) + 1
+                    code.save()
+                    form.save_m2m()
                     _save_steps(code, steps)
             except IntegrityError:
                 form.add_error(
@@ -875,7 +902,7 @@ def ussd_code_edit(request, pk):
             else:
                 write_audit_log(
                     request, 'ussd_code.update',
-                    f'Code USSD modifié: {code.label} ({operator.name}) — {changes}, {len(steps)} étape(s)',
+                    f'Code USSD modifié: {code.label} ({operator.name}) v{code.version} — {changes}, {len(steps)} étape(s)',
                 )
                 return redirect('ussd_codes', pk=operator.pk)
     else:

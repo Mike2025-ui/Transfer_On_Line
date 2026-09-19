@@ -17,7 +17,10 @@ from apps.core.models import (
     Device, Gateway, Notification, Operator, Payment, Service, Transaction, TransactionAttempt, TransactionEvent,
     UssdCode, UssdCodeNotConfigured, UssdCodeRenderError, hash_gateway_secret,
 )
-from apps.core.serializers import gateway_task_payload, notification_payload, resolve_ussd_code, transaction_payload
+from apps.core.serializers import (
+    gateway_task_payload, notification_payload, resolve_ussd_code,
+    serialize_scenario_for_sync, transaction_payload,
+)
 
 logger = logging.getLogger(__name__)
 from apps.core.services.retry_manager import RetryManager
@@ -1047,3 +1050,27 @@ class SmsResultView(APIView):
         task.gateway = gateway
         task.save(update_fields=['status', 'sent_at', 'gateway'])
         return Response({'id': task.id, 'status': task.status})
+
+
+class ScenarioSyncView(APIView):
+    """Hybrid Architecture (Backend -> Edge Gateway):
+    Synchronizes full USSD scenarios with their versions, templates and steps
+    to the Android Gateway. Zero-knowledge on secrets: no PIN or secret is ever
+    stored or returned here. AGENT_AUTH steps indicate where the Gateway will
+    inject its own locally stored CODE_DISTRIBUTEUR."""
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        scenario_id = request.query_params.get('scenario_id')
+        queryset = UssdCode.objects.filter(is_active=True).select_related(
+            'operator', 'service'
+        ).prefetch_related('steps__fields').order_by('operator__name', 'label')
+
+        if scenario_id:
+            queryset = queryset.filter(id=scenario_id)
+
+        scenarios = [serialize_scenario_for_sync(code) for code in queryset]
+        return Response({
+            'count': len(scenarios),
+            'scenarios': scenarios,
+        })

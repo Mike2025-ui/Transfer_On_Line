@@ -98,6 +98,7 @@ class UssdCode(models.Model):
     # Informational only - service IS NULL is the real fallback signal
     # (already guaranteed unique per operator by the constraint below).
     is_default = models.BooleanField(default=False)
+    version = models.PositiveIntegerField(default=1)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -125,7 +126,7 @@ class UssdCode(models.Model):
 
     def __str__(self):
         service_label = self.service.name if self.service else 'Tous services'
-        return f'{self.operator.name} - {service_label} - {self.label}'
+        return f'{self.operator.name} - {service_label} - {self.label} (v{self.version})'
 
     def render(self, context: dict) -> str:
         """Substitutes {numero}/{montant}/{forfait}/{pin} placeholders in
@@ -158,6 +159,7 @@ class UssdStep(models.Model):
 
     STEP_TYPE_CHOICES = [
         ('INPUT', 'Saisie'),
+        ('AGENT_AUTH', 'Authentification agent / Code distributeur (secret local Gateway)'),
         ('FINAL_FIELD', 'Fin de saisie (attendre le résultat opérateur)'),
     ]
 
@@ -184,8 +186,8 @@ class UssdStep(models.Model):
         # formset case is UssdStepFieldInlineFormSet.clean() in admin.py,
         # since a step and its brand-new fields can be submitted together
         # in one Admin form before either has a pk to query by.
-        if self.step_type == 'FINAL_FIELD' and self.pk and self.fields.exists():
-            raise ValidationError('Une étape FINAL_FIELD ne peut contenir aucun champ.')
+        if self.step_type in ('FINAL_FIELD', 'AGENT_AUTH') and self.pk and self.fields.exists():
+            raise ValidationError(f'Une étape {self.step_type} ne peut contenir aucun champ.')
 
 
 class UssdStepField(models.Model):
@@ -222,8 +224,8 @@ class UssdStepField(models.Model):
             raise ValidationError(
                 f"Variable inconnue '{self.value}'. Autorisées : {sorted(USSD_TEMPLATE_KNOWN_VARS)}"
             )
-        if self.step_id and self.step.step_type == 'FINAL_FIELD':
-            raise ValidationError('Une étape FINAL_FIELD ne peut pas avoir de champ.')
+        if self.step_id and self.step.step_type in ('FINAL_FIELD', 'AGENT_AUTH'):
+            raise ValidationError(f'Une étape {self.step.step_type} ne peut pas avoir de champ.')
 
 
 class Gateway(models.Model):

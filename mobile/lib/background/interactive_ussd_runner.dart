@@ -47,6 +47,9 @@ class InteractiveUssdRunner {
     required int attemptId,
     required String ussdCode,
     int? simSlot,
+    int? scenarioId,
+    int? scenarioVersion,
+    Map<String, dynamic>? transactionData,
   }) async {
     if (_running) return; // one interactive session at a time on this Gateway
     _running = true;
@@ -74,38 +77,73 @@ class InteractiveUssdRunner {
       final enabled = await bridge.isUssdAccessibilityEnabled();
       if (!enabled) {
         await _reportResultAndFinish(
-          transactionReference, attemptId,
-          status: 'FAILED', operatorMessage: '', errorCode: 'ACCESSIBILITY_DISABLED',
+          transactionReference,
+          attemptId,
+          status: 'FAILED',
+          operatorMessage: '',
+          errorCode: 'ACCESSIBILITY_DISABLED',
         );
         return;
       }
 
-      await bridge.startInteractiveUssdSession(code: ussdCode, simSlot: simSlot);
+      await bridge.startInteractiveUssdSession(
+        code: ussdCode,
+        simSlot: simSlot,
+        scenarioId: scenarioId,
+        scenarioVersion: scenarioVersion,
+        transactionData: transactionData,
+      );
     } catch (error) {
       await _reportResultAndFinish(
-        transactionReference, attemptId,
-        status: 'FAILED', operatorMessage: '', errorCode: 'ACTION_CALL_FAILED',
+        transactionReference,
+        attemptId,
+        status: 'FAILED',
+        operatorMessage: '',
+        errorCode: 'ACTION_CALL_FAILED',
       );
     }
   }
 
-  Future<void> _handleEvent(String reference, int attemptId, UssdStepEvent event) async {
+  Future<void> _handleEvent(
+    String reference,
+    int attemptId,
+    UssdStepEvent event,
+  ) async {
     switch (event.type) {
+      case UssdStepEventType.inputSubmitted:
+        // Saisie locale effectuée par ScenarioEngine - aucune action réseau intermédiaire requise
+        break;
       case UssdStepEventType.newField:
-        await _reportStepAndRespond(reference, attemptId, event: 'NEW_FIELD', fieldCount: event.fieldCount);
+        await _reportStepAndRespond(
+          reference,
+          attemptId,
+          event: 'NEW_FIELD',
+          fieldCount: event.fieldCount,
+        );
       case UssdStepEventType.finalField:
         await _reportStepAndRespond(reference, attemptId, event: 'FINAL_FIELD');
       case UssdStepEventType.result:
         await _reportResultAndFinish(
-          reference, attemptId, status: event.status ?? 'FAILED', operatorMessage: event.operatorMessage ?? '',
+          reference,
+          attemptId,
+          status: event.status ?? 'FAILED',
+          operatorMessage: event.operatorMessage ?? '',
         );
       case UssdStepEventType.failed:
         await _reportResultAndFinish(
-          reference, attemptId, status: 'FAILED', operatorMessage: '', errorCode: event.errorCode,
+          reference,
+          attemptId,
+          status: 'FAILED',
+          operatorMessage: '',
+          errorCode: event.errorCode,
         );
       case UssdStepEventType.timeout:
         await _reportResultAndFinish(
-          reference, attemptId, status: 'FAILED', operatorMessage: '', errorCode: 'USSD_TIMEOUT',
+          reference,
+          attemptId,
+          status: 'FAILED',
+          operatorMessage: '',
+          errorCode: 'USSD_TIMEOUT',
         );
     }
   }
@@ -115,13 +153,17 @@ class InteractiveUssdRunner {
   /// and persisted BEFORE the HTTP call, then reused verbatim across every
   /// retry of this exact event - never regenerated (Phase C/D2 invariant).
   Future<void> _reportStepAndRespond(
-    String reference, int attemptId, {required String event, int? fieldCount,
+    String reference,
+    int attemptId, {
+    required String event,
+    int? fieldCount,
   }) async {
     final key = generateIdempotencyKey();
     await queue.recordPendingStepEvent(
       event: event,
       idempotencyKey: key,
-      payload: '{"event":"$event"${fieldCount != null ? ',"field_count":$fieldCount' : ''}}',
+      payload:
+          '{"event":"$event"${fieldCount != null ? ',"field_count":$fieldCount' : ''}}',
     );
 
     TransactionStepResponse? response;
@@ -143,13 +185,19 @@ class InteractiveUssdRunner {
           // there is no RESULT worth reporting for an attempt the Backend
           // itself says is not ours/not active. Free the Gateway now
           // rather than burn the retry budget on a permanent error.
-          developer.log('sendTransactionStep($event) permanently rejected ($error) - abandoning', name: 'InteractiveUssdRunner');
+          developer.log(
+            'sendTransactionStep($event) permanently rejected ($error) - abandoning',
+            name: 'InteractiveUssdRunner',
+          );
           await bridge.cancelInteractiveUssdSession();
           await _finish();
           return;
         }
         if (attempt == maxRetriesPerEvent) {
-          developer.log('sendTransactionStep($event) failed after $maxRetriesPerEvent attempts: $error', name: 'InteractiveUssdRunner');
+          developer.log(
+            'sendTransactionStep($event) failed after $maxRetriesPerEvent attempts: $error',
+            name: 'InteractiveUssdRunner',
+          );
           return;
         }
         await Future<void>.delayed(Duration(seconds: attempt));
@@ -158,7 +206,10 @@ class InteractiveUssdRunner {
           // Network exhausted - the session-level timeouts already running
           // on the native side (UssdTimeouts) remain the backstop; nothing
           // more to do locally than give up this event.
-          developer.log('sendTransactionStep($event) failed after $maxRetriesPerEvent attempts: $error', name: 'InteractiveUssdRunner');
+          developer.log(
+            'sendTransactionStep($event) failed after $maxRetriesPerEvent attempts: $error',
+            name: 'InteractiveUssdRunner',
+          );
           return;
         }
         await Future<void>.delayed(Duration(seconds: attempt));
@@ -178,15 +229,23 @@ class InteractiveUssdRunner {
       case 'FAILED':
         await bridge.cancelInteractiveUssdSession();
         await _reportResultAndFinish(
-          reference, attemptId, status: 'FAILED', operatorMessage: '', errorCode: response.errorCode ?? 'BACKEND_FAILED',
+          reference,
+          attemptId,
+          status: 'FAILED',
+          operatorMessage: '',
+          errorCode: response.errorCode ?? 'BACKEND_FAILED',
         );
       default:
-        developer.log('Unrecognized step action "${response.action}"', name: 'InteractiveUssdRunner');
+        developer.log(
+          'Unrecognized step action "${response.action}"',
+          name: 'InteractiveUssdRunner',
+        );
     }
   }
 
   Future<void> _reportResultAndFinish(
-    String reference, int attemptId, {
+    String reference,
+    int attemptId, {
     required String status,
     required String operatorMessage,
     String? errorCode,
@@ -212,17 +271,26 @@ class InteractiveUssdRunner {
         break;
       } on TransactionStepException catch (error) {
         if (_permanentStatusCodes.contains(error.statusCode)) {
-          developer.log('sendTransactionStep(RESULT) permanently rejected ($error) - abandoning', name: 'InteractiveUssdRunner');
+          developer.log(
+            'sendTransactionStep(RESULT) permanently rejected ($error) - abandoning',
+            name: 'InteractiveUssdRunner',
+          );
           break;
         }
         if (attempt == maxRetriesPerEvent) {
-          developer.log('sendTransactionStep(RESULT) failed after $maxRetriesPerEvent attempts: $error', name: 'InteractiveUssdRunner');
+          developer.log(
+            'sendTransactionStep(RESULT) failed after $maxRetriesPerEvent attempts: $error',
+            name: 'InteractiveUssdRunner',
+          );
           break;
         }
         await Future<void>.delayed(Duration(seconds: attempt));
       } catch (error) {
         if (attempt == maxRetriesPerEvent) {
-          developer.log('sendTransactionStep(RESULT) failed after $maxRetriesPerEvent attempts: $error', name: 'InteractiveUssdRunner');
+          developer.log(
+            'sendTransactionStep(RESULT) failed after $maxRetriesPerEvent attempts: $error',
+            name: 'InteractiveUssdRunner',
+          );
           break;
         }
         await Future<void>.delayed(Duration(seconds: attempt));

@@ -11,6 +11,7 @@ urlpatterns = [
     path('remboursements/', views.refunds_list, name='refunds'),
     path('gateways/', views.gateways_list, name='gateways'),
     path('gateways/<int:pk>/toggle/', views.gateway_toggle, name='gateway_toggle'),
+    path('gateways/<int:pk>/delete/', views.gateway_delete, name='gateway_delete'),
     path('sim/', views.gateway_sims_list, name='sims'),
     path('sim/<int:pk>/toggle/', views.sim_toggle, name='sim_toggle'),
     path('scheduler/', views.scheduler_monitor, name='scheduler'),
