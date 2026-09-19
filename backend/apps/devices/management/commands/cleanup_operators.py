@@ -99,3 +99,4 @@ class Command(BaseCommand):
             f"Dispatch terminé : {len(results)} traitée(s), {dispatched} assignée(s) à un Gateway."
         ))
         self.stdout.write("=" * 60)
+

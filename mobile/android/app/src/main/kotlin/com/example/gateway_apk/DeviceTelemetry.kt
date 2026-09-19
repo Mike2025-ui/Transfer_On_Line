@@ -73,9 +73,16 @@ object DeviceTelemetry {
 
     private fun batteryLevel(context: Context): Int? {
         return try {
-            val bm = context.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
-            val level = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
-            if (level in 0..100) level else null
+            val intent = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+            val level = intent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+            val scale = intent?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
+            if (level >= 0 && scale > 0) {
+                ((level.toFloat() / scale.toFloat()) * 100).toInt()
+            } else {
+                val bm = context.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
+                val prop = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+                if (prop in 0..100) prop else null
+            }
         } catch (e: Exception) {
             null
         }
