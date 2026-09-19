@@ -45,8 +45,9 @@ const _maxBackoff = Duration(minutes: 5);
 /// aussi dans l'autre sens - `GatewayForegroundService.stop()` envoie un
 /// message "stop" que ce point d'entrée écoute ici pour annuler le minuteur.
 @pragma('vm:entry-point')
-void gatewayServiceMain() {
+void gatewayServiceMain() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await GatewayApi.initPreferences();
 
   final bridge = BackgroundBridge();
   final sms = SmsService();

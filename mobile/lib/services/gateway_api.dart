@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:math';
 
 import 'package:http/http.dart' as http;
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'ussd_service.dart' show SimInfo;
@@ -259,11 +260,14 @@ class GatewayApi {
   final String? _gatewaySecret;
   final String? _baseUrl;
 
+  static const String defaultProductionUrl =
+      'https://transfert-online.site/api';
+
   // Provide the backend address at build time with
-  // --dart-define=TOL_API_BASE_URL=http://HOST:8000/api.
+  // --dart-define=TOL_API_BASE_URL=https://transfert-online.site/api.
   static const String baseUrl = String.fromEnvironment(
     'TOL_API_BASE_URL',
-    defaultValue: 'https://transfert-online.site/api',
+    defaultValue: defaultProductionUrl,
   );
 
   /// Business-model audit Phase 7 (Gateway security): each physical Gateway
@@ -288,7 +292,42 @@ class GatewayApi {
   static String? _cachedBaseUrl;
   static String? _cachedSecret;
 
+  /// Vérifie si une URL de base d'API est syntaxiquement et sémantiquement valide.
+  /// Rejette les valeurs nulles, vides, sans schéma HTTP/HTTPS ou contenant des
+  /// segments incorrects comme `/api/gateway`, `/gateway/api`, `/api/api`, `/gateway`.
+  static bool isValidBaseUrl(String? input) {
+    if (input == null) return false;
+    final trimmed = input.trim();
+    if (trimmed.isEmpty) return false;
+
+    final uri = Uri.tryParse(trimmed);
+    if (uri == null ||
+        !uri.hasScheme ||
+        (uri.scheme != 'http' && uri.scheme != 'https') ||
+        uri.host.isEmpty) {
+      return false;
+    }
+
+    final lower = trimmed.toLowerCase();
+    if (lower.contains('/api/gateway') ||
+        lower.contains('/gateway/api') ||
+        lower.contains('/api/api') ||
+        lower.contains('/gateway')) {
+      return false;
+    }
+
+    return true;
+  }
+
+  /// Normalise l'URL d'API de base :
+  /// - Supprime les slashes finals : `https://transfert-online.site/api/` -> `https://transfert-online.site/api`
+  /// - Ajoute `/api` si manquant : `https://transfert-online.site` -> `https://transfert-online.site/api`
+  /// - Si l'URL fournie est invalide (ex: contient `/api/gateway/api` ou `/api/api`), elle est rejetée
+  ///   et remplacée par l'URL de production par défaut [baseUrl].
   static String formatBaseUrl(String input) {
+    if (!isValidBaseUrl(input)) {
+      return baseUrl;
+    }
     final clean = input.trim().replaceAll(RegExp(r'/+$'), '');
     return clean.endsWith('/api') ? clean : '$clean/api';
   }
@@ -296,7 +335,22 @@ class GatewayApi {
   static Future<void> initPreferences() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      _cachedBaseUrl = prefs.getString(prefBaseUrlKey);
+      final savedUrl = prefs.getString(prefBaseUrlKey);
+      if (savedUrl != null && savedUrl.trim().isNotEmpty) {
+        if (!isValidBaseUrl(savedUrl)) {
+          // Migration automatique de l'ancienne valeur invalide
+          await prefs.setString(prefBaseUrlKey, baseUrl);
+          _cachedBaseUrl = baseUrl;
+        } else {
+          final formatted = formatBaseUrl(savedUrl);
+          if (formatted != savedUrl) {
+            await prefs.setString(prefBaseUrlKey, formatted);
+          }
+          _cachedBaseUrl = formatted;
+        }
+      } else {
+        _cachedBaseUrl = baseUrl;
+      }
       _cachedSecret = prefs.getString(prefSecretKey);
     } catch (_) {
       // Ignored in test environments
@@ -318,17 +372,30 @@ class GatewayApi {
   }
 
   static Future<String> getConfiguredBaseUrl() async {
-    if (_cachedBaseUrl != null && _cachedBaseUrl!.isNotEmpty) {
-      return _cachedBaseUrl!;
-    }
     try {
       final prefs = await SharedPreferences.getInstance();
       final saved = prefs.getString(prefBaseUrlKey);
-      if (saved != null && saved.isNotEmpty) {
-        _cachedBaseUrl = saved;
-        return saved;
+      if (saved != null && saved.trim().isNotEmpty) {
+        if (!isValidBaseUrl(saved)) {
+          // Migration automatique : rejeter et remplacer par l'URL de production
+          await prefs.setString(prefBaseUrlKey, baseUrl);
+          _cachedBaseUrl = baseUrl;
+          return baseUrl;
+        }
+        final formatted = formatBaseUrl(saved);
+        if (formatted != saved) {
+          await prefs.setString(prefBaseUrlKey, formatted);
+        }
+        _cachedBaseUrl = formatted;
+        return formatted;
       }
     } catch (_) {}
+    if (_cachedBaseUrl != null &&
+        _cachedBaseUrl!.isNotEmpty &&
+        isValidBaseUrl(_cachedBaseUrl)) {
+      return _cachedBaseUrl!;
+    }
+    _cachedBaseUrl = baseUrl;
     return baseUrl;
   }
 
@@ -347,14 +414,20 @@ class GatewayApi {
     return _defaultGatewaySecret;
   }
 
+  @visibleForTesting
+  static void resetCacheForTesting() {
+    _cachedBaseUrl = null;
+    _cachedSecret = null;
+  }
+
   String get effectiveBaseUrl {
     final customUrl = _baseUrl;
     if (customUrl != null && customUrl.isNotEmpty) {
-      return customUrl;
+      return isValidBaseUrl(customUrl) ? formatBaseUrl(customUrl) : baseUrl;
     }
     final cached = _cachedBaseUrl;
     if (cached != null && cached.isNotEmpty) {
-      return cached;
+      return isValidBaseUrl(cached) ? formatBaseUrl(cached) : baseUrl;
     }
     return baseUrl;
   }

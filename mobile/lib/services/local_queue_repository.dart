@@ -235,8 +235,12 @@ class LocalQueueRepository {
   /// `sqflite_common_ffi` en base `:memory:` : SQLite y ignore silencieusement
   /// la demande de WAL (non supporté en mémoire) et reste en mode par défaut.
   Future<void> _onConfigure(Database db) async {
-    await db.rawQuery('PRAGMA journal_mode=WAL');
-    await db.execute('PRAGMA busy_timeout=5000');
+    try {
+      await db.rawQuery('PRAGMA journal_mode=WAL');
+    } catch (_) {}
+    try {
+      await db.rawQuery('PRAGMA busy_timeout=5000');
+    } catch (_) {}
   }
 
   Future<void> _onCreate(Database db, int version) async {

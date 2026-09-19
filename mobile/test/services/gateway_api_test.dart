@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:gateway_apk/services/gateway_api.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Business-model audit Phase 7: GatewayApi attaches an `X-Gateway-Secret`
 /// header (constructor-injected here, a real build instead bakes it in via
@@ -557,6 +558,131 @@ void main() {
         );
         expect(result['success'], isFalse);
         expect(result['message'], contains('401'));
+      },
+    );
+  });
+
+  group('API Base URL validation, normalization and migration (Section 11)', () {
+    setUp(() {
+      GatewayApi.resetCacheForTesting();
+    });
+
+    test('1. URL correcte conservée : https://transfert-online.site/api', () {
+      expect(
+        GatewayApi.isValidBaseUrl('https://transfert-online.site/api'),
+        isTrue,
+      );
+      expect(
+        GatewayApi.formatBaseUrl('https://transfert-online.site/api'),
+        equals('https://transfert-online.site/api'),
+      );
+    });
+
+    test(
+      '2. slash final supprimé : https://transfert-online.site/api/ -> https://transfert-online.site/api',
+      () {
+        expect(
+          GatewayApi.isValidBaseUrl('https://transfert-online.site/api/'),
+          isTrue,
+        );
+        expect(
+          GatewayApi.formatBaseUrl('https://transfert-online.site/api/'),
+          equals('https://transfert-online.site/api'),
+        );
+      },
+    );
+
+    test(
+      '3. ancienne URL invalide rejetée : https://transfert-online.site/api/gateway/api',
+      () {
+        expect(
+          GatewayApi.isValidBaseUrl(
+            'https://transfert-online.site/api/gateway/api',
+          ),
+          isFalse,
+        );
+        expect(
+          GatewayApi.formatBaseUrl(
+            'https://transfert-online.site/api/gateway/api',
+          ),
+          equals('https://transfert-online.site/api'),
+        );
+      },
+    );
+
+    test(
+      '4. URL API/gateway rejetée : https://transfert-online.site/api/gateway',
+      () {
+        expect(
+          GatewayApi.isValidBaseUrl(
+            'https://transfert-online.site/api/gateway',
+          ),
+          isFalse,
+        );
+        expect(
+          GatewayApi.formatBaseUrl('https://transfert-online.site/api/gateway'),
+          equals('https://transfert-online.site/api'),
+        );
+      },
+    );
+
+    test('5. URL /api/api rejetée : https://transfert-online.site/api/api', () {
+      expect(
+        GatewayApi.isValidBaseUrl('https://transfert-online.site/api/api'),
+        isFalse,
+      );
+      expect(
+        GatewayApi.formatBaseUrl('https://transfert-online.site/api/api'),
+        equals('https://transfert-online.site/api'),
+      );
+    });
+
+    test(
+      '6. Une ancienne valeur SharedPreferences invalide est automatiquement remplacée par : https://transfert-online.site/api',
+      () async {
+        SharedPreferences.setMockInitialValues({
+          GatewayApi.prefBaseUrlKey:
+              'https://transfert-online.site/api/gateway/api',
+        });
+        GatewayApi.resetCacheForTesting();
+
+        final resolvedUrl = await GatewayApi.getConfiguredBaseUrl();
+        expect(resolvedUrl, equals('https://transfert-online.site/api'));
+
+        final prefs = await SharedPreferences.getInstance();
+        expect(
+          prefs.getString(GatewayApi.prefBaseUrlKey),
+          equals('https://transfert-online.site/api'),
+        );
+      },
+    );
+
+    test(
+      '7. Après redémarrage logique de l’application, la valeur correcte reste : https://transfert-online.site/api',
+      () async {
+        SharedPreferences.setMockInitialValues({
+          GatewayApi.prefBaseUrlKey:
+              'https://transfert-online.site/api/gateway/api',
+        });
+        GatewayApi.resetCacheForTesting();
+
+        // Première exécution : déclenche la détection et la migration
+        final firstRun = await GatewayApi.getConfiguredBaseUrl();
+        expect(firstRun, equals('https://transfert-online.site/api'));
+
+        // Simulation redémarrage logique de l'application (cache in-memory vidé)
+        GatewayApi.resetCacheForTesting();
+        await GatewayApi.initPreferences();
+
+        // Vérification que la valeur persistée lue au redémarrage reste valide
+        final reloadedUrl = await GatewayApi.getConfiguredBaseUrl();
+        expect(reloadedUrl, equals('https://transfert-online.site/api'));
+
+        final api = GatewayApi();
+        expect(
+          api.effectiveBaseUrl,
+          equals('https://transfert-online.site/api'),
+        );
       },
     );
   });
