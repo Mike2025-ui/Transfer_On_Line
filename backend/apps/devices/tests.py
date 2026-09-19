@@ -1616,6 +1616,27 @@ class SetupGatewayCommandTests(TestCase):
         gw.refresh_from_db()
         self.assertNotEqual(gw.api_key_hash, old_hash)
 
+    def test_setup_gateway_list(self):
+        Gateway.objects.create(name='GW Alpha', status='online', is_active=True)
+        out = StringIO()
+        call_command('setup_gateway', '--list', stdout=out)
+        self.assertIn('GW Alpha', out.getvalue())
+
+    def test_setup_gateway_delete(self):
+        gw = Gateway.objects.create(name='GW To Delete', status='offline')
+        out = StringIO()
+        call_command('setup_gateway', '--delete', 'GW To Delete', stdout=out)
+        self.assertFalse(Gateway.objects.filter(name='GW To Delete').exists())
+        self.assertIn('supprimée avec succès', out.getvalue())
+
+    def test_setup_gateway_delete_all(self):
+        Gateway.objects.create(name='GW 1', status='offline')
+        Gateway.objects.create(name='GW 2', status='offline')
+        out = StringIO()
+        call_command('setup_gateway', '--delete-all', stdout=out)
+        self.assertEqual(Gateway.objects.count(), 0)
+        self.assertIn('supprimées de la base', out.getvalue())
+
 
 @override_settings(USE_NEW_TRANSACTION_ENGINE=True)
 @patch('apps.payments.services.payment_service.redis_lock', return_value=nullcontext())
