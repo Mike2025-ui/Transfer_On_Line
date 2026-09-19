@@ -54,22 +54,68 @@ def _apply_heartbeat_telemetry(gateway, details):
     return touched
 
 
-def _apply_heartbeat_sims(gateway, sims_payload):
-    if not sims_payload:
-        return
-    for sim_info in sims_payload:
-        operator_name = (sim_info.get('operator') or '').strip()
-        if not operator_name:
-            continue
-        slot = int(sim_info.get('slot') or 0)
-        operator, _ = Operator.objects.get_or_create(
-            name=operator_name.title(),
-            defaults={'code': operator_name.lower().replace(' ', '_')},
-        )
-        GatewaySim.objects.update_or_create(
-            gateway=gateway, slot=slot,
-            defaults={'operator': operator, 'msisdn': sim_info.get('msisdn') or ''},
-        )
+def resolve_operator_for_gateway(raw_name):
+    """Intelligently matches an operator string from device telemetry to an
+    existing Operator in the database. Prevents creating duplicate operator
+    rows (e.g. 'Mtn' vs 'MTN', 'Orange CI' vs 'Orange', etc.) which break
+    USSD configuration and transaction matching."""
+    name = (raw_name or '').strip()
+    if not name:
+        return None
+
+    # 1. Exact match case-insensitive on code or name
+    op = Operator.objects.filter(Q(code__iexact=name) | Q(name__iexact=name)).first()
+    if op:
+        return op
+
+    # 2. Match known canonical keywords (case-insensitive)
+    lower = name.lower()
+    for kw in ['mtn', 'orange', 'moov', 'wave']:
+        if kw in lower:
+            op = Operator.objects.filter(Q(code__iexact=kw) | Q(name__icontains=kw)).first()
+            if op:
+                return op
+
+    # 3. Partial / contains match on name
+    op = Operator.objects.filter(name__icontains=name).first()
+    if op:
+        return op
+
+    # 4. Fallback: get or create
+    op, _ = Operator.objects.get_or_create(
+        name=name.title(),
+        defaults={'code': name.lower().replace(' ', '_')[:10], 'is_active': True},
+    )
+    return op
+
+
+def _apply_heartbeat_sims(gateway, sims_payload, fallback_operator_name=None):
+    if sims_payload:
+        for sim_info in sims_payload:
+            operator_name = (sim_info.get('operator') or '').strip()
+            if not operator_name and fallback_operator_name:
+                operator_name = fallback_operator_name
+            operator = resolve_operator_for_gateway(operator_name)
+            if not operator:
+                continue
+            slot = int(sim_info.get('slot') or 0)
+            GatewaySim.objects.update_or_create(
+                gateway=gateway, slot=slot,
+                defaults={
+                    'operator': operator,
+                    'msisdn': sim_info.get('msisdn') or '',
+                    'is_active': True,
+                },
+            )
+    elif fallback_operator_name and fallback_operator_name.strip() and fallback_operator_name.strip().lower() != 'gateway':
+        # TelephonyManager provides operatorName even when multi-SIM READ_PHONE_STATE
+        # permission is not granted. Ensure the gateway has at least a slot 0 GatewaySim.
+        operator = resolve_operator_for_gateway(fallback_operator_name)
+        if operator:
+            GatewaySim.objects.update_or_create(
+                gateway=gateway, slot=0,
+                defaults={'operator': operator, 'is_active': True},
+            )
 
 
 class GatewayManager:
@@ -99,7 +145,7 @@ class GatewayManager:
         gateway.save(update_fields=[
             'name', 'host', 'status', 'last_heartbeat', *touched_fields,
         ] if touched_fields else None)
-        _apply_heartbeat_sims(gateway, details.get('sims'))
+        _apply_heartbeat_sims(gateway, details.get('sims'), fallback_operator_name=operator_name)
         return gateway
 
     @staticmethod

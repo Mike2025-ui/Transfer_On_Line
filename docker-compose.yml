@@ -81,7 +81,8 @@ services:
       sh -c "
         while true; do
           python manage.py reconcile_pending_payments --stale-after-minutes 5 --expire-after-hours 12
-          sleep 120
+          python manage.py dispatch_due_transaction_retries
+          sleep 30
         done
       "
     env_file:

@@ -8,7 +8,7 @@ from django.utils import timezone
 
 from apps.core.models import Gateway, Operator, Transaction, Device, Service, TransactionAttempt
 from apps.devices.models import GatewaySim
-from apps.devices.services.gateway_manager import GatewayManager
+from apps.devices.services.gateway_manager import GatewayManager, resolve_operator_for_gateway
 from apps.devices.services.gateway_score import GatewayScoreService
 from apps.devices.services.reservation_manager import ReservationManager
 from apps.devices.services.scheduler import Scheduler
@@ -324,3 +324,43 @@ class SchedulerTests(TestCase):
         self.assertIsNotNone(second_attempt)
         self.assertEqual(second_attempt.gateway_sim_id, remaining_sim_id)
         self.assertNotEqual(second_attempt.gateway_sim_id, tried_sim_id)
+
+
+class OperatorResolutionAndSimFallbackTests(TestCase):
+    def setUp(self):
+        self.mtn = Operator.objects.create(name='MTN', code='mtn')
+        self.orange = Operator.objects.create(name='Orange', code='orange')
+        self.gw = Gateway.objects.create(name='GW_Test', status='online', is_active=True)
+
+    def test_resolve_operator_matches_existing_case_insensitively(self):
+        op = resolve_operator_for_gateway('MTN')
+        self.assertEqual(op.pk, self.mtn.pk)
+
+        op_lower = resolve_operator_for_gateway('mtn')
+        self.assertEqual(op_lower.pk, self.mtn.pk)
+
+        op_title = resolve_operator_for_gateway('Mtn')
+        self.assertEqual(op_title.pk, self.mtn.pk)
+
+    def test_resolve_operator_matches_prefix_or_ci(self):
+        op_ci = resolve_operator_for_gateway('MTN CI')
+        self.assertEqual(op_ci.pk, self.mtn.pk)
+
+        op_orange_ci = resolve_operator_for_gateway('Orange CI')
+        self.assertEqual(op_orange_ci.pk, self.orange.pk)
+
+    def test_heartbeat_creates_slot_zero_sim_from_operator_when_sims_empty(self):
+        payload = {
+            'status': 'online',
+            'details': {
+                'operator': 'MTN',
+                'phone_number': '0500000000',
+            }
+        }
+        GatewayManager.register_heartbeat(gateway=self.gw, payload=payload)
+        self.assertTrue(self.gw.sims.exists())
+        sim = self.gw.sims.first()
+        self.assertEqual(sim.slot, 0)
+        self.assertEqual(sim.operator.pk, self.mtn.pk)
+        self.assertTrue(sim.is_active)
+
