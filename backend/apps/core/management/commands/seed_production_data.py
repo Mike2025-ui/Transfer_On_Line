@@ -82,13 +82,13 @@ class Command(BaseCommand):
             internet_svc = created_svcs.get('internet')
 
             if credit_svc:
-                UssdCode.objects.get_or_create(
+                UssdCode.objects.update_or_create(
                     operator=mtn_op,
                     service=credit_svc,
                     amount=Decimal('500'),
                     defaults={
                         'label': 'transfert unité 500',
-                        'template': '*133*5*{numero}*{montant}',
+                        'template': '*133*5*{numero}*{montant}#',
                         'is_active': True,
                         'is_default': False,
                     },
