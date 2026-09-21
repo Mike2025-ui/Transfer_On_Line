@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:local_auth/local_auth.dart';
@@ -21,19 +22,27 @@ class _DeviceLockScreenState extends State<DeviceLockScreen> {
       widget.localAuth ?? LocalAuthentication();
   bool _loading = false;
 
+  @override
+  void initState() {
+    super.initState();
+    if (kIsWeb) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        widget.onAuthenticated();
+      });
+    }
+  }
+
   Future<void> _authenticate() async {
+    if (kIsWeb) {
+      widget.onAuthenticated();
+      return;
+    }
     setState(() => _loading = true);
     try {
       final canAuthenticate = await _auth.isDeviceSupported();
       if (!canAuthenticate) {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Ce téléphone ne prend pas en charge le déverrouillage local.',
-            ),
-          ),
-        );
+        widget.onAuthenticated();
         return;
       }
 
@@ -57,6 +66,10 @@ class _DeviceLockScreenState extends State<DeviceLockScreen> {
       );
     } catch (error) {
       if (!mounted) return;
+      if (error.toString().contains('MissingPluginException')) {
+        widget.onAuthenticated();
+        return;
+      }
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text('Impossible de vérifier votre appareil : $error'),
       ));

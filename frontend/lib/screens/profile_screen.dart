@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -51,6 +52,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
     setState(() => _loggingOut = true);
     await _auth.logout();
     if (!mounted) return;
+    if (kIsWeb) {
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (_) => HomeScreen(authService: _auth)),
+        (route) => false,
+      );
+      return;
+    }
     Navigator.pushAndRemoveUntil(
       context,
       MaterialPageRoute(

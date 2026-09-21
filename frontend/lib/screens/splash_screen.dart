@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:local_auth/local_auth.dart';
@@ -33,6 +34,10 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   Future<void> _checkLocalAuth() async {
+    if (kIsWeb) {
+      _goToHome();
+      return;
+    }
     try {
       final isSupported = await _auth.isDeviceSupported();
       final canCheckBiometrics = await _auth.canCheckBiometrics;
@@ -55,8 +60,12 @@ class _SplashScreenState extends State<SplashScreen> {
       } else {
         _goToLock();
       }
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
+      if (e.toString().contains('MissingPluginException')) {
+        _goToHome();
+        return;
+      }
       _goToLock();
     }
   }
