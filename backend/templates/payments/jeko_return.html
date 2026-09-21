@@ -184,10 +184,23 @@
     <script>
         (function() {
             var deepLink = "{{ deep_link|escapejs }}";
-            if (deepLink) {
+            var isAndroid = /android/i.test(navigator.userAgent);
+            var targetUrl = deepLink;
+
+            if (isAndroid) {
+                // Sur Android Chrome, le protocole intent garantit la réouverture directe de l'app
+                targetUrl = "intent://payment?reference={{ payment.reference|escapejs }}&status={{ payment.status|escapejs }}#Intent;scheme=transfertonline;package=com.example.transfer_on_line;end";
+            }
+
+            var btn = document.getElementById('deepLinkBtn');
+            if (btn && isAndroid) {
+                btn.setAttribute('href', targetUrl);
+            }
+
+            if (targetUrl) {
                 // Tentative de redirection automatique vers l'application mobile
                 setTimeout(function() {
-                    window.location.href = deepLink;
+                    window.location.href = targetUrl;
                 }, 1000);
             }
         })();

@@ -83,11 +83,19 @@ class ReservationManager:
                 return None
 
             attempt_number = transaction.attempts.count() + 1
+            ussd_code = ''
+            try:
+                from apps.core.serializers import build_ussd_code
+                ussd_code = build_ussd_code(transaction)
+            except Exception:
+                if transaction.ussd_code_used:
+                    ussd_code = getattr(transaction.ussd_code_used, 'template', '') or ''
             attempt = TransactionAttempt.objects.create(
                 transaction=transaction,
                 gateway_sim=locked_sim,
                 attempt_number=attempt_number,
                 status='assigned',
+                ussd_code=ussd_code,
             )
             logger.info(
                 '%s: reserved gateway=%s sim=%s (attempt #%s)',
