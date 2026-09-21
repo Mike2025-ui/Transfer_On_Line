@@ -50,7 +50,20 @@
                         <tr><th class="text-muted" style="width:40%;">Provider</th><td>{{ tx.payment.get_method_display }}</td></tr>
                         <tr><th class="text-muted">Référence</th><td>{{ tx.payment.reference }}</td></tr>
                         <tr><th class="text-muted">Référence provider</th><td>{{ tx.payment.provider_transaction_id|default:"-" }}</td></tr>
-                        <tr><th class="text-muted">Statut</th><td><span class="badge badge-status-{{ tx.payment.status }}">{{ tx.payment.get_status_display }}</span></td></tr>
+                        <tr>
+                            <th class="text-muted">Statut</th>
+                            <td>
+                                <span class="badge badge-status-{{ tx.payment.status }}">{{ tx.payment.get_status_display }}</span>
+                                {% if tx.payment.status == 'pending' %}
+                                <form method="post" action="{% url 'transaction_verify_payment' tx.pk %}" class="d-inline ms-2">
+                                    {% csrf_token %}
+                                    <button type="submit" class="btn btn-sm btn-primary py-0 px-2" title="Interroge Jèko pour synchroniser le statut réel">
+                                        <i class="fas fa-sync-alt me-1"></i> Vérifier avec Jèko
+                                    </button>
+                                </form>
+                                {% endif %}
+                            </td>
+                        </tr>
                         <tr><th class="text-muted">Créé le</th><td>{{ tx.payment.created_at|date:"d/m/Y H:i:s" }}</td></tr>
                         <tr><th class="text-muted">Dernière confirmation</th><td>{{ tx.payment.updated_at|date:"d/m/Y H:i:s" }}</td></tr>
                     </table>

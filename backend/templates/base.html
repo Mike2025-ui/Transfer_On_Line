@@ -144,6 +144,14 @@
                     <h1>{{ title|default:"Tableau de bord" }}</h1>
                 </div>
                 <div class="px-md-4 py-4">
+                    {% if messages %}
+                        {% for message in messages %}
+                        <div class="alert alert-{% if message.tags == 'error' %}danger{% else %}{{ message.tags|default:'info' }}{% endif %} alert-dismissible fade show mb-3" role="alert">
+                            {{ message }}
+                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                        </div>
+                        {% endfor %}
+                    {% endif %}
                     {% block content %}{% endblock %}
                     <footer class="footer text-muted text-center small pt-3 mt-4">
                         <p class="mb-0">© 2026 <strong>TRANSFER ON LINE</strong> - Back Office technique et métier.</p>

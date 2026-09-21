@@ -1,6 +1,7 @@
 import json
 
 from django.conf import settings as dj_settings
+from django.contrib import messages
 from django.contrib.auth import login as auth_login, logout as auth_logout
 from django.contrib.auth.decorators import user_passes_test
 from django.contrib.auth.forms import AuthenticationForm
@@ -250,6 +251,30 @@ def transaction_detail(request, pk):
         'title': f'Transaction {tx.reference}', 'tx': tx, 'events': events, 'attempts': attempts,
         'webhook_events': webhook_events,
     })
+
+
+@staff_member_required
+def transaction_verify_payment(request, pk):
+    if request.method != 'POST':
+        return redirect('transaction_detail', pk=pk)
+
+    tx = get_object_or_404(Transaction.objects.select_related('payment'), pk=pk)
+    if not tx.payment:
+        messages.error(request, "Aucun paiement associé à cette transaction.")
+        return redirect('transaction_detail', pk=pk)
+
+    try:
+        from apps.payments.services.payment_service import PaymentService
+        PaymentService.verify(tx.payment)
+        tx.refresh_from_db()
+        if tx.payment.status == 'accepted':
+            messages.success(request, "Paiement vérifié avec succès et accepté ! La transaction a été transmise à la passerelle.")
+        else:
+            messages.info(request, f"Paiement vérifié. Statut retourné par le fournisseur : {tx.payment.get_status_display()}.")
+    except Exception as exc:
+        messages.error(request, f"Impossible de vérifier auprès du fournisseur : {exc}")
+
+    return redirect('transaction_detail', pk=pk)
 
 
 # --- Paiements -----------------------------------------------------------------
