@@ -345,10 +345,14 @@ class JekoReturnView(APIView):
         if 'text/html' in accept_header and 'application/json' not in accept_header:
             from django.shortcuts import render
             deep_link = f'transfertonline://payment?reference={payment.reference}&status={payment.status}'
+            frontend_web_url = getattr(settings, 'FRONTEND_WEB_URL', 'https://transfert-online.site').rstrip('/')
+            web_return_url = f'{frontend_web_url}/?payment_reference={payment.reference}&status={payment.status}'
             context = {
                 'payment': payment,
                 'transaction': tx,
                 'deep_link': deep_link,
+                'web_return_url': web_return_url,
+                'frontend_web_url': frontend_web_url,
                 'status': payment.status,
             }
             return render(request, 'payments/jeko_return.html', context)

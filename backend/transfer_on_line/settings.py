@@ -238,6 +238,8 @@ GENIUSPAY_ERROR_URL = os.environ.get('GENIUSPAY_ERROR_URL', 'https://transfert-o
 GENIUSPAY_TIMEOUT_SECONDS = int(os.environ.get('GENIUSPAY_TIMEOUT_SECONDS', '30'))
 GENIUSPAY_ALLOW_MOCK = os.environ.get('GENIUSPAY_ALLOW_MOCK', 'false').lower() == 'true'
 
+FRONTEND_WEB_URL = os.environ.get('FRONTEND_WEB_URL', 'https://transfert-online.site')
+
 # Production audit: Jèko is the sole primary provider, GeniusPay its only
 # fallback (PaymentService._provider_order() tries them in this order for
 # payment_method='auto' and stops at the first that accepts the payment -

@@ -172,35 +172,36 @@
             {% endif %}
         </div>
 
-        <a id="deepLinkBtn" href="{{ deep_link }}" class="btn">
-            Retourner à l'application
+        <a id="webReturnBtn" href="{{ web_return_url }}" class="btn">
+            Retourner sur le site
+        </a>
+
+        <a id="deepLinkBtn" href="{{ deep_link }}" class="btn btn-secondary">
+            Ouvrir dans l'application mobile
         </a>
 
         <div class="redirect-notice" id="redirectNotice">
-            Redirection automatique vers l'application...
+            Redirection automatique vers le site marchand dans 1 seconde...
         </div>
     </div>
 
     <script>
         (function() {
+            var webReturnUrl = "{{ web_return_url|escapejs }}";
             var deepLink = "{{ deep_link|escapejs }}";
             var isAndroid = /android/i.test(navigator.userAgent);
-            var targetUrl = deepLink;
 
             if (isAndroid) {
-                // Sur Android Chrome, le protocole intent garantit la réouverture directe de l'app
-                targetUrl = "intent://payment?reference={{ payment.reference|escapejs }}&status={{ payment.status|escapejs }}#Intent;scheme=transfertonline;package=com.example.transfer_on_line;end";
+                var appBtn = document.getElementById('deepLinkBtn');
+                if (appBtn) {
+                    appBtn.setAttribute('href', "intent://payment?reference={{ payment.reference|escapejs }}&status={{ payment.status|escapejs }}#Intent;scheme=transfertonline;package=com.example.transfer_on_line;end");
+                }
             }
 
-            var btn = document.getElementById('deepLinkBtn');
-            if (btn && isAndroid) {
-                btn.setAttribute('href', targetUrl);
-            }
-
-            if (targetUrl) {
-                // Tentative de redirection automatique vers l'application mobile
+            // Redirection automatique vers le frontend web en 1 seconde
+            if (webReturnUrl) {
                 setTimeout(function() {
-                    window.location.href = targetUrl;
+                    window.location.href = webReturnUrl;
                 }, 1000);
             }
         })();
