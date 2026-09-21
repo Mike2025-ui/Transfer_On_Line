@@ -87,6 +87,15 @@
                             <td>
                                 {% if tx.payment %}
                                 <span class="badge badge-status-{{ tx.payment.status }}">{{ tx.payment.get_method_display }}</span>
+                                {% if tx.payment.status == 'pending' %}
+                                <form method="post" action="{% url 'transaction_verify_payment' tx.pk %}" class="d-inline" onclick="event.stopPropagation();">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="next" value="{% url 'transactions' %}">
+                                    <button type="submit" class="btn btn-sm btn-primary py-0 px-2 ms-1" title="Vérifier avec Jèko">
+                                        <i class="fas fa-sync-alt me-1"></i> Vérifier
+                                    </button>
+                                </form>
+                                {% endif %}
                                 {% else %}-{% endif %}
                             </td>
                             <td>{{ tx.attempt_count }}</td>
