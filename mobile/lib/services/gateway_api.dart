@@ -543,7 +543,7 @@ class GatewayApi {
     }
   }
 
-  Future<GatewayStatus> fetchGatewayStatus() async {
+  Future<GatewayStatus> fetchGatewayStatus({String? deviceUuid}) async {
     final response = await _client
         .get(
           Uri.parse('$effectiveBaseUrl/gateways/'),
@@ -554,6 +554,14 @@ class GatewayApi {
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
       if (data is List && data.isNotEmpty) {
+        if (deviceUuid != null && deviceUuid.isNotEmpty) {
+          final match = data.cast<Map<String, dynamic>>().firstWhere((g) {
+            final gUuid =
+                g['uuid'] as String? ?? g['device']?['uuid'] as String?;
+            return gUuid == deviceUuid;
+          }, orElse: () => data.first as Map<String, dynamic>);
+          return GatewayStatus.fromJson(match);
+        }
         return GatewayStatus.fromJson(data.first as Map<String, dynamic>);
       }
       if (data is Map<String, dynamic>) {

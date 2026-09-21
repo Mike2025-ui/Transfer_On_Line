@@ -28,9 +28,9 @@ def status_to_local(raw_status):
     Shared here so the provider's verify_payment() and the JekoWebhookView (see
     apps/payments/webhooks.py) can never drift apart on this mapping."""
     status = str(raw_status or '').strip().lower()
-    if status in ('success', 'completed', 'paid'):
+    if status in ('success', 'completed', 'paid', 'accepted', 'succeeded', 'successful', 'done', 'approved'):
         return 'accepted'
-    if status in ('pending', 'processing'):
+    if status in ('pending', 'processing', 'in_progress', 'ongoing', 'awaiting'):
         return 'pending'
     return 'failed'
 

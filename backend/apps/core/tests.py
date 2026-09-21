@@ -385,11 +385,19 @@ class UssdCodeModelTests(TestCase):
 
     def test_render_raises_ussd_code_render_error_for_a_variable_the_context_lacks(self):
         code = UssdCode.objects.create(
-            operator=self.orange, service=self.internet, label='Recharge PIN',
-            template='*456*{pin}#',
+            operator=self.orange, service=self.internet, label='Pass manquant',
+            template='*456*{forfait}#',
         )
         with self.assertRaises(UssdCodeRenderError):
-            code.render({'numero': '0700000001', 'montant': 1000, 'forfait': 'Internet'})
+            code.render({'numero': '0700000001', 'montant': 1000})
+
+    def test_render_raises_value_error_for_pin_as_unknown_variable(self):
+        code = UssdCode.objects.create(
+            operator=self.orange, service=self.internet, label='Variable rejetee',
+            template='*456*{pin}#',
+        )
+        with self.assertRaises(ValueError):
+            code.render({'numero': '0700000001', 'montant': 1000})
 
     def test_render_raises_value_error_for_an_unknown_variable_name(self):
         code = UssdCode.objects.create(
@@ -720,3 +728,33 @@ class UssdCodeMigrationSeedTests(TestCase):
         orange = Operator.objects.create(name='Orange', code='orange')
         blank_code = Service.objects.create(name='Transfert direct', code='')
         self._assert_matches_old_behavior(orange, blank_code, amount=4000)
+
+
+class SeedProductionDataCommandTests(TestCase):
+    def test_seeds_only_canonical_operators_and_no_services_or_ussd_codes(self):
+        from django.core.management import call_command
+        from io import StringIO
+        from apps.core.models import UssdStep, UssdStepField
+
+        Operator.objects.all().delete()
+        Service.objects.all().delete()
+        UssdCode.objects.all().delete()
+
+        out = StringIO()
+        call_command('seed_production_data', stdout=out)
+
+        # Vérifie que les 3 opérateurs sont créés
+        self.assertEqual(Operator.objects.count(), 3)
+        self.assertCountEqual(
+            list(Operator.objects.values_list('name', flat=True)),
+            ['Orange', 'MTN', 'Moov']
+        )
+        for op in Operator.objects.all():
+            self.assertTrue(op.is_active)
+
+        # Vérifie qu'AUCUN service, code USSD, étape ou champ n'est créé
+        self.assertEqual(Service.objects.count(), 0)
+        self.assertEqual(UssdCode.objects.count(), 0)
+        self.assertEqual(UssdStep.objects.count(), 0)
+        self.assertEqual(UssdStepField.objects.count(), 0)
+

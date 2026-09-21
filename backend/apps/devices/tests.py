@@ -90,7 +90,7 @@ class HeartbeatBackwardCompatibilityTests(TestCase):
         self.assertEqual(self.gateway.host, 'legacy-device-1', 'details.uuid still updates host as telemetry')
         self.assertEqual(self.gateway.status, 'online')
         self.assertIsNone(self.gateway.battery_level)
-        self.assertEqual(GatewaySim.objects.filter(gateway=self.gateway).count(), 0)
+        self.assertEqual(GatewaySim.objects.filter(gateway=self.gateway).count(), 1, 'fallback creates slot 0 SIM from operator')
         self.assertEqual(Gateway.objects.count(), 1, 'never a second row for a self-declared uuid')
 
     def test_a_field_missing_from_a_later_heartbeat_does_not_erase_a_previously_reported_value(self):
@@ -1732,4 +1732,214 @@ class PaymentToUssdExecutionFlowTests(TestCase):
         self.assertEqual(status_response3.data['status'], 'success')
         self.assertTrue(status_response3.data['is_success'])
         self.assertFalse(status_response3.data['is_pending'])
+
+
+@override_settings(USE_NEW_TRANSACTION_ENGINE=True)
+class GatewayImmediateReleaseTests(TestCase):
+    def setUp(self):
+        from django.conf import settings as dj_settings
+        self.dj_settings = dj_settings
+        self.orange = Operator.objects.create(name='Orange', code='orange')
+        self.service = Service.objects.create(name='Internet', code='subscription')
+        self.ussd = UssdCode.objects.create(
+            operator=self.orange,
+            service=self.service,
+            label='Pass Internet',
+            template='*144*1*1*{montant}*{numero}#',
+        )
+        self.gateway = Gateway.objects.create(
+            name='Orange - gw1',
+            host='gw1',
+            status='online',
+            is_active=True,
+            last_heartbeat=timezone.now(),
+            is_busy=True,
+            reported_task_count=1,
+        )
+        self.secret = self.gateway.generate_secret()
+        self.sim = GatewaySim.objects.create(gateway=self.gateway, operator=self.orange, slot=0)
+        self.client = APIClient()
+        self.client.credentials(HTTP_X_GATEWAY_SECRET=self.secret)
+
+    def _create_tx_with_attempt(self, gateway=None, sim=None, status='assigned'):
+        gw = gateway or self.gateway
+        s = sim or self.sim
+        from uuid import uuid4
+        payment = Payment.objects.create(
+            reference=f'pay-{uuid4().hex[:12]}',
+            amount=Decimal('1000'),
+            method='jeko',
+            status='accepted',
+        )
+        device, _ = Device.objects.get_or_create(uid='dev-test-1')
+        tx = Transaction.objects.create(
+            operator=self.orange,
+            service=self.service,
+            amount=Decimal('1000'),
+            phone_number='0700000001',
+            device=device,
+            gateway=gw,
+            payment=payment,
+            status='pending',
+            ussd_code_used=self.ussd,
+        )
+        attempt = TransactionAttempt.objects.create(
+            transaction=tx,
+            gateway_sim=s,
+            attempt_number=1,
+            status=status,
+        )
+        return tx, attempt
+
+    def test_result_success_immediately_frees_gateway_capacity(self):
+        tx, attempt = self._create_tx_with_attempt()
+        self.assertTrue(self.gateway.is_busy)
+        self.assertEqual(self.gateway.reported_task_count, 1)
+
+        res = self.client.post(
+            reverse('api_transaction_result'),
+            {'reference': tx.reference, 'success': True, 'result': 'Succes USSD'},
+            format='json',
+        )
+        self.assertEqual(res.status_code, 200)
+
+        self.gateway.refresh_from_db()
+        self.assertFalse(self.gateway.is_busy)
+        self.assertEqual(self.gateway.reported_task_count, 0)
+
+    def test_result_failure_immediately_frees_gateway_capacity(self):
+        tx, attempt = self._create_tx_with_attempt()
+        res = self.client.post(
+            reverse('api_transaction_result'),
+            {'reference': tx.reference, 'success': False, 'result': 'Erreur Solde'},
+            format='json',
+        )
+        self.assertEqual(res.status_code, 200)
+
+        self.gateway.refresh_from_db()
+        self.assertFalse(self.gateway.is_busy)
+        self.assertEqual(self.gateway.reported_task_count, 0)
+
+    def test_gateway_status_remains_offline_if_offline(self):
+        self.gateway.status = 'offline'
+        self.gateway.save(update_fields=['status'])
+
+        tx, attempt = self._create_tx_with_attempt()
+        res = self.client.post(
+            reverse('api_transaction_result'),
+            {'reference': tx.reference, 'success': True, 'result': 'Succes USSD'},
+            format='json',
+        )
+        self.assertEqual(res.status_code, 200)
+
+        self.gateway.refresh_from_db()
+        self.assertFalse(self.gateway.is_busy)
+        self.assertEqual(self.gateway.status, 'offline')
+
+    def test_gateway_remains_busy_if_other_attempt_in_flight(self):
+        tx1, attempt1 = self._create_tx_with_attempt()
+        tx2, attempt2 = self._create_tx_with_attempt()
+        self.gateway.reported_task_count = 2
+        self.gateway.save(update_fields=['reported_task_count'])
+
+        res = self.client.post(
+            reverse('api_transaction_result'),
+            {'reference': tx1.reference, 'success': True, 'result': 'Succes USSD'},
+            format='json',
+        )
+        self.assertEqual(res.status_code, 200)
+
+        self.gateway.refresh_from_db()
+        self.assertTrue(self.gateway.is_busy)
+        self.assertEqual(self.gateway.reported_task_count, 1)
+
+    def test_result_duplicate_is_idempotent(self):
+        tx, attempt = self._create_tx_with_attempt()
+        res1 = self.client.post(
+            reverse('api_transaction_result'),
+            {'reference': tx.reference, 'success': True, 'result': 'Succes USSD'},
+            format='json',
+        )
+        self.assertEqual(res1.status_code, 200)
+
+        res2 = self.client.post(
+            reverse('api_transaction_result'),
+            {'reference': tx.reference, 'success': True, 'result': 'Succes USSD'},
+            format='json',
+        )
+        self.assertEqual(res2.status_code, 200)
+
+        self.gateway.refresh_from_db()
+        self.assertFalse(self.gateway.is_busy)
+        self.assertEqual(self.gateway.reported_task_count, 0)
+
+    def test_gateway_isolation_between_two_gateways(self):
+        gw2 = Gateway.objects.create(
+            name='Orange - gw2',
+            host='gw2',
+            status='online',
+            is_active=True,
+            last_heartbeat=timezone.now(),
+            is_busy=True,
+            reported_task_count=1,
+        )
+        sim2 = GatewaySim.objects.create(gateway=gw2, operator=self.orange, slot=0)
+
+        tx1, attempt1 = self._create_tx_with_attempt(gateway=self.gateway, sim=self.sim)
+        tx2, attempt2 = self._create_tx_with_attempt(gateway=gw2, sim=sim2)
+
+        res = self.client.post(
+            reverse('api_transaction_result'),
+            {'reference': tx1.reference, 'success': True, 'result': 'Succes USSD'},
+            format='json',
+        )
+        self.assertEqual(res.status_code, 200)
+
+        self.gateway.refresh_from_db()
+        gw2.refresh_from_db()
+        self.assertFalse(self.gateway.is_busy)
+        self.assertEqual(self.gateway.reported_task_count, 0)
+        self.assertTrue(gw2.is_busy)
+        self.assertEqual(gw2.reported_task_count, 1)
+
+    def test_interactive_step_result_frees_gateway_capacity(self):
+        from apps.core.models import UssdStep
+        step = UssdStep.objects.create(
+            ussd_code=self.ussd,
+            order=1,
+            step_type='FINAL_FIELD',
+        )
+        tx, attempt = self._create_tx_with_attempt(status='executing')
+        attempt.current_step = step
+        attempt.save(update_fields=['current_step'])
+
+        res = self.client.post(
+            reverse('api_transaction_step'),
+            {
+                'transaction_reference': str(tx.reference),
+                'attempt_id': attempt.pk,
+                'event': 'RESULT',
+                'status': 'SUCCESS',
+                'operator_message': 'Execution reussie',
+            },
+            HTTP_IDEMPOTENCY_KEY='step-idempotency-123',
+            format='json',
+        )
+        self.assertEqual(res.status_code, 200)
+
+        self.gateway.refresh_from_db()
+        self.assertFalse(self.gateway.is_busy)
+        self.assertEqual(self.gateway.reported_task_count, 0)
+
+    def test_release_expired_refreshes_operational_state(self):
+        tx, attempt = self._create_tx_with_attempt()
+        cutoff = timezone.now() - timedelta(seconds=self.dj_settings.TRANSACTION_ENGINE['TIMEOUT_SECONDS'] + 10)
+        TransactionAttempt.objects.filter(pk=attempt.pk).update(created_at=cutoff)
+
+        released = ReservationManager.release_expired()
+        self.assertEqual(released, 1)
+
+        self.gateway.refresh_from_db()
+        self.assertFalse(self.gateway.is_busy)
+        self.assertEqual(self.gateway.reported_task_count, 0)
 

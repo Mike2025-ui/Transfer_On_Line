@@ -402,11 +402,11 @@ class UssdCodePreviewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {'result': '*456*0700000001*1000#'})
 
-    def test_pin_template_returns_json_error_not_500(self):
-        response = self.client.get(reverse('ussd_code_preview'), {'template': '*456*{pin}#'})
+    def test_unknown_variable_template_returns_json_error_not_500(self):
+        response = self.client.get(reverse('ussd_code_preview'), {'template': '*456*{inconnu}#'})
         self.assertEqual(response.status_code, 400)
         self.assertIn('error', response.json())
-        self.assertNotIn('{pin}', response.json().get('result', ''))
+        self.assertNotIn('{inconnu}', response.json().get('result', ''))
 
 
 class OperatorsHistoryViewTests(TestCase):

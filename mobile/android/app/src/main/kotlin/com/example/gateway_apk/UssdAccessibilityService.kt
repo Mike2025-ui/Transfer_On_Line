@@ -67,8 +67,8 @@ object UssdTimeouts {
 /**
  * Paramètres d'armement d'une session (Phase D3). Volontairement dépourvu
  * de toute donnée métier (numéro Gateway, UUID Gateway, numéro client,
- * montant, PIN) - le Backend/D4 les connaît, ce service ne les stocke
- * jamais. [simSlot] n'est ici qu'une information transportée jusqu'aux
+ * montant) - le Backend/D4 les connaît, ce service ne stocke aucun secret
+ * localement. [simSlot] n'est ici qu'une information transportée jusqu'aux
  * logs, jamais utilisée pour sélectionner quoi que ce soit ici (voir
  * [SimResolver], non modifié).
  */

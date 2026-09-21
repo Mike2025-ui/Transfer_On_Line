@@ -180,8 +180,8 @@ def gateway_task_payload(tx, ussd_code=None):
 
 def serialize_scenario_for_sync(code):
     """Serializes a UssdCode and all its steps for local caching and offline
-    execution by the Android Gateway. Zero-knowledge on credentials: no PIN
-    or secret ever exists here; AGENT_AUTH marks steps where the Gateway must
+    execution by the Android Gateway. Zero-knowledge on credentials: no secret
+    or credential ever exists here; AGENT_AUTH marks steps where the Gateway must
     inject its own local CODE_DISTRIBUTEUR."""
     steps = []
     for step in code.steps.order_by('order'):

@@ -69,10 +69,21 @@ void gatewayServiceMain() async {
   // reentrancy guard, so a long interactive USSD session never delays a
   // single heartbeat (see the D4 design report on why this must not be
   // `await interactiveSession()` inside the tick chain).
+  var stopped = false;
+  void Function({bool force})? triggerTick;
   final interactiveRunner = InteractiveUssdRunner(
     api: api,
     queue: queue,
     bridge: bridge,
+    onSessionComplete: () {
+      if (!stopped) {
+        developer.log(
+          'IMMEDIATE_POLL_TRIGGERED: interactive session completed, waking up gateway',
+          name: 'gatewayServiceMain',
+        );
+        triggerTick?.call();
+      }
+    },
   );
   // Phase D4 (reprise après redémarrage/reboot) : si le processus précédent
   // est mort au milieu d'une session interactive (crash, reboot, "Forcer
@@ -93,7 +104,6 @@ void gatewayServiceMain() async {
   // tick already in flight when "stop" arrives is allowed to finish
   // cleanly (never aborted mid-write to the local queue) but no further
   // tick ever starts afterwards.
-  var stopped = false;
   // Stabilisation RC1 (priorité haute n°4) : un runOnce() qui dépasse 20s
   // (backend lent, réseau capricieux) ne doit jamais chevaucher le suivant -
   // deux ticks concurrents liraient/écriraient la même LocalQueueRepository
@@ -190,6 +200,7 @@ void gatewayServiceMain() async {
   Future<void> tick({bool force = false}) async {
     if (stopped || ticking) return;
     ticking = true;
+    var shouldRepollImmediately = false;
     if (force) nextAttemptAt = null;
     final now = DateTime.now();
     if (nextAttemptAt == null || !now.isBefore(nextAttemptAt!)) {
@@ -204,6 +215,10 @@ void gatewayServiceMain() async {
               ? '${result.dialed} composée(s), ${result.smsDispatched} SMS envoyé(s)'
               : 'En veille - ${result.status.heartbeatStatus}',
         );
+        // Option A : Réveil immédiat après un résultat USSD confirmé au backend.
+        if (result.reported > 0) {
+          shouldRepollImmediately = true;
+        }
       } catch (_) {
         // Best-effort: never let a transient failure (offline, backend
         // hiccup) crash the isolate - see reportAlive() below, which fires
@@ -231,7 +246,21 @@ void gatewayServiceMain() async {
     // an interactive session must not delay this tick's completion, nor
     // should a session already running block future ticks from firing.
     unawaited(maybeStartInteractiveSession());
+
+    // Option A : Réveil immédiat sans boucle infinie.
+    // Si des transactions viennent d'être rapportées et que le service est actif,
+    // on lance un tick immédiatement. Si la file est vide au cycle suivant,
+    // result.reported sera 0, ce qui interrompt la chaîne et laisse le timer régulier.
+    if (shouldRepollImmediately && !stopped) {
+      developer.log(
+        'IMMEDIATE_POLL_TRIGGERED: transaction outcome reported, polling next task immediately',
+        name: 'gatewayServiceMain',
+      );
+      unawaited(tick());
+    }
   }
+
+  triggerTick = ({bool force = false}) => tick(force: force);
 
   // Stabilisation RC1 (priorité haute n°7) : jusqu'ici seul `main.dart` (le
   // moteur UI, actif uniquement écran allumé) réagissait à une reconnexion

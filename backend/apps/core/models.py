@@ -66,13 +66,11 @@ class UssdCodeNotConfigured(Exception):
 
 class UssdCodeRenderError(Exception):
     """Raised by UssdCode.render() when the template references a variable
-    the current transaction context can't supply (e.g. {pin} - see
-    backend/docs/operators-ussd-codes.md for why that variable has no data
-    source yet)."""
+    the current transaction context can't supply."""
 
 
 USSD_TEMPLATE_VAR_RE = re.compile(r'\{(\w+)\}')
-USSD_TEMPLATE_KNOWN_VARS = {'numero', 'montant', 'forfait', 'pin'}
+USSD_TEMPLATE_KNOWN_VARS = {'numero', 'montant', 'forfait'}
 
 
 class UssdCode(models.Model):
@@ -129,12 +127,12 @@ class UssdCode(models.Model):
         return f'{self.operator.name} - {service_label} - {self.label} (v{self.version})'
 
     def render(self, context: dict) -> str:
-        """Substitutes {numero}/{montant}/{forfait}/{pin} placeholders in
+        """Substitutes {numero}/{montant}/{forfait} placeholders in
         self.template. Fails loudly (never leaves a literal {placeholder} in
         a string that could be dialed) on either an unknown variable name
         (ValueError - a template authoring mistake) or a known variable the
         caller's context doesn't provide (UssdCodeRenderError - a data
-        availability gap, e.g. {pin})."""
+        availability gap)."""
         used = set(USSD_TEMPLATE_VAR_RE.findall(self.template))
         unknown = used - USSD_TEMPLATE_KNOWN_VARS
         if unknown:

@@ -36,8 +36,7 @@
                     <label class="form-label">Template</label>
                     {{ form.template }}
                     <div class="form-text">
-                        Variables disponibles : <code>{numero}</code>, <code>{montant}</code>, <code>{forfait}</code>, <code>{pin}</code>
-                        (<code>{pin}</code> n'a pas de source de données actuellement — voir la documentation).
+                        Variables disponibles : <code>{numero}</code>, <code>{montant}</code>, <code>{forfait}</code>.
                     </div>
                     {% if form.template.errors %}<div class="text-danger small mt-1">{{ form.template.errors }}</div>{% endif %}
                 </div>

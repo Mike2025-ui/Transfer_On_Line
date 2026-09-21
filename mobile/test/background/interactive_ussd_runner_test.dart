@@ -287,7 +287,7 @@ void main() {
       final api = GatewayApi(
         client: buildStepClient((body, key) {
           if (body['event'] == 'NEW_FIELD') {
-            return {'action': 'FAILED', 'error_code': 'INVALID_PIN'};
+            return {'action': 'FAILED', 'error_code': 'AUTH_FAILED'};
           }
           return {'action': 'ACK'};
         }),

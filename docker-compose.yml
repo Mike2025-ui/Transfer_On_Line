@@ -16,6 +16,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-transfer}
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      USE_NEW_TRANSACTION_ENGINE: "true"
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:
@@ -95,6 +96,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-transfer}
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      USE_NEW_TRANSACTION_ENGINE: "true"
     depends_on:
       postgres:
         condition: service_healthy

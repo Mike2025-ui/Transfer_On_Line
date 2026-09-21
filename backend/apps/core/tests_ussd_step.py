@@ -56,8 +56,14 @@ class UssdStepModelTests(TestCase):
 
     def test_dynamic_field_known_variables_accepted(self):
         step = UssdStep.objects.create(ussd_code=self.ussd_code, order=3, step_type='INPUT')
-        for variable in ('numero', 'montant', 'forfait', 'pin'):
+        for variable in ('numero', 'montant', 'forfait'):
             UssdStepField(step=step, order=1, field_type='DYNAMIC', value=variable).full_clean()
+
+    def test_dynamic_field_pin_rejected(self):
+        step = UssdStep.objects.create(ussd_code=self.ussd_code, order=3, step_type='INPUT')
+        field = UssdStepField(step=step, order=1, field_type='DYNAMIC', value='pin')
+        with self.assertRaises(ValidationError):
+            field.full_clean()
 
     def test_fixed_field_empty_value_rejected(self):
         step = UssdStep.objects.create(ussd_code=self.ussd_code, order=1, step_type='INPUT')

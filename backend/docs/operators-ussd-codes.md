@@ -37,31 +37,16 @@ tout appel à un fournisseur de paiement, voir `ExecuteTransactionView`).
 
 Un `template` peut contenir les variables suivantes, entre accolades :
 
-| Variable | Source | Toujours disponible ? |
-|---|---|---|
-| `{numero}` | `tx.phone_number` | Oui |
-| `{montant}` | `int(tx.amount)` | Oui |
-| `{forfait}` | `tx.service.name` | Oui |
-| `{pin}` | — | **Non, voir limitation ci-dessous** |
+| Variable    | Source            | Toujours disponible ? |
+| ----------- | ----------------- | --------------------- |
+| `{numero}`  | `tx.phone_number` | Oui                   |
+| `{montant}` | `int(tx.amount)`  | Oui                   |
+| `{forfait}` | `tx.service.name` | Oui                   |
 
 `UssdCode.render(context)` substitue ces variables. Une variable inconnue dans
 le template (ex. `{bogus}`) lève `ValueError` — erreur de configuration, à
 corriger dans le dashboard. Une variable connue mais absente du contexte
 fourni lève `UssdCodeRenderError`.
-
-### Limitation connue : `{pin}`
-
-Le moteur de templates accepte syntaxiquement `{pin}` (c'était un requirement
-explicite), mais **aucune source de données n'existe aujourd'hui** nulle part
-dans le schéma pour peupler cette variable — ni sur `Transaction`, ni ailleurs.
-Un template qui l'utilise lèvera `UssdCodeRenderError` à chaque génération
-réelle de code, puisque le contexte ne contiendra jamais `pin`.
-
-Ce n'est pas un oubli silencieux : c'est documenté ici précisément pour que ce
-soit visible. Si un besoin réel de PIN (ex. recharge par carte à gratter)
-apparaît, une phase future devra ajouter une collecte de cette donnée en amont
-(ce qui nécessiterait très probablement une modification du Client Flutter,
-hors périmètre de ce module).
 
 ## Ajouter un mapping opérateur/service depuis le dashboard
 
@@ -91,7 +76,7 @@ Logs/Événements, Santé du système).
   observable — voir les tests `UssdCodeMigrationSeedTests` dans
   `apps/core/tests.py` pour la preuve automatisée.
 
-**Important** : un opérateur ou un service créé *après* ces migrations (via
+**Important** : un opérateur ou un service créé _après_ ces migrations (via
 l'API publique, `get_or_create` sur des noms envoyés par un client, ou depuis
 le dashboard) n'a **aucun** code USSD configuré par défaut. `ExecuteTransactionView`
 refuse toute transaction pour un couple `(operator, service)` non configuré

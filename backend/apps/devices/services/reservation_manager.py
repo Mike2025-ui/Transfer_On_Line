@@ -16,7 +16,7 @@ from django.conf import settings as dj_settings
 from django.db import transaction as db_transaction
 from django.utils import timezone
 
-from apps.core.models import Gateway, TransactionAttempt
+from apps.core.models import Gateway, Transaction, TransactionAttempt
 from apps.devices.models import GatewaySim
 from apps.devices.services.gateway_manager import IN_FLIGHT_STATUSES, GatewayManager
 
@@ -132,18 +132,67 @@ class ReservationManager:
 
         timeout = dj_settings.TRANSACTION_ENGINE['TIMEOUT_SECONDS']
         cutoff = timezone.now() - timedelta(seconds=timeout)
-        stale = TransactionAttempt.objects.select_related('transaction').filter(
+        stale = TransactionAttempt.objects.select_related('transaction', 'gateway_sim').filter(
             status__in=IN_FLIGHT_STATUSES, created_at__lt=cutoff,
         )
         released = 0
+        affected_gateway_ids = set()
         for attempt in stale:
             attempt.failure_reason = 'timeout'
             attempt.save(update_fields=['failure_reason'])
             ReservationManager.release(attempt, 'expired')
+            if attempt.gateway_sim_id and attempt.gateway_sim.gateway_id:
+                affected_gateway_ids.add(attempt.gateway_sim.gateway_id)
             transaction = attempt.transaction
             if not TransactionStateMachine.is_terminal(transaction.status):
                 RetryManager.handle_failed_attempt(transaction, attempt)
             released += 1
+        for gid in affected_gateway_ids:
+            ReservationManager.refresh_operational_state(gid)
         if released:
             logger.warning('Released %s expired reservation(s) (timeout=%ss)', released, timeout)
         return released
+
+    @staticmethod
+    def refresh_operational_state(gateway_id):
+        """Recalculates is_busy and reported_task_count for a Gateway based on
+        actual in-flight reservations/transactions in the database.
+
+        Rules:
+        - NEVER modifies gateway.status (heartbeat remains the sole authority for online/offline).
+        - NEVER forces online.
+        - Uses select_for_update() on Gateway to serialize with concurrent reserve() calls.
+        - When USE_NEW_TRANSACTION_ENGINE is active, counts TransactionAttempt rows in IN_FLIGHT_STATUSES.
+        - When legacy engine is active, counts non-terminal Transaction rows.
+        """
+        if gateway_id is None:
+            return None
+        with db_transaction.atomic():
+            locked_gateway = (
+                Gateway.objects
+                .select_for_update()
+                .filter(pk=gateway_id)
+                .first()
+            )
+            if locked_gateway is None:
+                return None
+
+            if dj_settings.USE_NEW_TRANSACTION_ENGINE:
+                remaining_in_flight = TransactionAttempt.objects.filter(
+                    gateway_sim__gateway=locked_gateway,
+                    status__in=IN_FLIGHT_STATUSES,
+                ).count()
+            else:
+                remaining_in_flight = Transaction.objects.filter(
+                    gateway=locked_gateway,
+                    status__in=['pending', 'processing', 'executing'],
+                ).count()
+
+            locked_gateway.is_busy = (remaining_in_flight > 0)
+            locked_gateway.reported_task_count = remaining_in_flight
+            locked_gateway.save(update_fields=['is_busy', 'reported_task_count'])
+            logger.info(
+                'GATEWAY_READY: gateway=%s is_busy=%s in_flight=%s',
+                locked_gateway.pk, locked_gateway.is_busy, remaining_in_flight,
+            )
+            return locked_gateway

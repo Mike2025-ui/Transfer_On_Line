@@ -23,12 +23,14 @@ class InteractiveUssdRunner {
     required this.queue,
     required this.bridge,
     this.maxRetriesPerEvent = 3,
+    this.onSessionComplete,
   });
 
   final GatewayApi api;
   final LocalQueueRepository queue;
   final BackgroundBridge bridge;
   final int maxRetriesPerEvent;
+  final void Function()? onSessionComplete;
 
   /// 401 (bad/missing X-Gateway-Secret), 403 (this Gateway does not own the
   /// attempt), 409 (attempt no longer active/conflict) - TransactionStepView's
@@ -312,6 +314,7 @@ class InteractiveUssdRunner {
       _subscription = null;
       await queue.closeInteractiveSession();
       _running = false;
+      onSessionComplete?.call();
     }
   }
 }

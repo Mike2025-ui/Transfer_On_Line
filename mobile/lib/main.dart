@@ -39,7 +39,8 @@ class GatewayHomePage extends StatefulWidget {
   State<GatewayHomePage> createState() => _GatewayHomePageState();
 }
 
-class _GatewayHomePageState extends State<GatewayHomePage> {
+class _GatewayHomePageState extends State<GatewayHomePage>
+    with WidgetsBindingObserver {
   final GatewayApi _api = GatewayApi();
   final UssdService _ussdService = UssdService();
   final LocalQueueRepository _queue = LocalQueueRepository();
@@ -69,6 +70,7 @@ class _GatewayHomePageState extends State<GatewayHomePage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadConfig();
     _loadDeviceInfo();
     _refreshStatus();
@@ -119,9 +121,18 @@ class _GatewayHomePageState extends State<GatewayHomePage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _connectivityMonitor.dispose();
     _queue.close();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkAccessibility();
+      _refreshStatus();
+    }
   }
 
   /// Triggered by [ConnectivityMonitor], not a button - deliberately does
@@ -146,15 +157,21 @@ class _GatewayHomePageState extends State<GatewayHomePage> {
     }
   }
 
-  Future<void> _loadDeviceInfo() async {
+  Future<DeviceInfo?> _loadDeviceInfo() async {
     try {
       // Best-effort: a denial just means signalStrength/sims stay empty on
       // the resulting DeviceInfo, getDeviceInfo() below still succeeds.
       await _ussdService.requestTelemetryPermissions();
       final deviceInfo = await _ussdService.getDeviceInfo();
-      setState(() => _deviceInfo = deviceInfo);
+      if (mounted) {
+        setState(() => _deviceInfo = deviceInfo);
+      }
+      return deviceInfo;
     } catch (error) {
-      setState(() => _message = 'Impossible de charger le device: $error');
+      if (mounted) {
+        setState(() => _message = 'Impossible de charger le device: $error');
+      }
+      return null;
     }
   }
 
@@ -164,15 +181,24 @@ class _GatewayHomePageState extends State<GatewayHomePage> {
       _message = 'Chargement du statut...';
     });
     try {
-      final status = await _api.fetchGatewayStatus();
-      setState(() {
-        _status = status;
-        _message = 'Statut chargé.';
-      });
+      final freshDevice = await _loadDeviceInfo();
+      final status = await _api.fetchGatewayStatus(
+        deviceUuid: freshDevice?.uuid ?? _deviceInfo?.uuid,
+      );
+      if (mounted) {
+        setState(() {
+          _status = status;
+          _message = 'Statut chargé.';
+        });
+      }
     } catch (error) {
-      setState(() => _message = 'Erreur de connexion: $error');
+      if (mounted) {
+        setState(() => _message = 'Erreur de connexion: $error');
+      }
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -200,26 +226,31 @@ class _GatewayHomePageState extends State<GatewayHomePage> {
   }
 
   Future<void> _sendHeartbeat() async {
-    final device = _deviceSnapshot();
-    if (device == null) {
-      _showSnack('Impossible: informations appareil indisponibles');
-      return;
-    }
     setState(() {
       _isLoading = true;
       _message = 'Envoi du heartbeat...';
     });
     try {
+      await _loadDeviceInfo();
+      final device = _deviceSnapshot();
+      if (device == null) {
+        _showSnack('Impossible: informations appareil indisponibles');
+        return;
+      }
       final status = await _api.sendHeartbeat(_status?.id, device);
-      setState(() {
-        _status = status;
-        _message = 'Heartbeat envoyé.';
-      });
+      if (mounted) {
+        setState(() {
+          _status = status;
+          _message = 'Heartbeat envoyé.';
+        });
+      }
       _showSnack('Heartbeat réussi');
     } catch (error) {
       _showSnack('Échec du heartbeat: $error');
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 

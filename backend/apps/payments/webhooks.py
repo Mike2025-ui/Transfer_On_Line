@@ -328,8 +328,11 @@ class JekoReturnView(APIView):
             return Response({'error': 'Payment not found'}, status=404)
 
         provider_status = str(self._resolve_status(request) or '').lower()
-        if provider_status in {'success', 'accepted', 'completed'}:
-            PaymentService.verify(payment)
+        if provider_status in {'success', 'accepted', 'completed', 'paid', 'succeeded', 'successful', 'approved'}:
+            try:
+                PaymentService.verify(payment)
+            except Exception as exc:
+                logger.warning('JekoReturnView: Jèko verify check failed for %s: %s', payment.reference, exc)
         elif provider_status in {'cancelled', 'canceled', 'error', 'failed'}:
             PaymentService.apply_status(payment, 'failed', raw_payload={'redirect_result': request.data or request.GET.dict()})
         else:

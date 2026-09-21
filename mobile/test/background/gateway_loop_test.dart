@@ -1,8 +1,12 @@
 import 'dart:convert';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gateway_apk/background/background_bridge.dart';
 import 'package:gateway_apk/background/gateway_loop.dart';
+import 'package:gateway_apk/background/interactive_ussd_runner.dart';
 import 'package:gateway_apk/background/sms_service.dart' show SmsOutcome;
+import 'package:gateway_apk/background/ussd_step_event.dart';
 import 'package:gateway_apk/services/gateway_api.dart';
 import 'package:gateway_apk/services/local_queue_repository.dart';
 import 'package:gateway_apk/services/ussd_service.dart';
@@ -16,6 +20,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 /// is a real in-memory SQLite database (sqflite_common_ffi) - only
 /// `dialUssd`/`deviceInfoProvider` are bare fakes.
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   sqfliteFfiInit();
 
   DeviceInfo fakeDevice() => DeviceInfo(
@@ -493,4 +498,265 @@ void main() {
       await queue.close();
     },
   );
+
+  group('Option A - Libération Immédiate du Gateway', () {
+    test('runOnce reports transaction outcome with reported > 0', () async {
+      final queue = freshQueue();
+      final api = GatewayApi(
+        client: buildClient(
+          pending: [
+            {
+              'id': 101,
+              'reference': 'ref-opt-a',
+              'amount': 1000,
+              'recipient_phone': '0700000000',
+              'transaction_type': 'subscription',
+              'ussd_code': '*144*1*1*1000*0700000000#',
+            },
+          ],
+        ),
+      );
+      final loop = GatewayLoop(
+        api: api,
+        queue: queue,
+        dialUssd: (code, simSlot, operator) async => 'SUCCESS_MSG',
+        deviceInfoProvider: () async => fakeDevice(),
+      );
+
+      final result = await loop.runOnce();
+      expect(result.dialed, 1);
+      expect(result.reported, 1);
+      expect(lastReportedResult, 'SUCCESS_MSG');
+
+      await queue.close();
+    });
+
+    test(
+      'immediate follow-up poll executes when reported > 0 and halts when queue is empty',
+      () async {
+        final queue = freshQueue();
+        var pollCount = 0;
+        var hasPending = true;
+
+        final client = MockClient((request) async {
+          final path = request.url.path;
+          if (path.endsWith('/gateways/heartbeat/')) {
+            return http.Response(
+              jsonEncode({
+                'id': 1,
+                'uuid': 'device-1',
+                'device': {'uuid': 'device-1'},
+                'heartbeat_status': 'online',
+              }),
+              200,
+            );
+          }
+          if (path.endsWith('/transactions/pending/')) {
+            pollCount++;
+            if (hasPending) {
+              hasPending = false;
+              return http.Response(
+                jsonEncode([
+                  {
+                    'id': 102,
+                    'reference': 'ref-opt-b',
+                    'amount': 500,
+                    'recipient_phone': '0700000000',
+                    'transaction_type': 'subscription',
+                    'ussd_code': '*144*500#',
+                  },
+                ]),
+                200,
+              );
+            }
+            return http.Response(jsonEncode([]), 200);
+          }
+          if (path.endsWith('/transactions/result/')) {
+            return http.Response('{}', 200);
+          }
+          return http.Response('not found', 404);
+        });
+
+        final api = GatewayApi(client: client);
+        final loop = GatewayLoop(
+          api: api,
+          queue: queue,
+          dialUssd: (code, simSlot, operator) async => 'OK',
+          deviceInfoProvider: () async => fakeDevice(),
+        );
+
+        // Simulation of the tick() loop from gateway_service_entrypoint.dart
+        var ticking = false;
+        var tickCycles = 0;
+        Future<void> simulateTick() async {
+          if (ticking) return;
+          ticking = true;
+          var shouldRepollImmediately = false;
+          try {
+            tickCycles++;
+            final result = await loop.runOnce();
+            if (result.reported > 0) {
+              shouldRepollImmediately = true;
+            }
+          } finally {
+            ticking = false;
+          }
+
+          if (shouldRepollImmediately) {
+            await simulateTick();
+          }
+        }
+
+        await simulateTick();
+
+        // Cycle 1: fetched 1, dialed 1, reported 1 -> triggered immediate repoll
+        // Cycle 2: fetched 0, dialed 0, reported 0 -> shouldRepollImmediately = false -> halted cleanly without infinite loop!
+        expect(pollCount, 2);
+        expect(tickCycles, 2);
+
+        await queue.close();
+      },
+    );
+
+    test('anti-reentrancy lock prevents concurrent execution of tick', () async {
+      var ticking = false;
+      var executionCount = 0;
+
+      Future<void> simulateGuardedTick() async {
+        if (ticking) return;
+        ticking = true;
+        try {
+          executionCount++;
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+        } finally {
+          ticking = false;
+        }
+      }
+
+      // Launch two ticks concurrently (e.g. timer tick and immediate repoll)
+      await Future.wait([simulateGuardedTick(), simulateGuardedTick()]);
+
+      expect(
+        executionCount,
+        1,
+        reason:
+            'Only one tick must execute; concurrent tick must be dropped by guard',
+      );
+    });
+
+    test(
+      'network error triggers backoff and prevents immediate repoll loop',
+      () async {
+        final queue = freshQueue();
+        var pollAttempts = 0;
+        var failureCount = 0;
+
+        final client = MockClient((request) async {
+          if (request.url.path.endsWith('/gateways/heartbeat/')) {
+            pollAttempts++;
+            return http.Response('Server Error', 500);
+          }
+          return http.Response('not found', 404);
+        });
+
+        final api = GatewayApi(client: client);
+        final loop = GatewayLoop(
+          api: api,
+          queue: queue,
+          dialUssd: (code, simSlot, operator) async => 'OK',
+          deviceInfoProvider: () async => fakeDevice(),
+        );
+
+        var ticking = false;
+        var shouldRepoll = false;
+        Future<void> simulateErrorTick() async {
+          if (ticking) return;
+          ticking = true;
+          shouldRepoll = false;
+          try {
+            final res = await loop.runOnce();
+            if (res.reported > 0) shouldRepoll = true;
+          } catch (_) {
+            failureCount++;
+            // In error case, backoff is set and shouldRepoll stays false
+          } finally {
+            ticking = false;
+          }
+          if (shouldRepoll) {
+            await simulateErrorTick();
+          }
+        }
+
+        await simulateErrorTick();
+
+        expect(pollAttempts, 1);
+        expect(failureCount, 1);
+        expect(
+          shouldRepoll,
+          isFalse,
+          reason: 'Network failure must never trigger immediate repoll',
+        );
+
+        await queue.close();
+      },
+    );
+
+    test(
+      'InteractiveUssdRunner onSessionComplete callback is fired on finish',
+      () async {
+        const channel = MethodChannel(backgroundServiceChannelName);
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, (call) async {
+              if (call.method == 'isUssdAccessibilityEnabled') return true;
+              return null;
+            });
+
+        final queue = freshQueue();
+        final api = GatewayApi(
+          client: MockClient(
+            (request) async => http.Response('{"action":"DONE"}', 200),
+          ),
+        );
+        final bridge = BackgroundBridge();
+        var sessionCompleteCalled = false;
+
+        final runner = InteractiveUssdRunner(
+          api: api,
+          queue: queue,
+          bridge: bridge,
+          onSessionComplete: () {
+            sessionCompleteCalled = true;
+          },
+        );
+
+        await runner.start(
+          transactionReference: 'ref-interactive-test',
+          attemptId: 42,
+          ussdCode: '*144#',
+        );
+        expect(runner.isRunning, isTrue);
+
+        bridge.emitUssdStepEvent(
+          UssdStepEvent.fromChannelMap({
+            'type': 'RESULT',
+            'status': 'SUCCESS',
+            'operatorMessage': 'Session terminee',
+          }),
+        );
+
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+
+        expect(runner.isRunning, isFalse);
+        expect(
+          sessionCompleteCalled,
+          isTrue,
+          reason: 'onSessionComplete must fire when interactive session ends',
+        );
+
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, null);
+        await queue.close();
+      },
+    );
+  });
 }

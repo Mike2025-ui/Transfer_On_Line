@@ -216,6 +216,11 @@ class GatewayListView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
+        secret = request.headers.get('X-Gateway-Secret')
+        if secret:
+            gateway = Gateway.objects.filter(api_key_hash=hash_gateway_secret(secret), is_active=True).first()
+            if gateway:
+                return Response([_gateway_payload(gateway)])
         gateways = Gateway.objects.filter(is_active=True).order_by('id')
         return Response([_gateway_payload(gateway) for gateway in gateways])
 
@@ -755,6 +760,7 @@ class TransactionResultView(APIView):
             # a duplicate/retried delivery. Never re-run ReservationManager
             # .release()/RetryManager.handle_failed_attempt() a second time.
             logger.info('%s: ignoring duplicate result report (already %s)', tx.reference, tx.status)
+            ReservationManager.refresh_operational_state(gateway.id)
             return Response(_safe_gateway_task_payload(tx))
 
         if result:
@@ -772,6 +778,7 @@ class TransactionResultView(APIView):
                     # only *presumed* a timeout. Handle it as a genuine late
                     # result rather than discarding it outright.
                     _handle_late_result_after_expiry(tx, latest_attempt, success, result)
+                    ReservationManager.refresh_operational_state(gateway.id)
                     return Response(_safe_gateway_task_payload(tx))
                 if tx.attempts.exists():
                     # Every attempt for this transaction is already resolved
@@ -779,6 +786,7 @@ class TransactionResultView(APIView):
                     # here first and already released the last in-flight one.
                     # Never re-apply the side effects below on stale information.
                     logger.info('%s: ignoring duplicate result report (no in-flight attempt left)', tx.reference)
+                    ReservationManager.refresh_operational_state(gateway.id)
                     return Response(_safe_gateway_task_payload(tx))
 
         if attempt is not None:
@@ -801,12 +809,14 @@ class TransactionResultView(APIView):
                     # dispatch_due_retries() reassigns tx.gateway once it
                     # reserves the next attempt, putting it back in front of
                     # whichever gateway polls PendingTransactionsView next.
+                    ReservationManager.refresh_operational_state(gateway.id)
                     return Response(_safe_gateway_task_payload(tx))
 
         TransactionStateMachine.transition(
             tx, 'success' if success else 'failed',
             reason='ussd_result_reported', ussd_result=result[:200] if result else '',
         )
+        ReservationManager.refresh_operational_state(gateway.id)
         return Response(_safe_gateway_task_payload(tx))
 
 
@@ -827,13 +837,12 @@ def _resolve_current_or_first_step(attempt):
 def _resolve_step_fields(step, transaction):
     """FIXED/DYNAMIC resolution (Phase A/B) - reuses UssdCode's own known-
     variable set, never a second variable system. Returns None if a DYNAMIC
-    field references a variable this transaction cannot supply (e.g.
-    {pin}), same "fail loudly, never guess" posture as UssdCode.render()."""
+    field references a variable this transaction cannot supply, same
+    "fail loudly, never guess" posture as UssdCode.render()."""
     context = {
         'numero': transaction.phone_number,
         'montant': int(transaction.amount) if transaction.amount is not None else None,
         'forfait': transaction.service.name if transaction.service_id else None,
-        'pin': None,
     }
     values = []
     for field in step.fields.order_by('order'):
@@ -936,6 +945,7 @@ class TransactionStepView(APIView):
                 response_body.get('error_code', 'unknown'),
                 response_body,
             )
+            ReservationManager.refresh_operational_state(gateway.id)
 
         attempt.last_step_idempotency_key = idempotency_key
         attempt.last_step_response = response_body
@@ -999,11 +1009,13 @@ class TransactionStepView(APIView):
         if not success:
             retry_at = RetryManager.handle_failed_attempt(tx, attempt)
             if retry_at is not None:
+                ReservationManager.refresh_operational_state(attempt.gateway_sim.gateway_id if attempt.gateway_sim else None)
                 return {'action': 'DONE', 'status': 'RETRY_SCHEDULED'}
         TransactionStateMachine.transition(
             tx, 'success' if success else 'failed',
             reason='ussd_step_result_reported', ussd_result=operator_message[:200],
         )
+        ReservationManager.refresh_operational_state(attempt.gateway_sim.gateway_id if attempt.gateway_sim else None)
         return {'action': 'DONE', 'status': status_value}
 
 
@@ -1055,7 +1067,7 @@ class SmsResultView(APIView):
 class ScenarioSyncView(APIView):
     """Hybrid Architecture (Backend -> Edge Gateway):
     Synchronizes full USSD scenarios with their versions, templates and steps
-    to the Android Gateway. Zero-knowledge on secrets: no PIN or secret is ever
+    to the Android Gateway. Zero-knowledge on secrets: no secret or credential is ever
     stored or returned here. AGENT_AUTH steps indicate where the Gateway will
     inject its own locally stored CODE_DISTRIBUTEUR."""
     permission_classes = [AllowAny]
